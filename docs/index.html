@@ -101,6 +101,14 @@
     },
     {
       "@type": "Question",
+      "name": "Does it work with Gemini, Codex, Copilot, or Cursor?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Yes. The skill is vendor-neutral — plain Markdown instructions plus a dependency-free JavaScript library, with no Claude-specific tools or APIs required. Copy the skill folder into your project and reference it from your tool's instruction file: AGENTS.md for OpenAI Codex, Cursor, Zed and Aider; GEMINI.md for Gemini CLI; or .github/copilot-instructions.md for GitHub Copilot. The repository ships all three as working examples."
+      }
+    },
+    {
+      "@type": "Question",
       "name": "How is this different from asking Claude for a chart directly?",
       "acceptedAnswer": {
         "@type": "Answer",
@@ -199,7 +207,8 @@
     turns raw data into a finished HTML dashboard or illustrated report in a single
     prompt.</b> Hand Claude a table, a CSV, or a page of notes and get back one
     self-contained HTML file with interactive SVG charts — no CDN, no build step,
-    no API keys.</p>
+    no API keys. Vendor-neutral: also works with Gemini CLI, OpenAI Codex, GitHub
+    Copilot, and Cursor.</p>
 
   <div class="cta">
     <a class="btn" href="https://github.com/raghuramsirigiri/claude-chart-dashboard">View on GitHub</a>
@@ -288,6 +297,17 @@ cp -r claude-chart-dashboard/skills/chart-dashboard ~/.claude/skills/</code></pr
     <p>Both, plus Claude Desktop and the Claude API. The Agent Skills format is shared
       across all of them — see <a href="#install">Install</a> for the path matching
       your setup.</p>
+  </details>
+
+  <details>
+    <summary>Does it work with Gemini, Codex, Copilot, or Cursor?</summary>
+    <p>Yes. The skill is vendor-neutral — plain Markdown instructions plus a
+      dependency-free JavaScript library, with no Claude-specific tools or APIs
+      required. Copy the skill folder into your project and reference it from your
+      tool's instruction file: <code>AGENTS.md</code> for OpenAI Codex, Cursor, Zed
+      and Aider; <code>GEMINI.md</code> for Gemini CLI; or
+      <code>.github/copilot-instructions.md</code> for GitHub Copilot. The
+      repository ships all three as working examples.</p>
   </details>
 
   <details>

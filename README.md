@@ -12,7 +12,10 @@ table, a CSV, pasted numbers, or meeting notes, and it returns one self-containe
 HTML file with interactive SVG charts — no CDN, no npm install, no build step, and
 no API keys.
 
-Works in **Claude Code**, **claude.ai**, **Claude Desktop**, and the **Claude API**.
+Works in **Claude Code**, **claude.ai**, **Claude Desktop**, and the **Claude API** —
+and, because it's vendor-neutral Markdown plus a dependency-free JS library, also in
+**Gemini CLI**, **OpenAI Codex**, **GitHub Copilot**, **Cursor**, and any other agent
+that can read a file.
 
 📖 **[Full documentation and FAQ →](https://raghuramsirigiri.github.io/claude-chart-dashboard/)**
 
@@ -98,6 +101,46 @@ Zip the skill folder, then upload it under **Settings → Capabilities → Skill
 ```bash
 cd claude-chart-dashboard/skills && zip -r chart-dashboard.zip chart-dashboard
 ```
+
+### Gemini CLI, OpenAI Codex, Copilot, Cursor, and other AI tools
+
+The skill is plain Markdown plus a dependency-free JavaScript library — nothing
+in it is Claude-specific. Any agent that can read files and write an HTML file
+can run it.
+
+**1. Copy the skill into your project:**
+
+```bash
+git clone https://github.com/raghuramsirigiri/claude-chart-dashboard.git
+cp -r claude-chart-dashboard/skills/chart-dashboard ./.agent-skills/chart-dashboard
+```
+
+**2. Point your tool at it** by adding this to whichever instruction file your
+tool reads:
+
+```markdown
+## Dashboards
+When asked to build a dashboard, analytics page, or data report, follow
+`.agent-skills/chart-dashboard/SKILL.md`.
+```
+
+| Tool | Instruction file it reads |
+|:--|:--|
+| OpenAI Codex, Cursor, Zed, Aider, Jules | `AGENTS.md` |
+| Gemini CLI | `GEMINI.md` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+| Claude Code, Claude Desktop, claude.ai | `CLAUDE.md`, or install as a skill (above) |
+| Anything else | Paste `SKILL.md` into your system prompt |
+
+This repo ships working `AGENTS.md`, `GEMINI.md`, and
+`.github/copilot-instructions.md` files you can copy as a starting point. Tool
+config conventions change fast — check your tool's current docs if a file name
+here looks stale.
+
+**Browser verification degrades gracefully.** Where an agent has browser tooling
+it screenshots the result and reads the console; where it doesn't, `SKILL.md`
+carries a Node one-liner that checks every grid panel has a matching chart call.
+No agent-specific tool is required either way.
 
 ## How do I use it?
 
@@ -202,6 +245,14 @@ appreciated but not required.
 
 Both, plus Claude Desktop and the API. The Agent Skills format is shared across all
 of them — see [Installation](#installation) for the path that matches your setup.
+
+### Does it work with Gemini, Codex, Copilot, or Cursor?
+
+Yes. The skill is vendor-neutral — plain Markdown instructions plus a
+dependency-free JavaScript library, with no Claude-specific tools or APIs required.
+Copy the skill folder into your project and reference it from your tool's
+instruction file (`AGENTS.md`, `GEMINI.md`, or
+`.github/copilot-instructions.md`). This repo ships all three as working examples.
 
 ### How is this different from asking Claude for a chart directly?
 

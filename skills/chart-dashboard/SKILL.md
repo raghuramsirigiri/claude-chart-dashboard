@@ -24,10 +24,11 @@ HTML page of SVG charts rendered with `charts-lib`.
 3. **Copy the library** next to the output file, then copy the template. Both
    live in this skill's own directory — resolve `assets/charts-lib/` and
    `templates/` relative to the directory containing this SKILL.md, never from a
-   hard-coded home path:
-   ```bash
-   cp -r "<skill-dir>/assets/charts-lib" ./charts-lib
-   cp "<skill-dir>/templates/dashboard.html" ./index.html
+   hard-coded home path. Use whatever file-copy method your environment provides
+   (`cp -r` on POSIX, `Copy-Item -Recurse` on PowerShell, or a file-write tool):
+   ```
+   <skill-dir>/assets/charts-lib   →  ./charts-lib
+   <skill-dir>/templates/dashboard.html  →  ./index.html
    ```
    Keep the template's `<script src="charts-lib/theme.js">` before
    `charts-lib/charts.js` — theme must load first.
@@ -35,9 +36,24 @@ HTML page of SVG charts rendered with `charts-lib`.
    the config against `references/chart-api.md` (the full charts-lib API: every
    factory, option, and theme token). Read that file before writing chart code —
    don't guess option names.
-5. **Verify in the browser.** `preview_start` on the file, then
-   `read_console_messages` for errors and a screenshot to confirm layout. Fix any
-   panel that renders empty or overflows its cell before reporting done.
+5. **Verify before reporting done.** Use the strongest check your environment
+   supports:
+   - *Browser tooling available* — open the file, read the console for errors,
+     and screenshot it to confirm layout. (In Claude Code: `preview_start`, then
+     `read_console_messages` and a screenshot. Serve over a local HTTP server
+     rather than `file://` so the scripts execute.)
+   - *No browser tooling* — run this static check and fix anything it reports:
+     ```bash
+     node -e "const h=require('fs').readFileSync('index.html','utf8');
+     const ids=[...h.matchAll(/id=\"(c\d+|f\d+)\"/g)].map(m=>m[1]);
+     const calls=[...h.matchAll(/Charts\.\w+\(\s*'([^']+)'/g)].map(m=>m[1]);
+     const orphan=ids.filter(i=>!calls.includes(i));
+     const ghost=calls.filter(c=>!ids.includes(c));
+     console.log(orphan.length||ghost.length
+       ? 'MISMATCH panels without charts: '+orphan+' | charts without panels: '+ghost
+       : 'OK '+ids.length+' panels, all wired');"
+     ```
+   Either way, fix any panel that renders empty or overflows its cell first.
 
 ## Rules that keep output good
 
@@ -59,6 +75,15 @@ HTML page of SVG charts rendered with `charts-lib`.
 
 ## Output
 
-Write the page to the working directory (or where the user asked), then send it
-with `SendUserFile` (`display: "render"`). State which figures came from the
-user's data and which, if any, were illustrative.
+Write the page to the working directory (or where the user asked). Then surface
+it however your environment does that — attach or render the file if you can (in
+Claude Code: `SendUserFile` with `display: "render"`); otherwise print the
+absolute path and tell the user to open it in a browser. Either way, state which
+figures came from the user's data and which, if any, were illustrative.
+
+## Environment notes
+
+Nothing in this skill requires a specific agent or vendor. It needs only the
+ability to read files from this directory, write an HTML file, and copy a
+folder. Browser preview, screenshots, and file attachment are used when
+available and degrade gracefully when not.
