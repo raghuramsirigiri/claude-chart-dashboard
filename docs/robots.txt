@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://raghuramsirigiri.github.io/claude-chart-dashboard/sitemap.xml
