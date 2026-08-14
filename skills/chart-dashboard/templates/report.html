@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TITLE — Report</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="charts-lib/charts.css">
+<style>
+  :root { --bg:#efece6; --paper:#f4f3f0; --ink:#111111; --muted:#555555;
+          --soft:#666666; --hair:#dcdbd7; --rule:#cfcdc6; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter','Segoe UI',Arial,Helvetica,sans-serif; -webkit-font-smoothing:antialiased; }
+  .paper { max-width:880px; margin:0 auto; background:var(--paper);
+    padding:64px 72px 96px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+  @media (max-width:720px){ .paper{padding:40px 24px} }
+
+  .kicker { font-size:12px; color:var(--muted); text-transform:uppercase;
+    letter-spacing:1.2px; font-weight:700; }
+  h1 { font-size:40px; line-height:1.1; letter-spacing:-0.7px; margin:12px 0 16px; font-weight:700; }
+  .deck { font-size:18px; color:var(--muted); line-height:1.55; margin:0 0 28px; }
+  .byline { font-size:12px; color:var(--soft); border-top:1px solid var(--hair);
+    border-bottom:1px solid var(--hair); padding:12px 0; margin:0 0 40px;
+    display:flex; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+  .byline b { color:var(--ink); }
+
+  .abstract { background:rgba(0,0,0,0.02); border-left:3px solid var(--ink);
+    padding:18px 22px; margin:0 0 40px; font-size:15px; line-height:1.65; color:#222; }
+  .abstract b { text-transform:uppercase; font-size:11px; letter-spacing:1px;
+    display:block; margin-bottom:6px; color:var(--muted); }
+
+  h2 { font-size:24px; font-weight:700; margin:48px 0 12px; letter-spacing:-0.3px; }
+  h2 .n { color:var(--soft); font-weight:700; margin-right:12px; }
+  p { font-size:16px; line-height:1.72; color:#1a1a1a; margin:0 0 18px; }
+
+  .fig { margin:28px 0 32px; }
+  .fig .chart { width:100%; height:380px; background:var(--paper); }
+  .fig figcaption { font-size:12px; color:var(--soft); margin-top:8px; padding-top:8px;
+    border-top:1px dotted var(--rule); line-height:1.5; }
+  .fig figcaption b { color:var(--ink); margin-right:6px; }
+
+  blockquote { margin:24px 0; padding:0 0 0 20px; border-left:3px solid var(--ink);
+    font-size:20px; line-height:1.5; color:#1a1a1a; font-weight:600; }
+  blockquote cite { display:block; font-size:12px; color:var(--muted);
+    font-weight:400; font-style:normal; margin-top:8px; }
+
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:28px 0 32px; }
+  .grid2 .fig { margin:0; }
+  .grid2 .fig .chart { height:340px; }
+  @media (max-width:640px){ .grid2{grid-template-columns:1fr} }
+
+  footer.notes { border-top:1px solid var(--hair); margin-top:56px; padding-top:20px;
+    font-size:12px; color:var(--soft); line-height:1.6; }
+  footer.notes b { color:var(--ink); }
+</style>
+</head>
+<body>
+<article class="paper">
+
+  <div class="kicker">Section · Category</div>
+  <h1>Headline claim, not a topic label</h1>
+  <p class="deck">Two sentences that state what changed and why it matters.</p>
+
+  <div class="byline">
+    <div><b>Author</b> · Affiliation · Published DATE</div>
+    <div>Reporting window START — END</div>
+  </div>
+
+  <div class="abstract">
+    <b>Summary</b>
+    Three or four sentences: the finding, the evidence, the caveat.
+  </div>
+
+  <h2><span class="n">01</span>First section</h2>
+  <p>Claim in prose. The figure below is the evidence for it.</p>
+
+  <figure class="fig">
+    <div class="chart" id="f1"></div>
+    <figcaption><b>Fig. 1</b> One sentence interpreting the chart — not a repeat of its title.</figcaption>
+  </figure>
+
+  <blockquote>A pulled quote or the single number that anchors the argument.
+    <cite>— Source</cite></blockquote>
+
+  <h2><span class="n">02</span>Second section</h2>
+  <p>Paired figures when two cuts of the same question belong side by side.</p>
+
+  <div class="grid2">
+    <figure class="fig">
+      <div class="chart" id="f2"></div>
+      <figcaption><b>Fig. 2</b> Interpretation.</figcaption>
+    </figure>
+    <figure class="fig">
+      <div class="chart" id="f3"></div>
+      <figcaption><b>Fig. 3</b> Interpretation.</figcaption>
+    </figure>
+  </div>
+
+  <footer class="notes">
+    <b>Sources.</b> … <b>Method.</b> … <b>Note.</b> Flag any illustrative figures here.
+  </footer>
+</article>
+
+<!-- theme.js MUST load before charts.js -->
+<script src="charts-lib/theme.js"></script>
+<script src="charts-lib/charts.js"></script>
+<script>
+Charts.line('f1', {
+  title: 'The trend behind the claim',
+  subtitle: 'Units · scope',
+  xAxis: { categories: ['2019','2020','2021','2022','2023','2024','2025'] },
+  series: [{ name: 'Series', data: [12, 18, 31, 47, 62, 81, 96] }],
+  callouts: [{ x: 3, text: 'Inflection' }]
+});
+
+Charts.column('f2', {
+  title: 'Breakdown by category',
+  subtitle: 'Units',
+  xAxis: { categories: ['A','B','C','D'] },
+  series: [{ name: 'Value', data: [46, 28, 17, 9] }]
+});
+
+Charts.donut('f3', {
+  title: 'Share of total',
+  subtitle: 'Percent',
+  plotOptions: { pie: { valueSuffix: '%' } },
+  series: [{ name: 'Share', data: [
+    { name: 'A', y: 46 }, { name: 'B', y: 28 },
+    { name: 'C', y: 17 }, { name: 'Other', y: 9 }
+  ]}]
+});
+</script>
+</body>
+</html>

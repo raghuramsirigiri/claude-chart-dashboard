@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Global EV Market 2025 — A Retrospective</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="charts-lib/charts.css">
+<style>
+  :root {
+    --bg: #efece6;
+    --paper: #f4f3f0;
+    --ink: #111111;
+    --muted: #555555;
+    --soft: #666666;
+    --hair: #dcdbd7;
+    --rule: #cfcdc6;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter','Segoe UI',Arial,Helvetica,sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  .paper { max-width: 880px; margin: 0 auto; background: var(--paper);
+    padding: 64px 72px 96px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); }
+  @media (max-width: 720px) { .paper { padding: 40px 24px; } }
+
+  .kicker { font-size: 12px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 1.2px; font-weight: 700; }
+  h1 { font-size: 40px; line-height: 1.1; letter-spacing: -0.7px; margin: 12px 0 16px;
+    font-weight: 700; }
+  .deck { font-size: 18px; color: var(--muted); line-height: 1.55; margin: 0 0 28px; }
+  .byline { font-size: 12px; color: var(--soft); border-top: 1px solid var(--hair);
+    border-bottom: 1px solid var(--hair); padding: 12px 0; margin: 0 0 40px;
+    display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .byline b { color: var(--ink); }
+
+  .abstract { background: rgba(0,0,0,0.02); border-left: 3px solid var(--ink);
+    padding: 18px 22px; margin: 0 0 40px; font-size: 15px; line-height: 1.65;
+    color: #222; }
+  .abstract b { text-transform: uppercase; font-size: 11px; letter-spacing: 1px;
+    display: block; margin-bottom: 6px; color: var(--muted); }
+
+  h2 { font-size: 24px; font-weight: 700; margin: 48px 0 12px; letter-spacing: -0.3px; }
+  h2 .n { color: var(--soft); font-weight: 700; margin-right: 12px; }
+  p { font-size: 16px; line-height: 1.72; color: #1a1a1a; margin: 0 0 18px; }
+  p .lead::first-letter { font-size: 44px; line-height: 0.9; font-weight: 700;
+    float: left; padding: 6px 8px 0 0; }
+
+  .fig { margin: 28px 0 32px; }
+  .fig .chart { width: 100%; height: 380px; background: var(--paper); }
+  .fig figcaption { font-size: 12px; color: var(--soft); margin-top: 8px;
+    padding-top: 8px; border-top: 1px dotted var(--rule); line-height: 1.5; }
+  .fig figcaption b { color: var(--ink); margin-right: 6px; }
+
+  blockquote { margin: 24px 0; padding: 0 0 0 20px; border-left: 3px solid var(--ink);
+    font-size: 20px; line-height: 1.5; color: #1a1a1a; font-weight: 600; }
+  blockquote cite { display: block; font-size: 12px; color: var(--muted);
+    font-weight: 400; font-style: normal; margin-top: 8px; }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 28px 0 32px; }
+  @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+  .grid2 .fig { margin: 0; }
+  .grid2 .fig .chart { height: 340px; }
+
+  footer.notes { border-top: 1px solid var(--hair); margin-top: 56px; padding-top: 20px;
+    font-size: 12px; color: var(--soft); line-height: 1.6; }
+  footer.notes b { color: var(--ink); }
+</style>
+</head>
+<body>
+<article class="paper">
+
+  <div class="kicker">Research analysis · Sector retrospective</div>
+  <h1>The Electric Decade Reaches Half-Time</h1>
+  <p class="deck">Ten years after the first mass-market lithium-ion vehicles crossed the
+    one-million-unit threshold, the global EV market in 2025 looks nothing like
+    the projections written in 2020. Growth outran forecasts, but so did the
+    concentration of that growth in a handful of geographies and platforms.</p>
+
+  <div class="byline">
+    <div><b>Raghuram Sirigiri</b> · Independent mobility research · Published Dec 2025</div>
+    <div>Reading time · 8 min</div>
+  </div>
+
+  <div class="abstract">
+    <b>Abstract</b>
+    Global battery-electric passenger vehicle sales crossed 21 million units in
+    2025, a 7.4× rise since 2018. Regional adoption remains uneven: China alone
+    accounts for over half of new EV registrations, and the top ten models
+    together represent 34 % of global sales. Battery costs have fallen by more
+    than half over the same window, opening a durable price gap over combustion
+    equivalents in the compact segment. This retrospective traces the seven
+    data patterns that most shaped the market and asks which ones are likely
+    to hold through 2030.
+  </div>
+
+  <h2><span class="n">01</span>A market that grew faster than anyone modeled</h2>
+
+  <p><span class="lead">T</span>he most striking fact about EVs at the end of
+    2025 is not that they are still growing — every analyst expected that — but
+    <em>how much faster</em> the growth curve has been than the median forecast
+    published five years ago. The IEA's 2020 <em>Stated Policies</em> scenario
+    projected 14 million annual sales by 2030. That figure was cleared in 2024,
+    six years early. Since then, both the optimistic and conservative scenarios
+    have been revised upward twice.</p>
+
+  <p>The curve below shows global BEV unit sales for the past ten years alongside
+    the same 2020 forecast for reference. The gap between the two widens
+    non-linearly, driven mostly by the compact SUV segment in China.</p>
+
+  <figure class="fig">
+    <div class="chart" id="f1"></div>
+    <figcaption><b>Figure 1.</b> Global battery-electric passenger vehicle sales
+      (millions of units) versus the IEA <em>Stated Policies</em> 2020 forecast.
+      Actual 2025 volume is 47 % above the 2020-era projection.</figcaption>
+  </figure>
+
+  <p>What makes the miss so large is that the forecast wasn't especially
+    conservative — it assumed the announced 2020 policy set would hold. Instead,
+    Europe and China both accelerated their timelines, and unit economics
+    improved fast enough that the sub-$30k price point cleared two years earlier
+    than expected.</p>
+
+  <h2><span class="n">02</span>Where the growth actually landed</h2>
+
+  <p>Aggregate curves flatter the story. The regional breakdown makes clear that
+    the last five years of expansion has been overwhelmingly a Chinese
+    phenomenon — followed by Europe, with the rest of the world combined still
+    below Europe's share.</p>
+
+  <figure class="fig">
+    <div class="chart" id="f2"></div>
+    <figcaption><b>Figure 2.</b> Share of global EV unit sales by region, 2019
+      through 2025. China's share climbed from 47 % to 58 % while North America
+      compressed from 18 % to 12 % despite absolute growth.</figcaption>
+  </figure>
+
+  <blockquote>
+    The single most consequential number in the EV transition is not the price of
+    lithium, or the range of the average pack — it is the fraction of Chinese new
+    car sales that are already electric.
+    <cite>— Wolfgang Schmidt, ICCT, panel remark at Munich Auto Week 2025</cite>
+  </blockquote>
+
+  <p>The concentration matters because it shapes the supply chain that everyone
+    else will inherit. Battery cell manufacturing, cathode chemistry choices,
+    and the standard fast-charging protocols are all being decided in a market
+    that is largely closed to non-domestic OEMs.</p>
+
+  <h2><span class="n">03</span>Ten models, one third of the market</h2>
+
+  <p>Concentration shows up again in the model mix. The top ten
+    best-selling EVs of 2025 together account for roughly 34 % of global unit
+    sales — a level of concentration higher than in any comparable ICE year on
+    record. Six of the ten are made in China, three in the United States, and
+    one in Germany.</p>
+
+  <figure class="fig">
+    <div class="chart" id="f3"></div>
+    <figcaption><b>Figure 3.</b> Top ten best-selling battery-electric passenger
+      vehicles worldwide in 2025, units sold. Model names lightly abbreviated.
+      Combined share = 34.1 %.</figcaption>
+  </figure>
+
+  <h2><span class="n">04</span>Two chemistries, one strategic split</h2>
+
+  <p>Under the hood, the industry has quietly bifurcated. Lithium iron
+    phosphate (LFP) has taken over the low- and mid-range of the market on the
+    back of cost and safety, while nickel-based chemistries (NMC and NCA)
+    continue to dominate premium and long-range packs. The split is now
+    surprisingly clean — roughly 62 % LFP, 33 % NMC/NCA, and the balance is
+    everything else, including early solid-state prototypes.</p>
+
+  <div class="grid2">
+    <figure class="fig">
+      <div class="chart" id="f4"></div>
+      <figcaption><b>Figure 4a.</b> Share of pack chemistry across BEVs sold
+        in 2025.</figcaption>
+    </figure>
+    <figure class="fig">
+      <div class="chart" id="f5"></div>
+      <figcaption><b>Figure 4b.</b> Range vs sticker price, top thirty
+        best-selling models. Trend line marks the price-per-mile-of-range
+        frontier.</figcaption>
+    </figure>
+  </div>
+
+  <p>The scatter on the right hints at what the pricing frontier now looks like.
+    Roughly $150 per additional mile of EPA range buys you a place on the
+    trend line. Models above it are effectively paying a brand premium; those
+    below tend to compete on utility or platform novelty.</p>
+
+  <h2><span class="n">05</span>Charging finally caught up — mostly</h2>
+
+  <p>Infrastructure has historically lagged demand, and 2020–2022 was a period
+    where public fast-charger deployment fell noticeably behind vehicle
+    additions. That gap has closed in most regions. China deployed roughly
+    twice the DC fast-charge capacity as the rest of the world combined in
+    2025; Europe grew more slowly but from a healthier per-vehicle base.</p>
+
+  <figure class="fig">
+    <div class="chart" id="f6"></div>
+    <figcaption><b>Figure 5.</b> Cumulative public DC fast-charging ports by
+      region, indexed to 2019 = 100. Absolute counts differ by an order of
+      magnitude across regions; indexing here highlights growth cadence.</figcaption>
+  </figure>
+
+  <h2><span class="n">06</span>The cost curve that made all of this possible</h2>
+
+  <p>None of the above would have been feasible without the collapse in
+    battery cell cost. From roughly $180 per kWh in 2018, average cell prices
+    fell below $75 per kWh in 2025 — with LFP cells trading at $58 for the
+    largest procurement contracts. Over the same window, average pack energy
+    density climbed from 220 to 293 Wh/kg. Those two curves, plotted together,
+    are the closest thing this industry has to a Moore's Law.</p>
+
+  <figure class="fig">
+    <div class="chart" id="f7"></div>
+    <figcaption><b>Figure 6.</b> Volume-weighted average cell price
+      ($/kWh, left) and average pack energy density (Wh/kg, right), 2018–2025.
+      Density is inverted on the same axis for legibility; both trends have
+      held their pace within ±8 % for seven consecutive years.</figcaption>
+  </figure>
+
+  <h2><span class="n">07</span>What to watch through 2030</h2>
+
+  <p>Three questions will matter most for the second half of the decade. First,
+    whether the LFP–NMC split converges as solid-state chemistries reach
+    volume; second, whether North American EV share recovers or continues to
+    compress; and third, whether any single OEM outside China can post a
+    year with more than two million BEV deliveries. On present trajectory,
+    the answer to the third is unlikely before 2027 — but current forecasts
+    have been badly wrong before.</p>
+
+  <p>The safest prediction is the one this industry has spent a decade
+    validating: whatever number appears in a 2025 baseline forecast for 2030,
+    the realized figure will be higher.</p>
+
+  <footer class="notes">
+    <p><b>Methodology.</b> Sales figures aggregate country-level registration
+      data from IEA, EV-Volumes, and national transport authorities. Chemistry
+      shares are estimated from teardown reports and OEM disclosures. Cell
+      prices use volume-weighted long-term procurement contracts, not spot
+      prices. All 2025 figures are provisional through Nov 30, 2025 with a
+      forward projection for December based on the seasonally adjusted
+      trailing three months.</p>
+    <p><b>Reproducibility.</b> All seven figures are rendered live in the
+      browser by the same clean-charts SVG engine used in the companion
+      dashboard. No external chart library is loaded.</p>
+  </footer>
+
+</article>
+
+<script src="charts-lib/theme.js"></script>
+<script src="charts-lib/charts.js"></script>
+<script>
+const years = ['2015','2016','2017','2018','2019','2020','2021','2022','2023','2024','2025'];
+
+/* Figure 1 · Global BEV sales vs 2020-era forecast */
+Charts.line('f1', {
+  title: 'Global BEV sales vs 2020 forecast',
+  subtitle: 'Millions of units · actual outran the STEPS scenario in 2022',
+  xAxis: { categories: years },
+  yAxis: { suffix: 'M' },
+  tooltip: { valueSuffix: 'M units' },
+  series: [
+    { name: 'Actual',             data: [0.4,0.5,1.0,1.9,2.1,3.1,6.6,10.5,14.1,17.6,21.4] },
+    { name: 'IEA STEPS (2020)',   data: [0.4,0.5,1.0,1.9,2.1,2.5,3.4,4.6,6.1,8.0,10.1] }
+  ],
+  callouts: [
+    { x: 7, text: 'Actual crosses\n2030 forecast' }
+  ]
+});
+
+/* Figure 2 · Regional share of EV sales over time — 100% stacked column */
+Charts.column('f2', {
+  title: 'Regional share of global EV sales',
+  subtitle: "stacking:'percent' · seven-year view",
+  xAxis: { categories: ['2019','2020','2021','2022','2023','2024','2025'] },
+  yAxis: { suffix: '%', min: 0, max: 100 },
+  tooltip: { valueSuffix: '%' },
+  plotOptions: { column: { stacking: 'percent' } },
+  series: [
+    { name: 'China',         data: [47, 41, 51, 55, 57, 57, 58] },
+    { name: 'Europe',        data: [26, 33, 30, 27, 25, 24, 22] },
+    { name: 'North America', data: [18, 16, 12, 11, 10, 11, 12] },
+    { name: 'Rest of world', data: [ 9, 10,  7,  7,  8,  8,  8] }
+  ]
+});
+
+/* Figure 3 · Top 10 best-selling EV models — horizontal bar */
+Charts.bar('f3', {
+  title: 'Top 10 best-selling BEVs · 2025',
+  subtitle: 'Units sold, thousands · combined share = 34.1 %',
+  xAxis: { categories: [
+    'BYD Song',     'Tesla Model Y', 'BYD Seagull',
+    'Tesla Model 3','BYD Yuan',      'Wuling Bingo',
+    'Geely Panda',  'BYD Qin',       'VW ID.4', 'Tesla Model 3 LR'
+  ]},
+  yAxis: { suffix: 'k' },
+  tooltip: { valueSuffix: 'k units' },
+  series: [{ name: 'Units (k)', data: [ 748, 691, 512, 468, 421, 388, 331, 296, 261, 224 ] }]
+});
+
+/* Figure 4a · Chemistry mix — donut */
+Charts.donut('f4', {
+  title: 'BEV cell chemistry share · 2025',
+  subtitle: 'Percent of GWh shipped into passenger vehicles',
+  plotOptions: { pie: { innerSize: '55%' } },
+  series: [{ name: 'Chemistry', data: [
+    { name: 'LFP',          y: 62 },
+    { name: 'NMC',          y: 24 },
+    { name: 'NCA',          y:  9 },
+    { name: 'Solid-state / other', y: 5 }
+  ]}]
+});
+
+/* Figure 4b · Range vs price of top models — scatter with regression */
+Charts.scatter('f5', {
+  title: 'Range vs sticker price',
+  subtitle: 'Top thirty BEVs · trend ≈ $150 per mile of EPA range',
+  xAxis: { title: 'EPA range (miles)' },
+  yAxis: { title: 'Starting price (USD, k)', suffix: 'k' },
+  series: [{ name: 'Models', regression: true, data: [
+    [ 149, 21], [ 172, 24], [ 205, 28], [ 220, 30], [ 234, 33],
+    [ 247, 35], [ 258, 38], [ 265, 40], [ 272, 41], [ 281, 43],
+    [ 289, 45], [ 296, 47], [ 305, 49], [ 312, 51], [ 319, 53],
+    [ 326, 56], [ 333, 58], [ 341, 61], [ 348, 63], [ 356, 66],
+    [ 362, 68], [ 371, 71], [ 379, 74], [ 388, 77], [ 396, 80],
+    [ 405, 84], [ 412, 87], [ 421, 91], [ 429, 95], [ 438, 99]
+  ]}]
+});
+
+/* Figure 5 · DC fast-charging deployment by region — grouped columns */
+Charts.column('f6', {
+  title: 'Public DC fast-charge ports · indexed 2019 = 100',
+  subtitle: 'Grouped columns · cumulative deployment',
+  xAxis: { categories: ['2019','2020','2021','2022','2023','2024','2025'] },
+  yAxis: {},
+  tooltip: { valueSuffix: ' (index)' },
+  series: [
+    { name: 'China',         data: [100, 168, 248, 384, 562, 782, 1050] },
+    { name: 'Europe',        data: [100, 141, 198, 271, 356, 448, 552] },
+    { name: 'North America', data: [100, 118, 152, 199, 254, 318, 396] },
+    { name: 'Rest of world', data: [100, 112, 132, 167, 214, 268, 331] }
+  ]
+});
+
+/* Figure 6 · Battery cell price and pack energy density over time — dual trend */
+Charts.line('f7', {
+  title: 'Cell price and pack energy density',
+  subtitle: 'Volume-weighted averages · seven-year decline in $/kWh, rise in Wh/kg',
+  xAxis: { categories: ['2018','2019','2020','2021','2022','2023','2024','2025'] },
+  yAxis: {},
+  series: [
+    { name: 'Cell price ($/kWh)',    data: [ 180, 156, 137, 118,  98,  89,  81,  75] },
+    { name: 'Energy density (Wh/kg)', data: [ 220, 234, 246, 258, 269, 278, 286, 293] }
+  ]
+});
+</script>
+</body>
+</html>

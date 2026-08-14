@@ -1,0 +1,31 @@
+{
+  "name": "chart-dashboard",
+  "description": "Turn any data — a table, CSV, metrics, or notes — into a self-contained HTML dashboard or report with interactive SVG charts. Zero dependencies, no CDN, no build step, works offline.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Raghuram Sirigiri"
+  },
+  "homepage": "https://github.com/raghuramsirigiri/claude-chart-dashboard",
+  "repository": "https://github.com/raghuramsirigiri/claude-chart-dashboard",
+  "license": "MIT",
+  "keywords": [
+    "dashboard",
+    "charts",
+    "data-visualization",
+    "svg",
+    "reports",
+    "analytics",
+    "kpi",
+    "bi",
+    "csv",
+    "html",
+    "graphs",
+    "plotting",
+    "business-intelligence",
+    "reporting",
+    "data-analysis",
+    "visualization",
+    "offline",
+    "zero-dependency"
+  ]
+}

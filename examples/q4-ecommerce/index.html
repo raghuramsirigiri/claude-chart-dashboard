@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Q4 2025 — E-commerce Analytics Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="charts-lib/charts.css">
+<style>
+  :root {
+    --bg: #efece6;
+    --card: #f4f3f0;
+    --ink: #111111;
+    --muted: #555555;
+    --hair: #dcdbd7;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font-family: 'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
+  .page { max-width: 1600px; margin: 0 auto; padding: 32px; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
+    margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--hair); }
+  header h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .stamp { color: var(--muted); font-size: 12px; text-align: right; }
+  .stamp b { color: var(--ink); font-size: 18px; display: block; font-weight: 700; }
+
+  /* Bento grid — 12 cols, auto rows, mixed spans */
+  .bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; grid-auto-rows: 340px; }
+  .cell { background: var(--card); border-radius: 14px; padding: 6px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 1px 0 rgba(0,0,0,0.02); overflow: hidden; }
+  .cell .chart { width: 100%; height: 100%; }
+
+  /* Bento spans */
+  .w4 { grid-column: span 4; }
+  .w6 { grid-column: span 6; }
+  .w8 { grid-column: span 8; }
+  .w12 { grid-column: span 12; }
+  .h2 { grid-row: span 2; }
+
+  @media (max-width: 1100px) {
+    .w4, .w6, .w8, .w12 { grid-column: span 6; }
+    .h2 { grid-row: span 1; }
+  }
+  @media (max-width: 700px) {
+    .w4, .w6, .w8, .w12 { grid-column: span 12; }
+    .page { padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <h1>Q4 2025 — E-commerce Analytics</h1>
+      <p>Weekly rollup across marketing, sales, product, and operations · 20 views</p>
+    </div>
+    <div class="stamp">Report window<b>Oct 01 — Dec 31, 2025</b></div>
+  </header>
+
+  <div class="bento">
+    <div class="cell w8 h2"><div class="chart" id="c1"></div></div>
+    <div class="cell w4"><div class="chart" id="c2"></div></div>
+    <div class="cell w4"><div class="chart" id="c3"></div></div>
+
+    <div class="cell w6"><div class="chart" id="c4"></div></div>
+    <div class="cell w6"><div class="chart" id="c5"></div></div>
+
+    <div class="cell w4"><div class="chart" id="c6"></div></div>
+    <div class="cell w4"><div class="chart" id="c7"></div></div>
+    <div class="cell w4"><div class="chart" id="c8"></div></div>
+
+    <div class="cell w8"><div class="chart" id="c9"></div></div>
+    <div class="cell w4"><div class="chart" id="c10"></div></div>
+
+    <div class="cell w4"><div class="chart" id="c11"></div></div>
+    <div class="cell w8"><div class="chart" id="c12"></div></div>
+
+    <div class="cell w6"><div class="chart" id="c13"></div></div>
+    <div class="cell w6"><div class="chart" id="c14"></div></div>
+
+    <div class="cell w4"><div class="chart" id="c15"></div></div>
+    <div class="cell w4"><div class="chart" id="c16"></div></div>
+    <div class="cell w4"><div class="chart" id="c17"></div></div>
+
+    <div class="cell w6"><div class="chart" id="c18"></div></div>
+    <div class="cell w6"><div class="chart" id="c19"></div></div>
+
+    <div class="cell w12"><div class="chart" id="c20"></div></div>
+  </div>
+</div>
+
+<script src="charts-lib/theme.js"></script>
+<script src="charts-lib/charts.js"></script>
+<script>
+const weeks = ['W40','W41','W42','W43','W44','W45','W46','W47','W48','W49','W50','W51','W52'];
+const months = ['Oct','Nov','Dec'];
+
+/* 1 · Weekly gross revenue (hero) — spline with callouts */
+Charts.line('c1', {
+  title: 'Weekly gross revenue',
+  subtitle: 'USD, thousands · Black Friday and Cyber Monday spikes annotated',
+  xAxis: { categories: weeks },
+  yAxis: { suffix: 'k' },
+  tooltip: { valueSuffix: 'k' },
+  series: [
+    { name: 'Revenue',  data: [412,438,451,469,502,548,612,981,1174,842,915,1042,988] },
+    { name: 'Forecast', data: [420,445,462,478,510,555,605,720,780,820,880,940,970] }
+  ],
+  callouts: [
+    { x: 7, text: 'Black Friday week\n+60% vs plan' },
+    { x: 8, text: 'Cyber Monday\nrecord single day' }
+  ]
+});
+
+/* 2 · Revenue mix by channel */
+Charts.donut('c2', {
+  title: 'Revenue by channel',
+  subtitle: 'Share of Q4 gross',
+  series: [{ name: 'Channel', data: [
+    { name: 'Direct',   y: 3820 },
+    { name: 'Paid search', y: 2410 },
+    { name: 'Organic',  y: 1980 },
+    { name: 'Email',    y: 1140 },
+    { name: 'Affiliate', y: 690 },
+    { name: 'Social',   y: 540 }
+  ]}]
+});
+
+/* 3 · Traffic source split — full pie */
+Charts.pie('c3', {
+  title: 'Sessions by device',
+  subtitle: 'Q4 total sessions',
+  series: [{ name: 'Device', data: [
+    { name: 'Mobile',  y: 62 },
+    { name: 'Desktop', y: 28 },
+    { name: 'Tablet',  y: 10 }
+  ]}]
+});
+
+/* 4 · Category revenue by week — grouped columns */
+Charts.column('c4', {
+  title: 'Category revenue by month',
+  subtitle: 'Grouped columns · USD thousands',
+  xAxis: { categories: months },
+  yAxis: { suffix: 'k' },
+  tooltip: { valueSuffix: 'k' },
+  series: [
+    { name: 'Apparel',     data: [980, 1240, 1810] },
+    { name: 'Electronics', data: [1420, 1680, 2340] },
+    { name: 'Home',        data: [640, 810, 1120] },
+    { name: 'Beauty',      data: [380, 520, 890] }
+  ]
+});
+
+/* 5 · New vs returning — stacked column */
+Charts.column('c5', {
+  title: 'Orders by customer type',
+  subtitle: "stacking:'normal' · New buyers led BFCM",
+  xAxis: { categories: weeks },
+  yAxis: {},
+  plotOptions: { column: { stacking: 'normal' } },
+  series: [
+    { name: 'Returning', data: [3120,3260,3410,3520,3690,3910,4180,5820,6740,4820,5210,5860,5610] },
+    { name: 'New',       data: [1180,1240,1310,1400,1520,1740,2010,4180,4720,2410,2820,3140,2980] }
+  ]
+});
+
+/* 6 · Top 8 products — horizontal bar */
+Charts.bar('c6', {
+  title: 'Top products by units',
+  subtitle: 'Q4 leaders across all SKUs',
+  xAxis: { categories: ['Nova Hoodie','Aura Buds','Flex Mat','Halo Lamp','Loop Wallet','Trek Bottle','Vector Tee','Puff Blanket'] },
+  yAxis: {},
+  series: [{ name: 'Units', data: [12480, 10940, 9210, 8760, 7830, 6910, 6420, 5980] }]
+});
+
+/* 7 · Payment mix — 100% stacked column */
+Charts.column('c7', {
+  title: 'Payment method share',
+  subtitle: "stacking:'percent'",
+  xAxis: { categories: months },
+  yAxis: { suffix: '%', min: 0, max: 100 },
+  tooltip: { valueSuffix: '%' },
+  plotOptions: { column: { stacking: 'percent' } },
+  series: [
+    { name: 'Card',    data: [58, 55, 52] },
+    { name: 'PayPal',  data: [21, 22, 22] },
+    { name: 'Apple Pay', data: [12, 14, 17] },
+    { name: 'BNPL',    data: [9, 9, 9] }
+  ]
+});
+
+/* 8 · Semi-donut — customer satisfaction */
+Charts.donut('c8', {
+  title: 'CSAT distribution',
+  subtitle: 'Semi-circle · post-purchase survey',
+  plotOptions: { pie: { startAngle: -90, endAngle: 90, innerSize: '55%' } },
+  series: [{ name: 'CSAT', data: [
+    { name: 'Promoter', y: 62 },
+    { name: 'Passive',  y: 24 },
+    { name: 'Detractor', y: 14 }
+  ]}]
+});
+
+/* 9 · Funnel over time — 3-series line */
+Charts.line('c9', {
+  title: 'Purchase funnel · weekly',
+  subtitle: 'Sessions → Add-to-cart → Checkout → Purchase',
+  xAxis: { categories: weeks },
+  yAxis: { suffix: 'k' },
+  tooltip: { valueSuffix: 'k' },
+  series: [
+    { name: 'Sessions',   data: [312,325,338,352,371,404,455,712,810,552,591,648,612] },
+    { name: 'Add-to-cart', data: [58, 62, 66, 71, 78, 89,104,187,214,132,148,168,155] },
+    { name: 'Checkout',   data: [21, 23, 25, 28, 31, 36, 44, 82, 96, 55, 63, 74, 68] },
+    { name: 'Purchase',   data: [15, 17, 19, 21, 24, 28, 34, 66, 78, 44, 51, 60, 55] }
+  ]
+});
+
+/* 10 · Marketing ROI — variable-radius donut */
+Charts.donut('c10', {
+  title: 'Marketing ROI',
+  subtitle: 'Slice radius = ROI (2× best)',
+  plotOptions: { pie: { variableRadius: true, minPointSize: 60 } },
+  series: [{ type: 'variablepie', name: 'Channel', data: [
+    { name: 'Email',      y: 1140, z: 6.4 },
+    { name: 'Paid search', y: 2410, z: 3.1 },
+    { name: 'Affiliate',  y: 690,  z: 4.8 },
+    { name: 'Social',     y: 540,  z: 2.2 },
+    { name: 'Display',    y: 320,  z: 1.4 }
+  ]}]
+});
+
+/* 11 · Inventory step chart */
+Charts.line('c11', {
+  title: 'Warehouse stock',
+  subtitle: "type:'step' · SKUs on hand",
+  xAxis: { categories: weeks },
+  yAxis: { suffix: 'k' },
+  tooltip: { valueSuffix: 'k' },
+  series: [{ name: 'Units', type: 'step', data: [180,178,174,170,166,158,148,92,71,120,112,108,102] }]
+});
+
+/* 12 · Temperature vs sales lift — column range */
+Charts.column('c12', {
+  title: 'Weekly temperature range vs weather-linked category',
+  subtitle: "type:'columnrange' · outerwear demand tracks the low end",
+  xAxis: { categories: weeks },
+  yAxis: { suffix: '°C' },
+  tooltip: { valueSuffix: '°C' },
+  series: [{ name: 'Temp', type: 'columnrange', data: [
+    [8,17],[6,15],[4,13],[2,11],[0,9],[-2,7],[-4,5],[-6,3],[-8,1],[-10,-1],[-9,0],[-7,2],[-5,4]
+  ]}]
+});
+
+/* 13 · Ad spend vs revenue — scatter */
+Charts.scatter('c13', {
+  title: 'Campaign spend vs revenue',
+  subtitle: 'Each point = one campaign',
+  xAxis: { title: 'Spend (USD, k)', suffix: 'k' },
+  yAxis: { title: 'Revenue (USD, k)', suffix: 'k' },
+  series: [{ name: 'Campaigns', regression: true, data: [
+    [12,48],[18,74],[22,88],[28,112],[35,138],[42,168],[48,190],
+    [55,220],[62,244],[70,278],[78,310],[85,348],[92,376],[105,420]
+  ]}]
+});
+
+/* 14 · Product bubble — price × rating × volume */
+Charts.bubble('c14', {
+  title: 'Product landscape',
+  subtitle: 'x: price · y: avg rating · size: units sold',
+  xAxis: { title: 'Price', suffix: '$' },
+  yAxis: { title: 'Rating', min: 3, max: 5 },
+  series: [{ name: 'SKUs', data: [
+    { x: 24, y: 4.2, z: 3400, name: 'Vector Tee' },
+    { x: 38, y: 4.5, z: 6420, name: 'Loop Wallet' },
+    { x: 48, y: 4.7, z: 12480, name: 'Nova Hoodie' },
+    { x: 62, y: 4.3, z: 5980, name: 'Puff Blanket' },
+    { x: 79, y: 4.6, z: 9210, name: 'Flex Mat' },
+    { x: 89, y: 4.8, z: 10940, name: 'Aura Buds' },
+    { x: 129,y: 4.4, z: 8760, name: 'Halo Lamp' },
+    { x: 149,y: 4.5, z: 6910, name: 'Trek Bottle' }
+  ]}]
+});
+
+/* 15 · Category share — packed bubbles */
+Charts.packedBubble('c15', {
+  title: 'Category share',
+  subtitle: 'Packed bubbles · Q4 revenue',
+  series: [{ name: 'Revenue', data: [
+    { name: 'Apparel',     value: 4030 },
+    { name: 'Electronics', value: 5440 },
+    { name: 'Home',        value: 2570 },
+    { name: 'Beauty',      value: 1790 },
+    { name: 'Sports',      value: 1420 },
+    { name: 'Kids',        value: 980 }
+  ]}]
+});
+
+/* 16 · Refund rate by category — sliced pie */
+Charts.donut('c16', {
+  title: 'Refunds by category',
+  subtitle: 'Sliced view · $ refunded',
+  plotOptions: { pie: { innerSize: 0 } },
+  series: [{ name: 'Refunds', data: [
+    { name: 'Apparel',     y: 240, sliced: true },
+    { name: 'Electronics', y: 195 },
+    { name: 'Home',        y: 88 },
+    { name: 'Beauty',      y: 54 },
+    { name: 'Sports',      y: 42 },
+    { name: 'Other',       y: 31 }
+  ]}]
+});
+
+/* 17 · Yearly profit change vs 2024 */
+Charts.column('c17', {
+  title: 'YoY profit change · monthly',
+  subtitle: 'negativeColor flips per-bar color below zero',
+  xAxis: { categories: months.concat(['Q4 avg']) },
+  yAxis: { suffix: '%' },
+  tooltip: { valueSuffix: '%' },
+  plotOptions: { series: { dataLabels: { enabled: true } } },
+  series: [{ name: 'YoY', data: [7.2, -3.4, 18.6, 8.4],
+    color: '#2323FF', negativeColor: '#D1107A' }]
+});
+
+/* 18 · Marketing spend vs conversion rate — scatter with regression */
+Charts.scatter('c18', {
+  title: 'Diminishing returns',
+  subtitle: 'Ad spend vs conversion rate · weekly · fitted trend',
+  xAxis: { title: 'Weekly spend (USD, k)', suffix: 'k' },
+  yAxis: { title: 'Conv. rate', suffix: '%', min: 0 },
+  series: [{ name: 'Weeks', regression: true, data: [
+    [22, 4.8],[26, 4.9],[31, 5.1],[35, 5.0],[42, 4.6],[48, 4.5],
+    [55, 4.2],[62, 4.0],[70, 3.7],[78, 3.4],[85, 3.2],[92, 2.9]
+  ]}]
+});
+
+/* 19 · Fulfillment funnel — horizontal stacked bar */
+Charts.bar('c19', {
+  title: 'Fulfillment SLA hit-rate by region',
+  subtitle: "stacking:'percent'",
+  xAxis: { categories: ['NA-East','NA-West','EU','UK','APAC','LATAM'] },
+  yAxis: { suffix: '%', min: 0, max: 100 },
+  tooltip: { valueSuffix: '%' },
+  plotOptions: { bar: { stacking: 'percent' } },
+  series: [
+    { name: 'On-time',  data: [92, 88, 90, 91, 82, 76] },
+    { name: 'Late',     data: [ 6,  9,  8,  7, 13, 18] },
+    { name: 'Missed',   data: [ 2,  3,  2,  2,  5,  6] }
+  ]
+});
+
+/* 20 · Population-pyramid-style buyer age × gender (footer, full-width) */
+(function(){
+  const ages = ['16-19','20-24','25-29','30-34','35-39','40-44','45-49','50-54','55-59','60-64','65+'];
+  const male   = [-1.8,-3.4,-5.2,-6.8,-6.4,-5.9,-4.7,-3.8,-2.9,-1.7,-1.1];
+  const female = [ 2.1, 4.2, 6.1, 7.9, 7.4, 6.8, 5.2, 4.1, 3.1, 1.9, 1.4];
+  Charts.bar('c20', {
+    title: 'Buyer age distribution',
+    subtitle: 'Share of Q4 buyers by age band and gender',
+    xAxis: { categories: ages },
+    yAxis: { suffix: '%' },
+    tooltip: { valueSuffix: '%' },
+    plotOptions: { bar: { stacking: 'normal' } },
+    series: [
+      { name: 'Male',   data: male,   color: '#2323FF' },
+      { name: 'Female', data: female, color: '#D1107A' }
+    ]
+  });
+})();
+</script>
+</body>
+</html>

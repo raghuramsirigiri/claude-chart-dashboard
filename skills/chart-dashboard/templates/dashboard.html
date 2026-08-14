@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TITLE — Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="charts-lib/charts.css">
+<style>
+  :root { --bg:#efece6; --card:#f4f3f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
+  .page { max-width:1600px; margin:0 auto; padding:32px; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; gap:24px;
+    margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--hair); }
+  header h1 { margin:0; font-size:28px; font-weight:700; letter-spacing:-0.5px; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  .stamp { color:var(--muted); font-size:12px; text-align:right; }
+  .stamp b { color:var(--ink); font-size:18px; display:block; font-weight:700; }
+
+  .bento { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; grid-auto-rows:340px; }
+  .cell { background:var(--card); border-radius:14px; padding:6px;
+    box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
+  .cell .chart { width:100%; height:100%; }
+  .w4{grid-column:span 4}.w6{grid-column:span 6}.w8{grid-column:span 8}.w12{grid-column:span 12}
+  .h2{grid-row:span 2}
+
+  footer.notes { border-top:1px solid var(--hair); margin-top:28px; padding-top:16px;
+    font-size:12px; color:var(--muted); line-height:1.6; }
+  footer.notes b { color:var(--ink); }
+
+  @media (max-width:1100px){ .w4,.w6,.w8,.w12{grid-column:span 6} .h2{grid-row:span 1} }
+  @media (max-width:700px){ .w4,.w6,.w8,.w12{grid-column:span 12} .page{padding:16px} }
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <h1>TITLE</h1>
+      <p>One line of scope: what is measured, across what population.</p>
+    </div>
+    <div class="stamp">Reporting window<b>START — END</b></div>
+  </header>
+
+  <!-- One .cell per panel. Adjust spans; keep ids in sync with the script below. -->
+  <div class="bento">
+    <div class="cell w8 h2"><div class="chart" id="c1"></div></div>
+    <div class="cell w4"><div class="chart" id="c2"></div></div>
+    <div class="cell w4"><div class="chart" id="c3"></div></div>
+
+    <div class="cell w6"><div class="chart" id="c4"></div></div>
+    <div class="cell w6"><div class="chart" id="c5"></div></div>
+
+    <div class="cell w12"><div class="chart" id="c6"></div></div>
+  </div>
+
+  <footer class="notes">
+    <b>Sources.</b> … &nbsp;·&nbsp; <b>Definitions.</b> … &nbsp;·&nbsp; Note any illustrative figures here.
+  </footer>
+</div>
+
+<!-- theme.js MUST load before charts.js -->
+<script src="charts-lib/theme.js"></script>
+<script src="charts-lib/charts.js"></script>
+<script>
+/* 1 · Hero trend */
+Charts.line('c1', {
+  title: 'Hero metric over time',
+  subtitle: 'Units · scope',
+  xAxis: { categories: ['Jan','Feb','Mar','Apr','May','Jun'] },
+  yAxis: { suffix: 'k' },
+  tooltip: { valueSuffix: 'k' },
+  series: [
+    { name: 'Actual',   data: [412,438,451,469,502,548] },
+    { name: 'Forecast', data: [420,445,462,478,510,555] }
+  ],
+  callouts: [{ x: 4, text: 'What happened here' }]
+});
+
+/* 2 · Composition */
+Charts.donut('c2', {
+  title: 'Mix by segment',
+  subtitle: 'Share of total',
+  plotOptions: { pie: { centerText: { value: '8.9k', label: 'Total' } } },
+  series: [{ name: 'Segment', data: [
+    { name: 'A', y: 3820 }, { name: 'B', y: 2410 },
+    { name: 'C', y: 1980 }, { name: 'Other', y: 690 }
+  ]}]
+});
+
+/* 3 · Ranking */
+Charts.bar('c3', {
+  title: 'Top categories',
+  subtitle: 'Sorted by value',
+  xAxis: { categories: ['Cat A','Cat B','Cat C','Cat D'] },
+  series: [{ name: 'Value', data: [980, 740, 610, 420] }]
+});
+
+/* 4 · Grouped comparison */
+Charts.column('c4', {
+  title: 'Comparison by period',
+  subtitle: 'Grouped columns · units',
+  xAxis: { categories: ['Q1','Q2','Q3','Q4'] },
+  series: [
+    { name: 'This year', data: [980, 1240, 1810, 2100] },
+    { name: 'Last year', data: [820, 1010, 1390, 1620] }
+  ]
+});
+
+/* 5 · Relationship */
+Charts.scatter('c5', {
+  title: 'X versus Y',
+  subtitle: 'One point per unit · dashed line is least-squares fit',
+  xAxis: { title: 'X' }, yAxis: { title: 'Y' },
+  series: [{ name: 'Units', regression: true,
+    data: [[1,2.1],[2,2.9],[3,4.4],[4,4.9],[5,6.3],[6,6.8]] }]
+});
+
+/* 6 · Full-width composition over time */
+Charts.column('c6', {
+  title: 'Share of total over time',
+  subtitle: '100% stacked',
+  xAxis: { categories: ['Jan','Feb','Mar','Apr','May','Jun'] },
+  plotOptions: { column: { stacking: 'percent' } },
+  series: [
+    { name: 'A', data: [40,42,45,47,49,52] },
+    { name: 'B', data: [35,34,32,31,30,28] },
+    { name: 'C', data: [25,24,23,22,21,20] }
+  ]
+});
+</script>
+</body>
+</html>

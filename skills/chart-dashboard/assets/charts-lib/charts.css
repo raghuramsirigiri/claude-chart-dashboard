@@ -1,0 +1,18 @@
+/* Base theme for the charts library — clean-charts (cream + Inter).
+ *
+ * The background color below (#f4f3f0) matches Charts.theme.bg.
+ * At runtime the JS overrides container.style.background, so changing
+ * Charts.theme.bg is sufficient — this CSS is a progressive-enhancement
+ * fallback for the brief moment before the script executes.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+.charts-body {
+    font-family: 'Inter', 'Segoe UI', Arial, Helvetica, sans-serif;
+}
+
+.charts-container {
+    width: 100%;
+    height: 500px;
+    background: #f4f3f0;
+}

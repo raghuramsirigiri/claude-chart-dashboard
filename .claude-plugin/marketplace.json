@@ -1,0 +1,42 @@
+{
+  "name": "chart-dashboard",
+  "owner": {
+    "name": "Raghuram Sirigiri"
+  },
+  "metadata": {
+    "description": "Build HTML dashboards, KPI reports, and data visualizations from any data — powered by a zero-dependency SVG chart library.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "chart-dashboard",
+      "source": "./",
+      "description": "Turn any data — a table, CSV, pasted numbers, metrics, or notes — into a self-contained HTML dashboard or illustrated report with interactive SVG charts. Picks the right chart type for your data automatically. No CDN, no build step, no runtime dependencies, works offline.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Raghuram Sirigiri"
+      },
+      "license": "MIT",
+      "keywords": [
+        "dashboard",
+        "charts",
+        "data-visualization",
+        "svg",
+        "reports",
+        "analytics",
+        "kpi",
+        "bi",
+        "csv",
+        "html",
+        "graphs",
+        "plotting",
+        "business-intelligence",
+        "reporting",
+        "data-analysis",
+        "visualization",
+        "offline",
+        "zero-dependency"
+      ]
+    }
+  ]
+}

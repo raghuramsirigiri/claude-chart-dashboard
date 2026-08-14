@@ -1,0 +1,13 @@
+# Local Claude Code settings — not part of the published plugin
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Scratch
+node_modules/
+*.log
