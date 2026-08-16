@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "q1-dashboard",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--yes", "http-server", "chart-dashboard-workspace/iteration-1/eval-6/with_skill/outputs", "-p", "8811", "-c-1"],
+      "port": 8811
+    }
+  ]
+}

@@ -11,3 +11,7 @@ Thumbs.db
 # Scratch
 node_modules/
 *.log
+chart-dashboard-workspace/
+
+# Evals
+evals/
