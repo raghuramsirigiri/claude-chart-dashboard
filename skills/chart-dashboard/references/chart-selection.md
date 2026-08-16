@@ -7,6 +7,7 @@
 | A level that holds between changes | step line | `Charts.line` + `type:'step'` |
 | Comparison across ≤12 named categories | columns | `Charts.column` |
 | Comparison across >12 categories, or long labels | horizontal bars | `Charts.bar` |
+| A ranked list, or very long category names | bar list (no axis) | `Charts.barList` + `sort:'desc'` |
 | Composition over time | stacked columns | `Charts.column` + `plotOptions.column.stacking:'normal'` |
 | Share-of-total over time | 100% stacked | `stacking:'percent'` |
 | Share of a single total, ≤6 parts | donut | `Charts.donut` (add `centerText`) |
@@ -17,6 +18,7 @@
 | A min–max span per category | column range | `Charts.column` + `type:'columnrange'`, `data:[[low,high],…]` |
 | Two mirrored populations | population pyramid | `Charts.bar`, one series all-negative, `tooltip.absoluteX:true` |
 | Values that cross zero | column with `negativeColor` | `Charts.column` |
+| One value per region of a map | geofacet tiles | `Charts.geofacet` (`chart.variant:'bar'|'heat'|'gauge'`) |
 | A rate spanning orders of magnitude | log axis | `Charts.line` + `yAxis:{type:'logarithmic'}` |
 
 ## Anti-patterns

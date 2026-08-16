@@ -189,9 +189,11 @@ Two output formats, chosen from how you phrase the request:
 |:--|:--|
 | Line | line, spline, step, datetime axis, logarithmic axis, zoomable |
 | Column & bar | grouped, stacked, 100% stacked, range, pyramid, 3D, population pyramid |
+| Bar list | axis-free ranked bars, label above each bar, sortable, negative values |
 | Donut & pie | donut, full pie, semi-circle, variable radius, gradient, exploded slices |
 | Scatter | scatter, linear regression trend line, labeled points |
 | Bubble | bubble (area-scaled), packed bubble, clustered packed bubble |
+| Geofacet | one tile per region on a map-shaped grid — bar, heat, or gauge tiles |
 
 Every chart is inline SVG with native tooltips, hover highlighting, and clickable
 legends. Donut wedges explode on click; line charts zoom by drag. No canvas, no
@@ -293,7 +295,9 @@ in a browser; no server needed.
 
 ## Known limitations
 
-- **Chart families.** Line, bar/column, donut/pie, scatter, and bubble. No maps,
+- **Chart families.** Line, bar/column, bar list, donut/pie, scatter, bubble, and
+  geofacet. Geofacet covers region-by-region data on a tile grid (US states built
+  in, custom grids supported), but there are no true geographic maps, and no
   Sankey diagrams, treemaps, heatmaps, or Gantt charts yet.
 - **Static output.** Charts render from data baked into the file. There's no live
   data binding or auto-refresh — regenerate the page when the numbers change.

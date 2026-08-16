@@ -51,11 +51,29 @@
     axis:           c.n9,
 
     // ── Text ────────────────────────────────────────────────────────────
+    // Five roles, each separated from its neighbours by BOTH weight and
+    // color so no two are mistakable at a glance:
+    //
+    //   title      17 / 700 / n8   the darkest, heaviest thing on the canvas
+    //   subtitle   12 / 400 / n4   lightest — it explains, it is not data
+    //   category   11.5 / 600 / n8 names of things: bar rows, donut callouts
+    //   tick        11 / 400 / n7  the numeric scale, quiet by design
+    //   value       11 / 700 / n8  the readout the reader came for
+    //
+    // Subtitle sits at n4 rather than n6 specifically so it cannot be
+    // confused with a category label, which is now both darker and semibold.
     titleColor:     c.n8,
-    subtitleColor:  c.n6,
+    subtitleColor:  c.n4,
     labelColor:     c.n7,
     secondaryColor: c.n4,
     inverseText:    c.nInverse,
+
+    categoryColor:  c.n8,   // category / series names
+    categoryWeight: 600,
+    tickColor:      c.n7,   // numeric axis ticks
+    tickWeight:     400,
+    valueColor:     c.n8,   // data value readouts
+    valueWeight:    700,
 
     // ── Accent / semantic ───────────────────────────────────────────────
     highlight:      c.accent,
@@ -64,6 +82,8 @@
     negative:       c.warning,
     trend:          c.s2,
     connectorLabel: c.n5,
+    connectorLine:  c.n7,   // donut callout rule — darker than the label text it carries
+    connectorWidth: 1.4,
 
     // ── Series palette ──────────────────────────────────────────────────
     colors:         [c.s1, c.s2, c.s3, c.s4, c.s5, c.s6, c.s7],

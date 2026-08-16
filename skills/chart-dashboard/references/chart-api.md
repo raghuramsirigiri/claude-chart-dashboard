@@ -4,7 +4,7 @@ A tiny, self-contained SVG chart library styled to the clean-charts theme
 (cream background, Inter typography, black + blue gradient palette,
 top-left title, thin dark spines).
 
-Zero dependencies. Drop `charts.js` into your page and call one of eight
+Zero dependencies. Drop `charts.js` into your page and call one of ten
 factory functions. Every chart is inline SVG with native tooltip, hover, and
 legend interactions — no canvas, no external framework.
 
@@ -33,11 +33,13 @@ legend interactions — no canvas, no external framework.
 | `Charts.line`         | Line / spline / step chart with linear, datetime, category, or log axes.    |
 | `Charts.column`       | Vertical columns: grouped, stacked, percent-stacked, range, pyramid, 3D.    |
 | `Charts.bar`          | Horizontal bars — same options as `column`, including population pyramid.   |
+| `Charts.barList`      | Axis-free horizontal bars; category label sits above each bar.              |
 | `Charts.donut`        | Donut (default 60% hole) — variable radius, semi-circle, gradient, sliced. |
 | `Charts.pie`          | Full pie (donut with `innerSize:0`).                                        |
 | `Charts.scatter`      | 2D scatter + optional linear regression + point labels.                     |
 | `Charts.bubble`       | Scatter with third dimension mapped to bubble radius (and color gradient).  |
 | `Charts.packedBubble` | Bubbles clustered via physics relaxation; per-series clusters when >1.      |
+| `Charts.geofacet`     | Small multiples on a geographic grid — bar, heat, or gauge tiles.           |
 
 All functions take `(container, config)` where `container` is a DOM element
 or its id, and `config` is a Highcharts-compatible options object.
@@ -81,6 +83,35 @@ Every option below is optional; the library picks sensible defaults.
 - **Category wrapping**: long category names auto-wrap to two lines below the bar
 - **Column range**: `type:'columnrange'` with `data: [[low, high], …]`
 
+### Bar list (`Charts.barList`)
+
+Horizontal bars stripped to the two things that carry meaning — the category and
+the length of its bar. **No axis, no gridlines, no ticks, no spine.** The
+category label sits directly *above* its own bar at full width, and the value
+sits at the bar's end.
+
+Reach for it over `Charts.bar` when the category names are long (here they cost
+nothing, instead of squeezing every row into a left gutter sized for the worst
+one), or when the chart is a ranked list rather than a measurement against a
+scale.
+
+```js
+Charts.barList('container', {
+  title: 'Most-used editors',
+  plotOptions: { barList: { sort: 'desc', colorByPoint: true, valueSuffix: '%' } },
+  series: [{ name: 'Share', data: [{ name: 'Visual Studio Code', y: 73.6 }] }]
+});
+```
+
+- **Sorting**: `sort: 'desc' | 'asc'` — off by default, so source order is kept
+- **Bar metrics**: `barHeight` (26), `rowGap` (22) — the label→bar gap is deliberately tighter than the row→row gap, which is what lets the pairs read without a separating rule
+- **Height**: the container **grows to fit the rows** by default. Pass `autoHeight: false` to fit the rows into the container's own height instead (bars shrink).
+- **Color**: one theme color for all bars by default; `colorByPoint: true` walks the series palette; `color` on any point overrides
+- **Value labels**: always outside the bar end. `valueSuffix`, `format: '{y}%'`, `valueColor: 'series'` to tint each value to its bar.
+- **Negative values**: fully supported — bars run left from a shared zero baseline in the theme's negative color, with gutter space reserved on both ends so a negative label can't clip
+- **Long names**: truncated with an ellipsis rather than wrapped, keeping rows equal height
+- Hover highlight + shared tooltip, same as the other engines
+
 ### Donut & pie (`Charts.donut`, `Charts.pie`)
 
 > **Nesting:** every donut option below except `startColor`/`endColor` is read
@@ -98,6 +129,8 @@ Every option below is optional; the library picks sensible defaults.
 - **Legend**: auto-shown at the top below the subtitle whenever there are 2+ wedges, wraps to multiple rows for many categories. Force off with `legend: { enabled: false }` to fall back to connector labels around the donut.
 - **Value suffix**: `valueSuffix: '%'`
 - **Show percentages instead of raw values**: `showPercentages: true`
+- **Negative values are dropped.** A donut shows parts of a whole, so a negative part can't be drawn. Points with a negative or non-finite `y` are excluded from the ring, the total, and the legend, warned once on the console, and named in a footnote at the bottom-left (*"Not shown: North (-10M) — negative values can't be part of a whole"*), which falls back to a count when the list is too long. Suppress with `plotOptions.pie.droppedNote: false`. If nothing positive is left, the chart draws *"No positive values to chart"*. Use a bar chart for data that goes below zero.
+- **Every wedge always gets a callout.** What adapts is the detail it carries. The engine takes the first layout that fits: two-line (name over value) → one-line → drop the legend and retry → name-only (or value-only when a legend is showing) → shrink the type down to a 0.72× floor. Turn callouts off with `plotOptions.pie.dataLabels: { enabled: false }`.
 
 ### Scatter / bubble / packed (`Charts.scatter`, `Charts.bubble`, `Charts.packedBubble`)
 
@@ -109,6 +142,38 @@ Every option below is optional; the library picks sensible defaults.
 - **Bubble color gradient**: automatically applied when there's only one bubble series (larger bubbles → bluer)
 - **Packed clusters**: with N series → N separate clusters; with 1 series → single cluster and color-by-size gradient
 - **Axis limits & suffix**: `xAxis: { min, max, suffix, title }`, `yAxis: { … }`
+
+### Geofacet (`Charts.geofacet`)
+
+One tile per region, positioned by `(row, col)` on a grid that approximates the
+real map. Pick the tile style with `chart.variant`:
+
+- **`'bar'`** (default) — code + value on one line, mini progress bar below
+- **`'heat'`** — solid choropleth tile, color scaled across the value range
+- **`'gauge'`** — radial progress ring with the value in the middle
+
+```js
+Charts.geofacet('chart', {
+  title: 'Electric Vehicle Adoption',
+  subtitle: 'Percentage of total vehicle sales in %',
+  chart: { variant: 'heat' },              // 'bar' | 'heat' | 'gauge'
+  plotOptions: { geofacet: {
+    max: 100,                              // scale ceiling (default: data max)
+    min: 0,                                // bar/gauge start at 0; heat starts at data min
+    valueSuffix: '%',
+    format: v => v.toFixed(0),             // value formatter
+    showEmpty: true,                       // faint labels for regions with no data
+    borderRadius: 6                        // tile corner radius
+  } },
+  series: [{ data: { CA: 98, TX: 78, NY: 96 } }]
+});
+```
+
+- **Data shapes**: `{CODE: value}`, `[['CA', 98], …]`, or `[{code:'CA', value:98, name:'California'}]`
+- **Grid**: `chart.grid` accepts `'us'` (default, 50 states + DC) or an array of `{code, row, col, name?}` for any other geography. Registered grids live in `Charts.geofacet.grids`.
+- **Partial data**: regions in the grid but missing from the data render as faint placeholder labels, so the map keeps its shape
+- **Spacing is not configurable**: cells are always square with a derived gap, so the tiles stay one block at any container aspect ratio
+- Hover a tile for a tooltip with the region name and value
 
 ## Theming
 
@@ -141,16 +206,20 @@ The full list of theme tokens lives in
 | `grid` | `#dcdbd7` | Gridline color |
 | `axis` | `#000000` | Primary spine / tick color |
 | `titleColor` | `#111111` | Title text |
-| `subtitleColor` | `#444444` | Subtitle text |
+| `subtitleColor` | `#666666` | Subtitle text |
 | `labelColor` | `#333333` | Axis / tick label text |
 | `secondaryColor` | `#666666` | Secondary text |
+| `categoryColor` / `categoryWeight` | `#111111` / `600` | Category & series names |
+| `tickColor` / `tickWeight` | `#333333` / `400` | Numeric axis ticks |
+| `valueColor` / `valueWeight` | `#111111` / `700` | Data value readouts |
 | `inverseText` | `#FFFFFF` | White-on-dark text |
 | `highlight` | `#1f77b4` | Zoom / plot-band accent |
 | `callout` | `#e3120b` | Callout dot default |
 | `positive` | `#2323FF` | Positive bar accent |
 | `negative` | `#D1107A` | Negative bar accent |
 | `trend` | `#2323FF` | Regression line color |
-| `connectorLabel` | `#555555` | Donut connector lines |
+| `connectorLabel` | `#555555` | Donut connector label text |
+| `connectorLine` / `connectorWidth` | `#333333` / `1.4` | Donut callout rule |
 | `colors` | `['#000000',…]` | Series palette (7 colors) |
 | `defaultColor` | `#000000` | Single-series default |
 | `gradientStart` | `#000000` | Donut/bubble gradient start |
