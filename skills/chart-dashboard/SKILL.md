@@ -226,17 +226,24 @@ limits are in `references/chart-api.md`.
   explain") belong on the relevant chart — as its title or a callout, in their
   framing — not restated as your own analysis in a banner.
 
-### Where a finding goes: action title, or soft surface card
+### Where a finding goes: action title, insight column, or soft surface card
 
-Two containers, and the choice between them is almost mechanical. Ask: **can one
-chart prove this sentence on its own?**
+Three containers, and the choice is almost mechanical. Ask: **how many findings
+are there, and can one chart prove them?**
 
-**Yes → action title.** It belongs in that chart's `title`, with the descriptive
-detail moving to `subtitle`. The finding and its evidence stay welded together,
-which is what makes the figure survive being screenshotted out of context.
+**One finding, one chart proves it → action title.** It belongs in that chart's
+`title`, with the descriptive detail moving to `subtitle`. The finding and its
+evidence stay welded together, which is what makes the figure survive being
+screenshotted out of context.
 
-**No → soft surface card** (`.note` in both templates). Use it for text that no
-single figure carries:
+**One finding per row → `Charts.barInsightTable`.** When every category carries
+its own point — an income statement, a KPI review, a scorecard — a single title
+can't hold them all, and writing one card per row buries the chart. This chart
+type puts each row's sentence and its headline number beside that row's bars.
+Selection guidance in `references/chart-selection.md`.
+
+**No single figure carries it → soft surface card** (`.note` in both templates).
+Use it for text that spans figures:
 
 - a caveat that changes how several figures should be read ("labor hours don't
   reconcile with the stated total; site rows used")
