@@ -205,6 +205,17 @@ So: adjectives and verdicts stay out, quantified findings come in. If you cannot
 put a number or a specific comparison in the title, you probably don't have a
 finding, and a descriptive title is right.
 
+**Length has room, but not unlimited room.** charts-lib wraps titles across two
+lines and subtitles across three, measuring against the panel width and shrinking
+the plot area to fit, so a full sentence is safe — this is why an action title
+doesn't have to be compressed into a label. Keep titles under about 70
+characters and they work in any cell, including the narrow `w4` (~35 characters
+per line, two lines). Past roughly 90 characters in a narrow cell the tail is
+ellipsized, which loses exactly the part carrying the finding. If a title won't
+fit that budget, the usual fix is that it's carrying two findings — split the
+panel — or that the qualifying detail belongs in the subtitle. Exact per-cell
+limits are in `references/chart-api.md`.
+
 - No invented narrative furniture that repeats what a chart already says: no
   "Key insight" banners, no "Executive summary" you wrote yourself, no
   highlighted takeaway strip across the top, no emoji, no "🚀".
