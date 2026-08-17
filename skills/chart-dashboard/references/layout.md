@@ -8,10 +8,12 @@ A 12-column CSS grid with `grid-auto-rows: 340px`. Panels are `.cell` divs with
 span classes: `.w4 .w6 .w8 .w12` (columns) and `.h2` (double height). Each cell
 holds one `<div class="chart" id="cN">`.
 
-Reading order top-to-bottom, so sequence panels as: hero trend → composition →
-drivers → segments → operational detail → full-width summary table/chart.
+Reading order top-to-bottom, so sequence panels by how the reader thinks:
+headline finding → what it's made of → what drove it → who it happened to →
+operational detail → full-width summary.
 
-Proven rhythm for ~14 panels:
+A rhythm that works when you have a dozen-ish findings — a starting point, not a
+shape to fill:
 
 ```
 w8 h2 (hero line)   | w4 (donut) / w4 (pie)
@@ -20,6 +22,11 @@ w4 | w4 | w4        (three small comparisons)
 w8 (bar ranking)    | w4 (scatter)
 w12 (full-width timeline or 100% stacked)
 ```
+
+With fewer findings, use fewer, wider cells rather than leaving the grid sparse:
+three panels read well as `w12` over `w6 + w6`, and two as a pair of `w6`. The
+row height (`grid-auto-rows: 340px`) is a desk-reading default — raise it, and
+the type scale with it, for anything projected.
 
 Breakpoints already in the template: at 1100px everything collapses to 6
 columns, at 700px to a single column. Don't add fixed pixel widths to cells.
@@ -37,6 +44,11 @@ sections of prose with `<figure class="fig">` charts and captions. Figures are
 Each figure needs a `<figcaption>` with a bolded figure number and one sentence
 of interpretation — not a repeat of the title. Prose states the claim; the chart
 is evidence for it.
+
+That relationship also decides how many figures a report gets: one per claim that
+needs proving. A section whose argument the reader will accept on its own reads
+better without a chart than with a decorative one, and a claim with no figure
+behind it is the one to either cut or go find evidence for.
 
 ## Both
 

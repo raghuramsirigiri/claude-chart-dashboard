@@ -18,7 +18,8 @@
 | A min–max span per category | column range | `Charts.column` + `type:'columnrange'`, `data:[[low,high],…]` |
 | Two mirrored populations | population pyramid | `Charts.bar`, one series all-negative, `tooltip.absoluteX:true` |
 | Values that cross zero | column with `negativeColor` | `Charts.column` |
-| One value per region of a map | geofacet tiles | `Charts.geofacet` (`chart.variant:'bar'|'heat'|'gauge'`) |
+| One value per region, most of the map covered | geofacet tiles | `Charts.geofacet` (`chart.variant:'bar'|'heat'|'gauge'`) |
+| One value for a handful of named places | ranked bars | `Charts.barList` / `Charts.bar` — a geofacet of 10 states is 40 empty tiles, and the map shape earns its space only when the geography is the finding |
 | A rate spanning orders of magnitude | log axis | `Charts.line` + `yAxis:{type:'logarithmic'}` |
 
 ## Anti-patterns

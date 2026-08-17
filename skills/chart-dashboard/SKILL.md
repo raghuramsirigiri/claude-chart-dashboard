@@ -16,11 +16,33 @@ HTML page of SVG charts rendered with `charts-lib`.
    type, categories, series*. If the user gave a topic with no numbers, say
    plainly that figures are illustrative and label them as such on the page.
    Never silently invent numbers that read as real measurements.
-2. **Pick the format** (see `references/layout.md`):
-   - **Dashboard** (default) — bento grid of many panels, no prose. Use
-     `templates/dashboard.html`.
-   - **Report** — narrative sections with figures and captions, for "write up",
-     "retrospective", "analysis". Use `templates/report.html`.
+
+   Three things count as invention, and the last two are easy to miss:
+   - **Filling a gap.** A missing week is a gap (`null`), not a zero — a zero
+     draws a collapse that never happened.
+   - **Estimating onto a real chart.** If you interpolate or model a value, it
+     does not belong as another point on the primary trend, however carefully you
+     dash the line or footnote it. Readers remember the shape, not the caveat.
+     Put estimates in their own panel, or leave the hole visible.
+   - **Rescaling stale numbers.** When you're updating an existing page and the
+     user gave you new figures for only some panels, label the rest as carried
+     forward. Nudging last quarter's numbers so they look current is fabrication
+     even though every individual figure came from somewhere real.
+2. **Pick the format by what the data has to say** (see `references/layout.md`).
+   The question is whether the page states a conclusion or lets the reader draw
+   their own:
+   - **Dashboard** — a monitoring surface. Panels stand on their own, the reader
+     scans for what changed, and no prose tells them what to think. Use
+     `templates/dashboard.html`. This is the right default when the user hands
+     you metrics without an argument attached.
+   - **Report** — an argument with evidence. Reach for it when the user is trying
+     to convince someone ("write up", "for the board", "retrospective",
+     "analysis"), or when they told you the conclusion themselves and the page
+     exists to support it. Use `templates/report.html`.
+
+   When it's genuinely ambiguous, ask yourself who reads it and whether you will
+   be in the room. Nobody presents a bento grid to a board, and nobody watches a
+   five-section narrative to see if last night's numbers moved.
 3. **Copy the library** next to the output file, then copy the template. Both
    live in this skill's own directory — resolve `assets/charts-lib/` and
    `templates/` relative to the directory containing this SKILL.md, never from a
@@ -68,18 +90,71 @@ HTML page of SVG charts rendered with `charts-lib`.
 ## Rules that keep output good
 
 - One idea per panel. A panel whose title needs "and" is two panels.
-- 8–20 panels for a dashboard; fewer, larger figures for a report.
-- Lead with the hero metric: the most important trend goes in the wide top-left
-  cell (`w8 h2` in the template).
+- Lead with the finding that matters most: if one trend is the reason the page
+  exists, give it the wide top-left cell (`w8 h2`). If nothing dominates — three
+  equally important measures, say — don't manufacture a hero; equal panels are
+  the honest layout.
 - Every panel gets a `title` and a `subtitle` that states units and scope
   ("USD thousands · Q4 2025"). Put units in `yAxis.suffix` and
   `tooltip.valueSuffix` too.
 - Order categorical bars by value, not alphabetically. Keep time on the x-axis
   left-to-right.
-- Cap donuts at ~6 wedges; roll the tail into "Other".
+- Donuts stop being readable somewhere around six wedges — below a few percent
+  the angles are indistinguishable and the reader is just reading the legend.
+  Roll the tail into "Other", or use a ranked bar list if the tail is the point.
 - Don't restate a series in two panels unless the second adds a new cut.
 - Annotate what matters: `callouts: [{ x, text }]` on line charts for spikes,
   launches, and anomalies mentioned by the user.
+
+### How many charts? One per finding — no quota, no padding
+
+The page is not a container to fill up. Each panel should answer a question the
+reader actually has, and the count falls out of the data rather than out of a
+target. Ask of every panel: *what would the reader do differently after seeing
+this?* If the answer is nothing, it isn't a panel.
+
+That cuts both ways, and both failures are common:
+
+- **Padding.** Given four numbers from an A/B test, the honest page is two or
+  three panels and a plain statement of the lift. Filling a twelve-cell grid
+  means inventing a donut of two nearly-identical sample sizes, a fabricated
+  daily time series, a "by segment" split nobody measured. The moment you are
+  reaching for something to chart, you have run past the end of the data — stop
+  there. A small page that answers the question is a better deliverable than a
+  full grid that pads it, even though the full grid looks more impressive at a
+  glance.
+- **Compression.** Given twenty measures that each carry a finding, don't force
+  them into eight panels by stacking unrelated series onto shared axes. Let the
+  page be long.
+
+When there are only a few panels, widen them (`w6`/`w8`/`w12`) so the grid still
+reads as a designed page rather than a half-empty one — a two-panel dashboard is
+two big panels, not two small panels marooned top-left.
+
+Reports work the same way: a figure exists because a claim in the prose needs
+evidence. A section that states no claim needs no chart, and a claim the reader
+will accept without proof doesn't need one either.
+
+### Fit the page to how it will be read
+
+The templates are tuned for someone reading at a desk. When the user tells you
+otherwise — and they usually do, in passing — adapt, because the same page fails
+badly in a different context:
+
+- **"Behind me on screen", "for the all-hands", "I'm presenting this"** — a
+  projector is read from ten feet away by someone who gets thirty seconds per
+  slide. Use few panels, give each a lot of room, and scale the type up
+  (`Charts.theme.titleSize`, `tickSize`, `valueSize`, and a larger `--kpi-value`
+  step). A dense grid that works on a laptop is unreadable in a room.
+- **"Send it round", "paste into the weekly update", "for the board pack"** — it
+  will be read alone, without you narrating. Lean on subtitles and callouts to
+  carry the context you would otherwise say out loud.
+- **"Print it", "PDF"** — one column, no reliance on hover; tooltips don't exist
+  on paper, so anything only visible on hover must also be a label.
+
+None of this changes the design system — same palette, same type scale
+relationships, same components. It changes how much you put on the page and at
+what size.
 
 ### Legends go in one place
 
@@ -137,8 +212,14 @@ rounded is a brand signature the charts themselves don't express.
 
 Do not introduce a second visual system on top: no custom card headers with
 their own type scale, no gradient hero panels, no shadows or borders the template
-doesn't already have, no font pairing the brand didn't ask for. Full method in
-`references/theming.md`.
+doesn't already have.
+
+Type is the one place where copying the brand usually backfires. Most brand faces
+are licensed webfonts you cannot load into a local file, and naming one in
+`font-family` just falls through to a system fallback you didn't choose — worse
+than keeping charts-lib's stack, which was picked to work at 11px in a chart.
+Match the brand's font only when the face is genuinely available (a system font,
+or a file the user supplied). Full method in `references/theming.md`.
 
 The page has exactly four kinds of component, all already in the template:
 **header**, optional **KPI row**, **chart panels**, **footer**. The KPI row
