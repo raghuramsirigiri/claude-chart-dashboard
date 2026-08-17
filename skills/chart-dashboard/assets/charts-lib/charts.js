@@ -470,6 +470,9 @@
     gMarkers.setAttribute('clip-path', 'url(#' + clipId + ')');
 
     function addCommas(n) {
+      // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
+      // 0.30000000000000004 → 0.3. See the fuller note on the module-level copy.
+      if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
       const s = String(n);
       const neg = s.startsWith('-') ? '-' : '';
       const abs = neg ? s.slice(1) : s;
@@ -482,7 +485,7 @@
       if (isLog) {
         const e = Math.round(Math.log10(v));
         if (Math.abs(v - Math.pow(10, e)) < 1e-9) {
-          if (v >= 1) return addCommas(String(v));
+          if (v >= 1) return addCommas(v);
           return v.toString();
         }
       }
@@ -492,7 +495,7 @@
 
     function formatValue(v, s) {
       const d = s.valueDecimals;
-      const val = d != null ? (+v).toFixed(d) : String(v);
+      const val = d != null ? (+v).toFixed(d) : v;
       return (s.valuePrefix || '') + addCommas(val) + (s.valueSuffix || '');
     }
 
@@ -1254,6 +1257,9 @@
     function catCenterY(i, n) { return M.t + ((i + 0.5) / n) * IH; }
 
     function addCommas(n) {
+      // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
+      // 0.30000000000000004 → 0.3. See the fuller note on the module-level copy.
+      if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
       const s = String(n);
       const neg = s.startsWith('-') ? '-' : '';
       const abs = neg ? s.slice(1) : s;
@@ -1710,6 +1716,13 @@ Charts.bar = function (container, opts) {
   }
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
+    // 0.30000000000000004 → 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
     const s = String(n);
     const neg = s.startsWith('-') ? '-' : '';
     const abs = neg ? s.slice(1) : s;
@@ -2357,7 +2370,7 @@ Charts.bar = function (container, opts) {
       const pct = (d.y / total * 100).toFixed(1);
       tooltip.innerHTML =
         `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(dataName)}</div>` +
-        `<div><span style="display:inline-block;width:9px;height:9px;background:${d.color};border-radius:2px;margin-right:6px"></span>${esc(d.name)}: <b style="color:${TITLE_COL}">${d.y}</b> (${pct}%)</div>`;
+        `<div><span style="display:inline-block;width:9px;height:9px;background:${d.color};border-radius:2px;margin-right:6px"></span>${esc(d.name)}: <b style="color:${TITLE_COL}">${esc(addCommas(d.y))}</b> (${pct}%)</div>`;
       tooltip.style.display = 'block';
       const rect = svg.getBoundingClientRect();
       const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
@@ -2488,6 +2501,13 @@ Charts.pie = function (container, opts) {
   }
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
+    // 0.30000000000000004 → 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
     const s = String(n);
     const neg = s.startsWith('-') ? '-' : '';
     const abs = neg ? s.slice(1) : s;
@@ -2965,7 +2985,7 @@ Charts.pie = function (container, opts) {
       let html = `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
       html += `<div><span style="display:inline-block;width:9px;height:9px;background:${s.color};border-radius:50%;margin-right:6px"></span>`
         + `x: <b style="color:${TITLE_COL}">${esc(addCommas(String(p.x)))}${xSuffix}</b>, `
-        + `y: <b style="color:${TITLE_COL}">${esc(addCommas(String(p.y)))}${ySuffix}</b>`
+        + `y: <b style="color:${TITLE_COL}">${esc(addCommas(p.y))}${ySuffix}</b>`
         + (p.z != null ? `, z: <b style="color:${TITLE_COL}">${esc(addCommas(String(p.z)))}${s.valueSuffix}</b>` : '')
         + `</div>`;
       tooltip.innerHTML = html;
@@ -3107,6 +3127,13 @@ Charts.packedBubble = function (container, opts) {
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
+    // 0.30000000000000004 → 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
     const s = String(n);
     const neg = s.startsWith('-') ? '-' : '';
     const abs = neg ? s.slice(1) : s;
@@ -3482,7 +3509,10 @@ Charts.packedBubble = function (container, opts) {
     const span = (dataMax - scaleMin) || 1;
     const frac = v => Math.max(0, Math.min(1, (v - scaleMin) / span));
 
-    const fmt = plotOpts.format || (v => String(v));
+    // Default formatter strips binary-float noise (25.999999999999996 → 26);
+    // see the note in addCommas. A caller-supplied `format` owns its own output.
+    const fmt = plotOpts.format ||
+      (v => String(typeof v === 'number' && isFinite(v) ? +v.toPrecision(12) : v));
     const suffix = plotOpts.valueSuffix || '';
     const showEmpty = plotOpts.showEmpty !== false;
 
