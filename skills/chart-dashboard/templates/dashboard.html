@@ -6,10 +6,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="charts-lib/charts.css">
 <style>
-  :root { --bg:#efece6; --card:#f4f3f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7; }
+  /* --card, --ink, --muted, --hair and --font are overwritten at load from
+     Charts.theme (see the sync block below), so recolouring the charts
+     recolours the page. Only these two are page-level choices: --bg is the
+     ground behind the cards, --radius is the brand's corner signature. */
+  :root { --bg:#efece6; --radius:14px;
+          --card:#f4f3f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7;
+          --font:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
-    font-family:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
+    font-family:var(--font); }
   .page { max-width:1600px; margin:0 auto; padding:32px; }
   header { display:flex; justify-content:space-between; align-items:flex-end; gap:24px;
     margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--hair); }
@@ -18,8 +24,21 @@
   .stamp { color:var(--muted); font-size:12px; text-align:right; }
   .stamp b { color:var(--ink); font-size:18px; display:block; font-weight:700; }
 
+  /* Optional KPI row. Sizes are the charts-lib type scale scaled up one step,
+     so the tiles read as the same family as the panels rather than as a second
+     design system. Use it or delete it; don't invent a different one. */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:16px; margin-bottom:16px; }
+  .kpi { background:var(--card); border-radius:var(--radius); padding:16px 18px; }
+  .kpi span { display:block; font-size:11px; font-weight:400; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--muted); }
+  .kpi b { display:block; font-size:24px; font-weight:700; margin-top:6px;
+    letter-spacing:-0.4px; color:var(--ink); }
+  .kpi i { display:block; font-style:normal; font-size:11px; font-weight:400;
+    color:var(--muted); margin-top:2px; }
+
   .bento { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; grid-auto-rows:340px; }
-  .cell { background:var(--card); border-radius:14px; padding:6px;
+  .cell { background:var(--card); border-radius:var(--radius); padding:6px;
     box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
   .cell .chart { width:100%; height:100%; }
   .w4{grid-column:span 4}.w6{grid-column:span 6}.w8{grid-column:span 8}.w12{grid-column:span 12}
@@ -43,6 +62,13 @@
     <div class="stamp">Reporting window<b>START — END</b></div>
   </header>
 
+  <!-- Optional: headline figures. Label, value, and one line of context — no
+       arrows, no colour-coded verdicts, no editorial. Delete if not needed. -->
+  <div class="kpis">
+    <div class="kpi"><span>Metric name</span><b>1,234</b><i>vs 1,180 prior period</i></div>
+    <div class="kpi"><span>Metric name</span><b>56%</b><i>Q1 average</i></div>
+  </div>
+
   <!-- One .cell per panel. Adjust spans; keep ids in sync with the script below. -->
   <div class="bento">
     <div class="cell w8 h2"><div class="chart" id="c1"></div></div>
@@ -63,6 +89,24 @@
 <!-- theme.js MUST load before charts.js -->
 <script src="charts-lib/theme.js"></script>
 <script src="charts-lib/charts.js"></script>
+<script>
+/* Brand recolour goes HERE, before any chart is drawn — one Object.assign, never
+   per-chart colours. Generate it with scripts/extract-theme.js; see
+   references/theming.md. Delete this block when using the default theme.
+
+Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
+*/
+
+/* Page chrome follows the chart theme, so there is one source of colour truth. */
+(function () {
+  const t = Charts.theme, s = document.documentElement.style;
+  s.setProperty('--card',  t.bg);
+  s.setProperty('--ink',   t.titleColor);
+  s.setProperty('--muted', t.secondaryColor);
+  s.setProperty('--hair',  t.grid);
+  s.setProperty('--font',  t.font);
+})();
+</script>
 <script>
 /* 1 · Hero trend */
 Charts.line('c1', {

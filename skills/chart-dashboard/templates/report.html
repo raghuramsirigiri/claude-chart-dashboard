@@ -6,11 +6,15 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="stylesheet" href="charts-lib/charts.css">
 <style>
+  /* --paper, --ink, --muted, --soft, --hair and --font are overwritten at load
+     from Charts.theme (sync block near the bottom), so recolouring the charts
+     recolours the page. --bg is the ground behind the paper. */
   :root { --bg:#efece6; --paper:#f4f3f0; --ink:#111111; --muted:#555555;
-          --soft:#666666; --hair:#dcdbd7; --rule:#cfcdc6; }
+          --soft:#666666; --hair:#dcdbd7; --rule:#cfcdc6;
+          --font:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
   * { box-sizing:border-box; }
   html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
-    font-family:'Inter','Segoe UI',Arial,Helvetica,sans-serif; -webkit-font-smoothing:antialiased; }
+    font-family:var(--font); -webkit-font-smoothing:antialiased; }
   .paper { max-width:880px; margin:0 auto; background:var(--paper);
     padding:64px 72px 96px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
   @media (max-width:720px){ .paper{padding:40px 24px} }
@@ -104,6 +108,25 @@
 <!-- theme.js MUST load before charts.js -->
 <script src="charts-lib/theme.js"></script>
 <script src="charts-lib/charts.js"></script>
+<script>
+/* Brand recolour goes HERE, before any chart is drawn — one Object.assign, never
+   per-chart colours. Generate it with scripts/extract-theme.js; see
+   references/theming.md. Delete this block when using the default theme.
+
+Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
+*/
+
+/* Page chrome follows the chart theme, so there is one source of colour truth. */
+(function () {
+  const t = Charts.theme, s = document.documentElement.style;
+  s.setProperty('--paper', t.bg);
+  s.setProperty('--ink',   t.titleColor);
+  s.setProperty('--muted', t.secondaryColor);
+  s.setProperty('--soft',  t.subtitleColor);
+  s.setProperty('--hair',  t.grid);
+  s.setProperty('--font',  t.font);
+})();
+</script>
 <script>
 Charts.line('f1', {
   title: 'The trend behind the claim',

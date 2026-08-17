@@ -36,7 +36,17 @@ HTML page of SVG charts rendered with `charts-lib`.
    the config against `references/chart-api.md` (the full charts-lib API: every
    factory, option, and theme token). Read that file before writing chart code —
    don't guess option names.
-5. **Verify before reporting done.** Use the strongest check your environment
+5. **If the user pointed at a brand** — their site, a stylesheet, a screenshot, a
+   set of hex codes — recolor to match, and change nothing else. Read
+   `references/theming.md` and run the bundled extractor:
+   ```bash
+   node <skill-dir>/scripts/extract-theme.js <their-css-or-html>
+   ```
+   It maps their palette onto charts-lib's color roles, builds a series ramp from
+   their accent, and reports contrast failures. Paste its `Charts.theme` block in
+   once, before the first chart call. Fix anything it marks FAIL rather than
+   shipping it.
+6. **Verify before reporting done.** Use the strongest check your environment
    supports:
    - *Browser tooling available* — open the file, read the console for errors,
      and screenshot it to confirm layout. (In Claude Code: `preview_start`, then
@@ -70,8 +80,78 @@ HTML page of SVG charts rendered with `charts-lib`.
 - Don't restate a series in two panels unless the second adds a new cut.
 - Annotate what matters: `callouts: [{ x, text }]` on line charts for spikes,
   launches, and anomalies mentioned by the user.
-- Keep the default theme unless the user asks otherwise. To reskin, override
-  `Charts.theme.*` once before the first factory call — never per chart.
+
+### Legends go in one place
+
+charts-lib puts the legend at the top, under the subtitle, and shows it
+automatically once a chart has two or more series or wedges. Leave it there. A
+reader scanning a grid of panels learns the legend's location once; a page where
+it sits above one chart, beside another and below a third makes them re-hunt for
+it every time, and that hunting is the entire cost of an inconsistent layout.
+
+So: don't pass `legend` position options per chart, don't build legends in HTML
+next to the chart, and don't hand-place colored dots in a panel's corner. If a
+legend genuinely doesn't earn its space — single-series panels, or a donut whose
+wedges are already labelled by callouts — turn it off with
+`legend: { enabled: false }` **for every panel in that situation**, not just the
+cramped one. The only sanctioned alternative is charts-lib's own
+`lineLabels: 'inline'`, and if you use it on one line chart, use it on all of
+them.
+
+### Say what the data says, and stop
+
+Chart titles, subtitles, the header scope line and the footer are labelling, not
+copywriting. The reader is an adult looking at their own numbers.
+
+- Title names the thing measured. Subtitle carries units, scope and window. That
+  is the whole job.
+- No editorial adjectives — "impressive growth", "concerning dip", "strong
+  performance". If March is up 24%, the chart already says so, and the callout
+  can say "+24% vs Feb, billing launch 3 March" without an opinion attached.
+- No invented narrative furniture: no "Key insight" banners, no "Executive
+  summary" block you wrote yourself, no highlighted takeaway strip across the
+  top, no emoji, no "🚀". A dashboard is not a slide deck.
+- The header is title, one line of scope, and the reporting window. The footer is
+  sources, definitions, and any honesty notes (illustrative figures, carried-
+  forward panels, data-quality caveats). Nothing else belongs in either.
+- Conclusions the user themselves stated ("the March spike is the thing I need to
+  explain") belong on the relevant chart as a callout, in their framing, not
+  restated as your own analysis in a banner.
+
+When a page needs argument and prose, that is the report format — where the
+narrative is the point and every claim is tied to a figure. Don't smuggle
+report-style commentary into a dashboard.
+
+### One design system, only the colors change
+
+Every visible component follows charts-lib's design language: its type scale,
+weights, spacing rhythm, stroke widths, hairlines, legend position and chart
+geometry. Those proportions are what make ten different chart types read as one
+family, and the page chrome inherits them so the cards don't look bolted on.
+
+The colors are the exception, and the only exception. When a user supplies a
+brand, recolor via `Charts.theme` — once, before the first factory call, never
+per chart — and let the page chrome pick those same values up from the sync
+block in the template. Corner radius may follow the brand too, since square vs.
+rounded is a brand signature the charts themselves don't express.
+
+Do not introduce a second visual system on top: no custom card headers with
+their own type scale, no gradient hero panels, no shadows or borders the template
+doesn't already have, no font pairing the brand didn't ask for. Full method in
+`references/theming.md`.
+
+The page has exactly four kinds of component, all already in the template:
+**header**, optional **KPI row**, **chart panels**, **footer**. The KPI row
+exists because headline figures genuinely help — use the template's `.kpi`
+markup, which is sized off the chart type scale so the tiles look like they
+belong to the same page. Writing your own KPI strip with new CSS is the most
+common way this page ends up looking like two designs stapled together, and it
+is the thing to resist even though it feels helpful. A KPI tile is a label, a
+number, and at most one line of plain context — no arrows, no red/green verdicts,
+no "▲ 12% vs LY" badges.
+
+If you find yourself writing new CSS classes, stop and ask whether a chart panel
+would carry the information better. Usually it would.
 
 ## Output
 

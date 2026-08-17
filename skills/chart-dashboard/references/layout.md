@@ -40,10 +40,21 @@ is evidence for it.
 
 ## Both
 
-- Background `--bg: #efece6`, panels/paper `--paper: #f4f3f0` — this matches
-  `Charts.theme.bg`, so charts sit flush with their card. If you change one,
-  change `Charts.theme.bg` to match.
-- Header carries title, one-line scope, and the reporting window.
+- Colors come from `Charts.theme`. Both templates carry a sync block that copies
+  the theme's canvas, ink, muted and hairline values into the page's CSS
+  variables at load, so charts sit flush with their card and one override
+  reskins everything. Don't hand-edit the color literals in `:root` — change the
+  theme. Method in `references/theming.md`.
+- `--bg` (the ground behind cards/paper) and `--radius` are the only page-level
+  color/shape choices. Keep `--bg` a small step from `Charts.theme.bg`.
+- **Legend position is fixed**: charts-lib draws it at the top under the
+  subtitle, on every chart type. Never reposition it per panel or rebuild it in
+  HTML — a legend that moves between panels makes the reader search for it each
+  time. Suppressing it is a per-*situation* decision applied consistently, not a
+  per-panel fix for one cramped cell.
+- Header carries title, one-line scope, and the reporting window — nothing else.
+  No self-authored summary banner, insight strip, or editorial adjectives; see
+  the copy rules in SKILL.md.
 - Footer carries sources, definitions, and a note if any figure is illustrative.
 - Everything stays in one HTML file plus the local `charts-lib/` folder — no CDN,
   no build step.
