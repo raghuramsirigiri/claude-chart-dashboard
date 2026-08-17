@@ -175,7 +175,27 @@ Charts.geofacet('chart', {
 - **Spacing is not configurable**: cells are always square with a derived gap, so the tiles stay one block at any container aspect ratio
 - Hover a tile for a tooltip with the region name and value
 
-## Theming
+## Titles and subtitles wrap
+
+Every engine measures the heading against the container width and wraps it:
+**titles up to 2 lines, subtitles up to 3**, with the plot area shrinking to make
+room so a longer heading never overlaps the chart. Anything past the line limit
+is clipped with an ellipsis, so length still has a ceiling — it just isn't a
+single-line ceiling any more.
+
+Roughly what fits, measured at the template's cell widths:
+
+| Cell | Title chars per line | Comfortable title length |
+|:--|:--|:--|
+| `w4` (~500px) | ~35 | up to ~70 (uses both lines) |
+| `w6` (~750px) | ~72 | up to ~140 |
+| `w8` (~1000px) | ~95 | up to ~190 |
+| `w12` (~1520px) | ~145 | plenty |
+
+So a finding-style title — "Carrier no-shows and late trailers cause 27% of
+delay events" — fits on one line from `w6` up and wraps to two in a `w4`. Aim
+under ~70 characters and it works in any cell; past ~90 in a narrow cell you
+risk the ellipsis. Nothing needs configuring; there are no wrap options to pass.
 
 All visual tokens (colors, fonts, sizes, weights) are stored in a single
 `Charts.theme` object. Override any property **before** calling a chart

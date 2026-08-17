@@ -80,6 +80,39 @@
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function niceTicks(min, max, count) {
@@ -313,7 +346,13 @@
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
     // Left-aligned title zone; extra top space if title/subtitle present
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     // Compute right pad based on longest y-tick label + inline series label estimate
     const yAxis = opts.yAxis || {};
@@ -373,11 +412,10 @@
 
     // --- title / subtitle (top-left) ---
     const titleX = 20;
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL,
-      'font-family': FONT }, svg);
-    if (hasSub)   txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // --- series def ---
     const seriesDefs = seriesRaw.map((s, i) => {
@@ -1006,6 +1044,39 @@
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function niceTicks(min, max, count) {
@@ -1098,7 +1169,13 @@
     const hasSub = !!opts.subtitle;
 
     // Title zone (fig.text style: top-left)
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     // Determine longest category label for horizontal bar left pad
     const maxCatLen = categories.reduce((a,c) => Math.max(a, String(c).length), 0);
@@ -1145,10 +1222,10 @@
     container.appendChild(svg);
 
     // Title & subtitle top-left (titleX declared above with M)
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // Normalize series (assign gradient colors by default)
     const nSeries = (opts.series || []).length;
@@ -1628,6 +1705,39 @@ Charts.bar = function (container, opts) {
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
     const s = String(n);
@@ -1779,7 +1889,13 @@ Charts.bar = function (container, opts) {
 
     // Uniform outer margin (clean-charts uses ~40px)
     const marginPx = 22;
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     svg.style.background = BG;
@@ -1788,10 +1904,10 @@ Charts.bar = function (container, opts) {
 
     // Title & subtitle top-left
     const titleX = 20;
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // ── Legend layout (top, below subtitle, wraps to multiple rows) ─────
     const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
@@ -2406,6 +2522,39 @@ Charts.pie = function (container, opts) {
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
     const s = String(n);
@@ -2541,7 +2690,13 @@ Charts.pie = function (container, opts) {
 
     // Layout tokens (clean-charts uses ~45px outer margin)
     const marginPx = 22;
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     // Legend: auto-enable when multi-series; wraps across rows as needed.
     const hasLegend = (opts.legend && opts.legend.enabled != null)
@@ -2602,10 +2757,10 @@ Charts.pie = function (container, opts) {
 
     // Title and subtitle top-left, aligned to titleX
     const titleX = 20;
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // Normalize series
     const seriesDefs = (opts.series || []).map((s, i) => {
@@ -3023,6 +3178,39 @@ Charts.packedBubble = function (container, opts) {
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addCommas(n) {
@@ -3092,7 +3280,13 @@ Charts.packedBubble = function (container, opts) {
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
     const titleX = 20;                       // shared left edge, as in bar.js
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
     const marginR = 20, marginB = 16;
 
     // ── Row metrics ─────────────────────────────────────────────────────
@@ -3130,10 +3324,10 @@ Charts.packedBubble = function (container, opts) {
     svg.style.display = 'block';
     container.appendChild(svg);
 
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     if (!n) return { getData: () => points };
 
@@ -3317,6 +3511,39 @@ Charts.packedBubble = function (container, opts) {
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -3409,17 +3636,23 @@ Charts.packedBubble = function (container, opts) {
     const hasSub = !!opts.subtitle;
     const marginPx = 20;
     const titleX = 20;
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + (hasTitle || hasSub ? 24 : 0);
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + (hasTitle || hasSub ? 24 : 0);
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     svg.style.background = BG;
     svg.style.display = 'block';
     container.appendChild(svg);
 
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // ── Tile geometry ───────────────────────────────────────────────────
     const nCols = Math.max(...grid.map(g => g.col));
