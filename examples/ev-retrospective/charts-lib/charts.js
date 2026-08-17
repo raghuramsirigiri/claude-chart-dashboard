@@ -6,6 +6,7 @@
  *   Charts.column(container, config)            — vertical columns; grouped, stacked, range, pyramid, 3D
  *   Charts.bar(container, config)               — horizontal bars; groups + stacks + population pyramid
  *   Charts.barList(container, config)           — axis-free horizontal bars, category label above each bar
+ *   Charts.barInsightTable(container, config)   — rows of bars + insight text + a large change/summary stat
  *   Charts.donut(container, config)             — donut, semi-circle, variable-radius, gradient, sliced
  *   Charts.pie(container, config)               — alias of donut with innerSize:0 (full pie)
  *   Charts.scatter(container, config)           — 2D scatter + regression + labels
@@ -3444,6 +3445,527 @@ Charts.packedBubble = function (container, opts) {
   }
 
     Charts.barList = Chart;
+})();
+
+// ─── barInsightTable ───────────────────────────────────────────────
+
+/*
+ * Clean-charts-styled bar INSIGHT TABLE engine (Charts.barInsightTable).
+ *
+ * One row per category, read left to right as a sentence:
+ *
+ *   Gross Revenue │ ▇▇▇▇▇▇ (FY22)   │ Topline Growth              │ +30%
+ *                 │ ▇▇▇▇▇▇▇▇ (FY23) │ Year-over-year expansion    │
+ *
+ *   [row label]     [single or grouped bars]  [insight headline +   [big
+ *                                              description]         stat]
+ *
+ * Use it when a bar alone under-sells the story: each row carries the
+ * comparison (the bars), what it means (the insight text) and the one number
+ * a reader should walk away with (the large stat). It is the chart type for
+ * income statements, KPI reviews, before/after decks and scorecards.
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the
+ *    other engines, all left-column text aligned to the same titleX = 20
+ *  - Same 20px outer pad on every side as column/bar
+ *  - The five shared text roles only (title / subtitle / category / tick /
+ *    value) — no font size or weight is invented here, and every size is
+ *    derived from a theme token so a retheme carries through
+ *  - Same top legend as column/bar: identical metrics, click to toggle a
+ *    series, greyed + struck-through when hidden
+ *  - Single series takes the theme's defaultColor; 2+ walk the palette
+ *  - Hairline dividers between rows, never around them
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    BG = t.bg || '#f4f3f0';
+    GRID = t.grid || '#dcdbd7';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    SEC_COL = t.secondaryColor || '#666666';
+    NEG_COL = t.negative || '#D1107A';
+    DEFAULT_COL = t.defaultColor || '#000000';
+    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || '#333333';
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
+    F_TICK = t.tickSize != null ? t.tickSize : 11;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function addCommas(n) {
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+  function textW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
+  }
+  function truncate(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (textW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s + '…';
+  }
+
+  // ---------------- main ----------------
+  function Chart(container, opts) {
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 900;
+    const plot = (opts.plotOptions && opts.plotOptions.barInsightTable) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+    const yAxis = opts.yAxis || {};
+    const valueSuffix = plot.valueSuffix != null ? plot.valueSuffix
+                      : (yAxis.suffix != null ? yAxis.suffix : '');
+    const fmt = v => (plot.format ? String(plot.format).replace('{y}', addCommas(v))
+                                  : addCommas(v) + valueSuffix);
+
+    // ── Data ────────────────────────────────────────────────────────────
+    // Rows come from xAxis.categories (or from point names); every series
+    // contributes one bar per row, so 1 series = single bars, 2+ = groups.
+    const cats = (opts.xAxis && opts.xAxis.categories) || [];
+    const nSeriesAll = (opts.series || []).length;
+    const seriesDefs = (opts.series || []).map((s, si) => ({
+      name: s.name || 'Series ' + (si + 1),
+      // Same rule as column/bar: one series is the theme's default color,
+      // several walk the palette.
+      color: s.color || (nSeriesAll === 1 ? DEFAULT_COL : COLORS[si % COLORS.length]),
+      data: s.data || [],
+      visible: true
+    }));
+
+    const nRows = Math.max(cats.length, ...seriesDefs.map(s => s.data.length), 0);
+    const pointAt = (s, i) => {
+      const d = s.data[i];
+      if (d == null) return null;
+      if (Array.isArray(d)) return { y: +d[1], name: d[0] };
+      if (typeof d === 'object') return { y: +d.y, name: d.name, color: d.color, extra: d };
+      return { y: +d };
+    };
+
+    // Per-row extras (insight headline, description, stat) may be given as a
+    // parallel `rows` array — the shape an author reaches for first — or
+    // hung off the data points of any series.
+    const rowsOpt = opts.rows || plot.rows || [];
+    const rows = [];
+    for (let i = 0; i < nRows; i++) {
+      const pts = seriesDefs.map(s => {
+        const p = pointAt(s, i);
+        return p && Number.isFinite(p.y) ? p : null;
+      });
+      const fromPoint = pts.find(p => p && p.extra &&
+        (p.extra.insight != null || p.extra.stat != null || p.extra.description != null)) || {};
+      const ex = Object.assign({}, fromPoint.extra || {}, rowsOpt[i] || {});
+      const firstNamed = pts.find(p => p && p.name);
+      rows.push({
+        idx: i,
+        label: ex.label != null ? ex.label
+             : (cats[i] != null ? cats[i] : (firstNamed ? firstNamed.name : 'Row ' + (i + 1))),
+        insight: ex.insight != null ? ex.insight : (ex.headline != null ? ex.headline : ''),
+        description: ex.description != null ? ex.description : '',
+        stat: ex.stat,
+        statNote: ex.statNote != null ? ex.statNote : '',
+        statColor: ex.statColor,
+        points: pts
+      });
+    }
+
+    // A stat is the point of this chart type, so one is derived when the
+    // author did not supply it: the change from the first series to the last,
+    // which is what a two-column comparison is asking about anyway.
+    const autoStat = plot.autoStat !== false && seriesDefs.length >= 2;
+    rows.forEach(r => {
+      if (r.stat != null || !autoStat) return;
+      const a = r.points[0], b = r.points[r.points.length - 1];
+      if (!a || !b || !a.y) return;
+      const pct = (b.y - a.y) / Math.abs(a.y) * 100;
+      if (!Number.isFinite(pct)) return;
+      const rounded = Math.abs(pct) >= 10 ? Math.round(pct) : Math.round(pct * 10) / 10;
+      r.stat = (rounded > 0 ? '+' : '') + rounded + '%';
+      if (r.statColor == null && plot.statColorBySign) r.statColor = rounded < 0 ? NEG_COL : TITLE_COL;
+    });
+
+    const hasInsight = rows.some(r => r.insight || r.description);
+    const hasStat = rows.some(r => r.stat != null && r.stat !== '');
+
+    // ── Title / subtitle ────────────────────────────────────────────────
+    const hasTitle = !!opts.title;
+    const hasSub = !!opts.subtitle;
+    const titleX = 20;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+
+    // ── Legend layout (top row(s), auto-enabled when multi-series) ──────
+    // Metrics, wrap rule and toggle behaviour are the column/bar legend's.
+    const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
+    const legendEnabled = (opts.legend && opts.legend.enabled != null)
+      ? !!opts.legend.enabled : (seriesDefs.length > 1);
+    function layoutLegend(items, availW) {
+      const widths = items.map(it =>
+        LEG_ICON + LEG_ICON_GAP + Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
+      const rowsOut = [];
+      let cur = [], curX = 0;
+      for (let i = 0; i < items.length; i++) {
+        if (cur.length && curX + widths[i] > availW) { rowsOut.push(cur); cur = []; curX = 0; }
+        cur.push({ item: items[i], x: curX, w: widths[i] });
+        curX += widths[i];
+      }
+      if (cur.length) rowsOut.push(cur);
+      return { rows: rowsOut, height: rowsOut.length * LEG_ROW };
+    }
+    const legendLayout = legendEnabled
+      ? layoutLegend(seriesDefs, W - 40) : { rows: [], height: 0 };
+    const legendZone = legendLayout.height + (legendEnabled ? 18 : 0);
+
+    // ── Column geometry ─────────────────────────────────────────────────
+    // Four columns: row label, bars, insight text, stat. Widths are fractions
+    // of the content width (or px when >1), and the columns that carry no
+    // data collapse so a bars-only table still fills the canvas.
+    // The outer pad is 20 on every side, as in column/bar.
+    const marginR = 20, marginB = 20;
+    const contentL = titleX, contentR = W - marginR;
+    const contentW = contentR - contentL;
+    const COL_GAP = plot.columnGap != null ? plot.columnGap : 22;
+
+    const cw = plot.columns || {};
+    const px = (v, dflt) => (v == null ? dflt : (v > 1 ? v : v * contentW));
+    let wLabel = px(cw.label, contentW * 0.22);
+    let wBars = px(cw.bars, contentW * 0.30);
+    let wInsight = hasInsight ? px(cw.insight, contentW * 0.30) : 0;
+    let wStat = hasStat ? px(cw.stat, contentW * 0.16) : 0;
+    const gaps = COL_GAP * ((wInsight ? 1 : 0) + (wStat ? 1 : 0) + 1);
+    // Any slack (or overflow) is absorbed by the bars column — it is the only
+    // one whose width is a design choice rather than a function of its text.
+    wBars += contentW - (wLabel + wBars + wInsight + wStat + gaps);
+    wBars = Math.max(40, wBars);
+
+    const xLabel = contentL;
+    const xBars = xLabel + wLabel + COL_GAP;
+    const xInsight = xBars + wBars + COL_GAP;
+
+    // ── Type scale ──────────────────────────────────────────────────────
+    // Every size is a theme token or derived from one, so retuning titleSize
+    // / labelSize / tickSize in the theme moves this chart with the rest.
+    const F_INSIGHT = plot.insightSize != null ? plot.insightSize : F_LABEL + 1.5;
+    const F_DESC = plot.descriptionSize != null ? plot.descriptionSize : F_TICK;
+    const F_STAT = plot.statSize != null ? plot.statSize : Math.round(F_TITLE * 1.5);
+    const LABEL_LH = Math.round(F_LABEL * 1.35);
+    const IN_LH = Math.round(F_INSIGHT * 1.3);
+    const DESC_LH = Math.round(F_DESC * 1.35);
+    const LABEL_LINES = plot.labelLines != null ? plot.labelLines : 2;
+    const DESC_LINES = plot.descriptionLines != null ? plot.descriptionLines : 2;
+
+    // ── Row metrics ─────────────────────────────────────────────────────
+    const barH = plot.barHeight != null ? plot.barHeight : 20;
+    const barGap = plot.barGap != null ? plot.barGap : 4;
+    const rowPad = plot.rowPadding != null ? plot.rowPadding : 18;
+    const dividers = plot.dividers !== false;
+
+    // Long text is wrapped, not cut: row labels take up to 2 lines (as the
+    // column engine wraps its category names), insight headlines 2, the
+    // description `descriptionLines`. Only the last line is ever ellipsised.
+    rows.forEach(r => {
+      r.labelLines = wrapHeading(r.label, F_LABEL, wLabel, LABEL_LINES, CAT_FW >= 600);
+      r.insightLines = r.insight
+        ? wrapHeading(r.insight, F_INSIGHT, wInsight, 2, true) : [];
+      r.descLines = r.description
+        ? wrapHeading(r.description, F_DESC, wInsight, DESC_LINES, false) : [];
+    });
+
+    const container_ = container;
+    const svg = el('svg', { xmlns: NS });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container_.appendChild(svg);
+
+    // ── Tooltip (same treatment as the other engines) ───────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    container_.appendChild(tooltip);
+
+    let bars = [], H = 0;
+
+    function render() {
+      svg.innerHTML = '';
+      bars = [];
+      const vis = seriesDefs.filter(s => s.visible);
+      const nSeries = Math.max(1, vis.length);
+
+      // Row heights depend on how many series are showing, so they are
+      // measured on every render rather than once.
+      rows.forEach(r => {
+        const barsH = vis.length ? vis.length * barH + (vis.length - 1) * barGap : 0;
+        const labelH = r.labelLines.length * LABEL_LH;
+        const insightH = r.insightLines.length * IN_LH + r.descLines.length * DESC_LH;
+        const statH = r.stat != null && r.stat !== ''
+          ? F_STAT * 1.1 + (r.statNote ? DESC_LH : 0) : 0;
+        r.h = Math.max(barsH, labelH, insightH, statH) + rowPad * 2;
+      });
+
+      const bodyH = rows.reduce((a, r) => a + r.h, 0);
+      const chromeH = titleBlockH + legendZone + marginB;
+      const fixedH = container_.clientHeight;
+      if (plot.autoHeight === false && fixedH) H = fixedH;
+      else { H = Math.round(chromeH + bodyH); container_.style.height = H + 'px'; }
+      svg.setAttribute('width', W);
+      svg.setAttribute('height', H);
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+        'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+      subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+        'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+
+      // Legend — identical metrics and toggle behaviour to column/bar.
+      if (legendEnabled) {
+        const startY = titleBlockH + 2;
+        legendLayout.rows.forEach((row, ri) => {
+          row.forEach(cell => {
+            const s = cell.item;
+            const x = titleX + cell.x;
+            const y = startY + ri * LEG_ROW;
+            const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, svg);
+            el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
+            el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
+              fill: s.visible ? s.color : '#ccc' }, gr);
+            txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
+              'font-size': F_LEG, 'font-weight': CAT_FW,
+              fill: s.visible ? CAT_COL : '#ccc',
+              'text-decoration': s.visible ? 'none' : 'line-through',
+              'font-family': FONT }, gr);
+            gr.addEventListener('click', () => {
+              if (vis.length === 1 && s.visible) return;   // never hide the last one
+              s.visible = !s.visible;
+              render();
+            });
+          });
+        });
+      }
+
+      if (!nRows) return;
+
+      // ── Shared horizontal scale ───────────────────────────────────────
+      // Every row is measured against the same maximum — that is the whole
+      // point of stacking the rows in one table, and a per-row scale would
+      // quietly make a small row look like a big one.
+      const values = [];
+      rows.forEach(r => r.points.forEach((p, si) =>
+        { if (p && seriesDefs[si].visible) values.push(p.y); }));
+      const maxV = Math.max(0, ...values);
+      const minV = Math.min(0, ...values);
+      const span = (maxV - minV) || 1;
+      // With value labels on, the track gives up the room its widest label
+      // needs at either end it can reach — otherwise the longest bar's number
+      // runs into the insight column.
+      const LBL_PAD = 8;
+      let labelRoom = 0;
+      if (plot.dataLabels) {
+        values.forEach(v => { labelRoom = Math.max(labelRoom, textW(fmt(v), F_VALUE, true)); });
+        labelRoom += LBL_PAD;
+      }
+      const trackL = xBars + (minV < 0 ? labelRoom : 0);
+      const trackW = Math.max(20, wBars - labelRoom - (minV < 0 ? labelRoom : 0));
+      const zeroX = trackL + (0 - minV) / span * trackW;
+      const scale = v => Math.abs(v) / span * trackW;
+
+      const gBars = el('g', {}, svg);
+      const gText = el('g', {}, svg);
+
+      let y = titleBlockH + legendZone;
+      rows.forEach((r, ri) => {
+        const mid = y + r.h / 2;
+
+        // Row label — the category role, vertically centered against the whole
+        // row rather than the bars, so it stays put when the insight text is
+        // the tallest thing in the row.
+        let ly = mid - (r.labelLines.length - 1) * LABEL_LH / 2 + F_LABEL * 0.36;
+        r.labelLines.forEach(ln => {
+          txt(ln, { x: xLabel, y: ly, 'text-anchor': 'start',
+            'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gText);
+          ly += LABEL_LH;
+        });
+
+        // Bars — one per visible series, grouped and centered in the row.
+        const barsH = vis.length * barH + (vis.length - 1) * barGap;
+        let by = mid - barsH / 2;
+        r.points.forEach((p, si) => {
+          if (!seriesDefs[si].visible) return;
+          if (!p) { by += barH + barGap; return; }
+          const w = Math.max(1, scale(p.y));
+          const bx = p.y < 0 ? zeroX - w : zeroX;
+          const color = p.color || (p.y < 0 && nSeries === 1 ? NEG_COL : seriesDefs[si].color);
+          const rect = el('rect', {
+            x: bx, y: by, width: w, height: barH, fill: color,
+            class: 'bit-bar', style: 'cursor:default;transition:opacity .15s'
+          }, gBars);
+          bars.push({ node: rect, row: r, series: seriesDefs[si], value: p.y, color });
+          if (plot.dataLabels) {
+            // Value role, outside the bar end — as in barList.
+            txt(fmt(p.y), {
+              x: p.y < 0 ? bx - LBL_PAD : bx + w + LBL_PAD, y: by + barH / 2 + F_VALUE * 0.36,
+              'text-anchor': p.y < 0 ? 'end' : 'start',
+              'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT
+            }, gText);
+          }
+          by += barH + barGap;
+        });
+
+        // Insight column — headline in the category role, description under it
+        // in the quieter tick role. The pair is centered as one block.
+        if (wInsight && (r.insightLines.length || r.descLines.length)) {
+          const blockH = r.insightLines.length * IN_LH + r.descLines.length * DESC_LH;
+          let ty = mid - blockH / 2 + F_INSIGHT * 0.9;
+          r.insightLines.forEach(ln => {
+            txt(ln, { x: xInsight, y: ty, 'text-anchor': 'start', 'font-size': F_INSIGHT,
+              'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gText);
+            ty += IN_LH;
+          });
+          r.descLines.forEach(ln => {
+            txt(ln, { x: xInsight, y: ty, 'text-anchor': 'start', 'font-size': F_DESC,
+              'font-weight': TICK_FW, fill: SEC_COL, 'font-family': FONT }, gText);
+            ty += DESC_LH;
+          });
+        }
+
+        // Stat column — the value role at display size, right-aligned to the
+        // content edge so the column reads as one stack of figures.
+        if (wStat && r.stat != null && r.stat !== '') {
+          const noteH = r.statNote ? DESC_LH : 0;
+          const sy = mid + F_STAT * 0.36 - noteH / 2;
+          txt(truncate(r.stat, F_STAT, wStat, true), {
+            x: contentR, y: sy, 'text-anchor': 'end', 'font-size': F_STAT,
+            'font-weight': VAL_FW, fill: r.statColor || VAL_COL, 'font-family': FONT
+          }, gText);
+          if (r.statNote) {
+            txt(truncate(r.statNote, F_DESC, wStat, false), {
+              x: contentR, y: sy + DESC_LH + 2, 'text-anchor': 'end',
+              'font-size': F_DESC, 'font-weight': TICK_FW, fill: SEC_COL, 'font-family': FONT
+            }, gText);
+          }
+        }
+
+        y += r.h;
+        if (dividers && ri < rows.length - 1) {
+          el('line', { x1: contentL, y1: y, x2: contentR, y2: y,
+            stroke: GRID, 'stroke-width': 1 }, gBars);
+        }
+      });
+    }
+
+    render();
+
+    svg.addEventListener('mousemove', ev => {
+      const target = ev.target;
+      const hit = target && bars.find(b => b.node === target);
+      if (hit) {
+        bars.forEach(b => { b.node.style.opacity = '1'; });
+        hit.node.style.opacity = '0.85';
+        tooltip.innerHTML =
+          `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(hit.row.label)}</div>` +
+          `<div><span style="display:inline-block;width:9px;height:9px;background:${hit.color};border-radius:2px;margin-right:6px"></span>${esc(hit.series.name)}: <b style="color:${TITLE_COL}">${esc(fmt(hit.value))}</b></div>` +
+          (hit.row.stat != null && hit.row.stat !== ''
+            ? `<div style="color:${SEC_COL};margin-top:2px">${esc(hit.row.insight || 'Change')}: <b style="color:${TITLE_COL}">${esc(hit.row.stat)}</b></div>` : '');
+        tooltip.style.display = 'block';
+        const rect = svg.getBoundingClientRect();
+        const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = cx + 14, ty = cy - th / 2;
+        if (tx + tw > W - 4) tx = cx - tw - 14;
+        if (ty < 4) ty = 4;
+        if (ty + th > H - 4) ty = H - th - 4;
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+      } else {
+        bars.forEach(b => { b.node.style.opacity = '1'; });
+        tooltip.style.display = 'none';
+      }
+    });
+    svg.addEventListener('mouseleave', () => {
+      bars.forEach(b => { b.node.style.opacity = '1'; });
+      tooltip.style.display = 'none';
+    });
+
+    return { getData: () => rows, redraw: render };
+  }
+
+    Charts.barInsightTable = Chart;
 })();
 
 // ─── geofacet ──────────────────────────────────────────────────────
