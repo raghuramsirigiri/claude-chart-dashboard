@@ -190,6 +190,7 @@ Two output formats, chosen from how you phrase the request:
 | Line | line, spline, step, datetime axis, logarithmic axis, zoomable |
 | Column & bar | grouped, stacked, 100% stacked, range, pyramid, 3D, population pyramid |
 | Bar list | axis-free ranked bars, label above each bar, sortable, negative values |
+| Bar insight table | per row: bars, an insight headline and description, and a large auto-computed change stat |
 | Donut & pie | donut, full pie, semi-circle, variable radius, gradient, exploded slices |
 | Scatter | scatter, linear regression trend line, labeled points |
 | Bubble | bubble (area-scaled), packed bubble, clustered packed bubble |
@@ -271,8 +272,10 @@ arrays by hand, or ask Claude to change a panel and it will edit the file in pla
 
 ### How many panels should a dashboard have?
 
-Eight to twenty. Below eight, a report format usually reads better; above twenty,
-split it into multiple pages. The skill follows this by default.
+As many as there are findings. The skill puts one panel per question the data
+answers rather than filling a fixed grid — four numbers get a small page,
+twenty measures get a long one. Padding with filler charts is the failure it is
+written to avoid.
 
 ## What's in the box
 
