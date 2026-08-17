@@ -392,6 +392,7 @@
         (opts.plotOptions && opts.plotOptions.series && opts.plotOptions.series.dataLabels) || {}, s.dataLabels || {});
       return {
         name: s.name || 'Series ' + (i + 1), color, type, points,
+        legendColor: s.legendColor,
         marker, dataLabels, lineWidth: s.lineWidth != null ? s.lineWidth : LINE_W,
         dashStyle: s.dashStyle, step: s.step,
         negativeColor: s.negativeColor, threshold: s.threshold != null ? s.threshold : 0,
@@ -910,7 +911,7 @@
             fill: s.visible ? s.color : '#ccc' }, gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
             'font-size': F_LEG, 'font-weight': 600,
-            fill: s.visible ? TITLE_COL : '#ccc',
+            fill: s.visible ? (s.legendColor || TITLE_COL) : '#ccc',
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {
@@ -1175,6 +1176,8 @@
       return {
         name: s.name || 'Series ' + (i + 1),
         color, type, points, dataLabels,
+        legendColor: s.legendColor,
+        scenario: s.scenario,
         stack: s.stack != null ? s.stack : 0,
         negativeColor: s.negativeColor,
         visible: true,
@@ -1395,12 +1398,85 @@
           }
         }
       }
+
+      drawValueAxisMarks();
+    }
+
+    // ── Target / threshold marks on the value axis ──────────────────────
+    // `yAxis.plotLines` and `yAxis.plotBands` — a labelled target, budget, or
+    // break-even that bars can be read against. Drawn last, into gAxes, so the
+    // mark sits above the bars: a target line hidden behind a bar is useless.
+    // Orientation follows the chart — horizontal for columns, vertical for
+    // bars — so the same config works for both.
+    const DASH = { Solid: '', Dash: '6 4', ShortDash: '4 2', ShortDot: '1 3',
+                   Dot: '2 4', LongDash: '10 5', DashDot: '8 3 2 3' };
+    function drawValueAxisMarks() {
+      const ax = opts.yAxis || {};
+      const pos = v => inverted ? xScaleVal(v) : yScale(v);
+      const clamp = v => Math.max(ranges.yMin, Math.min(ranges.yMax, v));
+
+      (ax.plotBands || []).forEach(b => {
+        if (b.from == null || b.to == null) return;
+        const a = pos(clamp(b.from)), c = pos(clamp(b.to));
+        const attrs = inverted
+          ? { x: Math.min(a,c), y: M.t, width: Math.abs(c-a), height: IH }
+          : { x: M.l, y: Math.min(a,c), width: IW, height: Math.abs(c-a) };
+        el('rect', Object.assign(attrs, { fill: b.color || HIGHLIGHT,
+          'fill-opacity': b.alpha != null ? b.alpha : 0.12 }), gAxes);
+      });
+
+      (ax.plotLines || []).forEach(pl => {
+        if (pl.value == null) return;
+        const p = pos(clamp(pl.value));
+        const attrs = inverted
+          ? { x1: p, x2: p, y1: M.t, y2: M.t + IH }
+          : { x1: M.l, x2: M.l + IW, y1: p, y2: p };
+        el('line', Object.assign(attrs, {
+          stroke: pl.color || AXIS, 'stroke-width': pl.width || 1.5,
+          'stroke-dasharray': DASH[pl.dashStyle || 'ShortDash'] || '4 2' }), gAxes);
+        if (pl.label && pl.label.text) {
+          // Label rides the end of the mark, inside the plot area.
+          const la = inverted
+            ? { x: p + 5, y: M.t + 12, 'text-anchor': 'start' }
+            : { x: M.l + IW, y: p - 5, 'text-anchor': 'end' };
+          txt(pl.label.text, Object.assign(la, { 'font-size': 10, 'font-weight': 700,
+            fill: pl.color || AXIS, 'font-family': FONT }), gAxes);
+        }
+      });
+    }
+
+    // ── Scenario notation (IBCS) ────────────────────────────────────────
+    // Encodes the *status* of a number — measured, planned, projected — in the
+    // fill style rather than the hue, which leaves colour free to carry
+    // emphasis. solid = actual · outlined = plan/budget · hatched = forecast.
+    // Series-level via `series[i].scenario`, point-level via `point.scenario`
+    // (so one series can turn from actual to forecast partway along).
+    const hatchIds = {};
+    function hatchFor(color) {
+      if (hatchIds[color]) return hatchIds[color];
+      const id = 'cc-hatch-' + Math.random().toString(36).slice(2);
+      const pat = el('pattern', { id, width: 5, height: 5,
+        patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+      el('rect', { width: 5, height: 5, fill: BG }, pat);
+      el('rect', { width: 2.4, height: 5, fill: color }, pat);
+      hatchIds[color] = id;
+      return id;
+    }
+    // Returns the SVG paint attributes for a bar in the given scenario.
+    function scenarioFill(scenario, color) {
+      if (scenario === 'plan' || scenario === 'budget')
+        return { fill: BG, stroke: color, 'stroke-width': 1.6 };
+      if (scenario === 'forecast' || scenario === 'estimate')
+        return { fill: `url(#${hatchFor(color)})`, stroke: color, 'stroke-width': 1 };
+      return { fill: color };
     }
 
     function drawBar(s, p, x, y, w, h, isBar, catIdx, seriesIdx, valueForLabel, isStacked) {
       if (w <= 0) w = 0.5;
       if (h <= 0) h = 0.5;
       const barColor = pickColor(s, p);
+      const scenario = p.scenario || s.scenario;
+      const paint = scenarioFill(scenario, barColor);
       const isPyramid = (s.type === 'columnpyramid');
       let node;
       if (is3D && !isBar) {
@@ -1410,16 +1486,16 @@
           fill: darken(barColor, 0.25) }, front);
         el('path', { d: `M ${x} ${y} L ${x+dx} ${y+dy} L ${x+w+dx} ${y+dy} L ${x+w} ${y} Z`,
           fill: lighten(barColor, 0.15) }, front);
-        el('rect', { x, y, width: w, height: h, fill: barColor }, front);
+        el('rect', Object.assign({ x, y, width: w, height: h }, paint), front);
         node = front;
       } else if (isPyramid && !isBar) {
         const cx = x + w/2;
         const yBase = ranges.yMin < 0 ? yScale(0) : (y + h);
-        node = el('polygon', { points: `${x},${yBase} ${x+w},${yBase} ${cx},${y}`,
-          fill: barColor, class: 'bar', 'data-cat': catIdx, 'data-series': seriesIdx }, gBars);
+        node = el('polygon', Object.assign({ points: `${x},${yBase} ${x+w},${yBase} ${cx},${y}`,
+          class: 'bar', 'data-cat': catIdx, 'data-series': seriesIdx }, paint), gBars);
       } else {
-        node = el('rect', { x, y, width: w, height: h, fill: barColor,
-          class: 'bar', 'data-cat': catIdx, 'data-series': seriesIdx }, gBars);
+        node = el('rect', Object.assign({ x, y, width: w, height: h,
+          class: 'bar', 'data-cat': catIdx, 'data-series': seriesIdx }, paint), gBars);
       }
 
       // Data labels — clean-charts style
@@ -1439,7 +1515,9 @@
           // Value at right end of bar; inside-white if long enough, else outside-dark
           const total = xScaleVal(ranges.yMax) - xScaleVal(ranges.yMin);
           const threshold = total * 0.15;
-          if (w >= threshold) {
+          // An outlined (plan) bar has no fill to sit a label on, so it always
+          // takes the outside placement regardless of length.
+          if (w >= threshold && paint.fill !== BG) {
             txt(label, { x: x + w - 6, y: y + h/2 + 4, 'text-anchor': 'end',
               'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor), 'font-family': FONT }, gLabels);
           } else {
@@ -1533,11 +1611,13 @@
           const y = startY + ri * LEG_ROW;
           const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, gLegend);
           el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
-          el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
-            fill: s.visible ? s.color : '#ccc' }, gr);
+          // The swatch carries the scenario notation too — a legend showing a
+          // solid block for a hatched forecast series misreports the data.
+          el('rect', Object.assign({ x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2 },
+            s.visible ? scenarioFill(s.scenario, s.color) : { fill: '#ccc' }), gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
             'font-size': F_LEG, 'font-weight': 600,
-            fill: s.visible ? TITLE_COL : '#ccc',
+            fill: s.visible ? (s.legendColor || TITLE_COL) : '#ccc',
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {
@@ -2225,7 +2305,7 @@ Charts.bar = function (container, opts) {
         lines.forEach((ln, i) => {
           txt(ln, { x: cx, y: cyC - (lines.length - 1) * 8 + i * 20,
             'text-anchor': 'middle', 'font-size': ct.valueFontSize || F_CENTER * 1.6,
-            'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gCenter);
+            'font-weight': VAL_FW, fill: ct.color || VAL_COL, 'font-family': FONT }, gCenter);
         });
         if (ct.label) txt(ct.label, {
           x: cx, y: cyC + (lines.length - 1) * 10 + 22,
@@ -2626,6 +2706,7 @@ Charts.pie = function (container, opts) {
       return {
         name: s.name || 'Series ' + (i + 1),
         color: s.color,   // may be null → auto-assigned below
+        legendColor: s.legendColor,
         type, points, marker,
         visible: true,
         regression: !!s.regression,
@@ -2863,7 +2944,7 @@ Charts.pie = function (container, opts) {
             fill: s.visible ? s.color : '#ccc' }, gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
             'font-size': F_LEG, 'font-weight': 600,
-            fill: s.visible ? TITLE_COL : '#ccc',
+            fill: s.visible ? (s.legendColor || TITLE_COL) : '#ccc',
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {

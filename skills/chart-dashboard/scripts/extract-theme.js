@@ -209,6 +209,24 @@ if (danger) console.log('  ' + pad('negative') + danger.hex);
 if (warn) console.log('  ' + pad('callout') + warn.hex);
 
 const inverse = dark ? pageBg.hex : '#FFFFFF';
+
+// De-emphasis ramp. `muted` fills carry data (the bars that are context), so
+// they are graphical objects under WCAG 1.4.11 and need 3:1 against the canvas
+// — a wash that merely "looks quiet" disappears on a light brand. Walk the ink
+// toward the canvas and stop at the lightest step that still clears 3:1.
+const mutedBase = (() => {
+  for (let t = 0.70; t >= 0; t -= 0.02) {
+    const c = mix(textPrimary.rgb, surface.rgb, t);
+    if (contrast(c, surface.rgb) >= 3) return c;
+  }
+  return textPrimary.rgb;
+})();
+// Two lighter steps for ramps; these are ordering hints, not primary fills, so
+// they are allowed below 3:1 — never use step 2 or 3 as a chart's only context.
+const mutedRamp = [mutedBase,
+  mix(mutedBase, surface.rgb, 0.30),
+  mix(mutedBase, surface.rgb, 0.55)];
+
 const block = `Object.assign(Charts.theme, {
   bg:             '${surface.hex}',
   grid:           '${line.hex}',
@@ -227,6 +245,8 @@ const block = `Object.assign(Charts.theme, {
   defaultColor:   '${accent.hex}',
   gradientStart:  '${accent.hex}',
   gradientEnd:    '${hex(mix(accent.rgb, surface.rgb, 0.75))}',
+  muted:          '${hex(mutedRamp[0])}',
+  mutedScale:     [${mutedRamp.map(c => `'${hex(c)}'`).join(', ')}],
   positive:       '${accent.hex}',
   negative:       '${danger ? danger.hex : '#D1107A'}',
   callout:        '${warn ? warn.hex : '#e3120b'}',
@@ -249,6 +269,7 @@ let allOk = true;
 allOk &= check('title/value', textPrimary.rgb, 4.5);
 allOk &= check('tick/subtitle', textMuted.rgb, 3);
 allOk &= check('gridline', line.rgb, 1.1, 1.6);
+allOk &= check('muted fill', mutedBase, 3);
 ramp.forEach((c, i) => { if (contrast(c, surface.rgb) < 1.6) { console.log(`  FAIL series[${i}] ${hex(c)} is too close to the canvas (${contrast(c, surface.rgb).toFixed(2)}:1)`); allOk = false; } });
 const darkest = ramp.reduce((a, b) => luminance(a) < luminance(b) ? a : b);
 console.log(`  ${contrast(darkest, toRgb(inverse)) >= 3 ? 'ok  ' : 'warn'} ${pad('label-on-bar')} darkest series vs inverseText ${contrast(darkest, toRgb(inverse)).toFixed(2)}:1`);

@@ -78,8 +78,41 @@ Every option below is optional; the library picks sensible defaults.
 - **3D effect**: `chart: { options3d: { enabled: true, depth: 40 } }`
 - **Negative values**: bars flip below zero baseline; `negativeColor` overrides bar color for negatives
 - **Population pyramid**: horizontal bar + a series with all-negative values + `tooltip.absoluteX:true`
-- **Data labels**: `plotOptions.series.dataLabels.enabled` — placed above (column) or inside/outside right end (bar) with automatic contrast text color
+- **Data labels**: `plotOptions.series.dataLabels.enabled` — placed above (column) or
+  inside/outside right end (bar) with automatic contrast text color. **Off by
+  default; turn them on for most categorical charts.** `format: '{y}%'` templates
+  the label. Per-series override with `series[i].dataLabels`.
+- **Per-point color**: any data point may be written as an object with its own
+  `color`, which wins over the series color and over `negativeColor`:
+  ```js
+  series: [{ name: 'Revenue', data: [
+    { y: 4200, color: T.colors[1] },   // emphasised
+    { y: 3900, color: T.colors[1] },   // emphasised
+    { y: 610,  color: T.muted },       // context
+    { y: 480,  color: T.muted }
+  ]}]
+  ```
+  Points may still be plain numbers in the same array; mix freely. This is the
+  mechanism behind every "highlight the bars the finding is about" chart — see
+  `chart-selection.md` § Emphasis.
+- **Re-rendering with new data**: call the same factory again on the same
+  container id. Each engine clears the container first, so re-calling is the
+  supported update path for filters and dropdowns — build a `render(state)`
+  function and call it from your control's `change` handler. Don't mutate the
+  returned object's internals; `redraw()` only re-paints the *existing* config.
 - **Legend**: auto-shown at the top below the subtitle whenever there are 2+ series, wraps to multiple rows. Force off with `legend: { enabled: false }`.
+- **Scenario notation**: `series[i].scenario` or `point.scenario` —
+  `'actual'` (solid, default), `'plan'`/`'budget'` (outlined), or
+  `'forecast'`/`'estimate'` (hatched). Encodes whether a number was measured,
+  agreed, or projected in the *fill style*, leaving color free for emphasis.
+  Legend swatches render in the series' own notation. Value labels move outside
+  the bar automatically on outlined bars, which have no fill to sit on. See
+  `chart-selection.md` § Scenario notation.
+- **Subdued legend entry**: `series[i].legendColor` overrides that entry's label
+  color (the swatch always follows the series color). Set it to
+  `Charts.theme.secondaryColor` on de-emphasised series so a legend on an
+  emphasis chart doesn't present every series as equally important. Supported on
+  line, column/bar, and scatter/bubble.
 - **Category wrapping**: long category names auto-wrap to two lines below the bar
 - **Column range**: `type:'columnrange'` with `data: [[low, high], …]`
 
@@ -125,7 +158,9 @@ Charts.barList('container', {
 - **Variable radius**: `variableRadius: true` + data with `z` values + `minPointSize`
 - **Gradient palette**: `startColor`, `endColor` (defaults black → blue)
 - **Sliced / exploded**: `{ sliced: true }` on any data point; click any wedge to toggle
-- **Center text**: `centerText: { value, label, valueFontSize }`
+- **Center text**: `centerText: { value, label, valueFontSize, color }` — `color`
+  tints the center value; set it to the focal wedge's color so the number and
+  the wedge read as one statement (see `chart-selection.md` § Pie and donut)
 - **Legend**: auto-shown at the top below the subtitle whenever there are 2+ wedges, wraps to multiple rows for many categories. Force off with `legend: { enabled: false }` to fall back to connector labels around the donut.
 - **Value suffix**: `valueSuffix: '%'`
 - **Show percentages instead of raw values**: `showPercentages: true`
@@ -151,6 +186,30 @@ real map. Pick the tile style with `chart.variant`:
 - **`'bar'`** (default) — code + value on one line, mini progress bar below
 - **`'heat'`** — solid choropleth tile, color scaled across the value range
 - **`'gauge'`** — radial progress ring with the value in the middle
+
+**The default is a default, not a recommendation.** `'bar'` gets used for every
+geofacet on the page because it is what you get by typing nothing, and that is
+the wrong reason to pick it. The variant encodes the value differently, so it
+should follow what the reader is meant to do with the number:
+
+| The reader needs to… | Variant | Why |
+|:--|:--|:--|
+| Read the exact value per region and compare a few | `'bar'` | The number is printed at full weight and the bar gives a rough rank next to it |
+| See the *spatial pattern* — where the high band is, whether it clusters | `'heat'` | Color fills the whole tile, so the map reads as a shape at a glance; individual values recede |
+| Judge each region against a shared target or capacity | `'gauge'` | The ring encodes fraction-of-max, so "80% of quota" reads as a ring position without arithmetic |
+
+Two consequences worth stating plainly:
+
+- **`'heat'` needs `min`/`max` pinned** when the page has more than one heat
+  facet, or each one auto-scales to its own range and the colors stop being
+  comparable between them.
+- **`'gauge'` needs a meaningful `max`.** A ring against the data's own maximum
+  says only "biggest region", which the bar variant says better. Pass the real
+  ceiling — quota, capacity, 100% — or use a different variant.
+
+A page with three geofacets that are all `'bar'` is usually three panels that
+should have been one; a page with a `'heat'` for the pattern and a `'gauge'`
+for attainment is two panels answering two questions.
 
 ```js
 Charts.geofacet('chart', {
@@ -213,6 +272,8 @@ The full list of theme tokens lives in
 | `tickColor` / `tickWeight` | `#333333` / `400` | Numeric axis ticks |
 | `valueColor` / `valueWeight` | `#111111` / `700` | Data value readouts |
 | `inverseText` | `#FFFFFF` | White-on-dark text |
+| `muted` | `#8f8d87` | De-emphasised fill — the bars/lines that are context, not the finding. Derived to clear 3:1 on the canvas |
+| `mutedScale` | `['#8f8d87','#a8a6a0','#c2c0ba']` | Ordered de-emphasis ramp, darkest first — for muted groups that keep internal order |
 | `highlight` | `#1f77b4` | Zoom / plot-band accent |
 | `callout` | `#e3120b` | Callout dot default |
 | `positive` | `#2323FF` | Positive bar accent |
