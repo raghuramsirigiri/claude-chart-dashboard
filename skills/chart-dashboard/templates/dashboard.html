@@ -12,6 +12,7 @@
      ground behind the cards, --radius is the brand's corner signature. */
   :root { --bg:#efece6; --radius:14px;
           --card:#f4f3f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7;
+          --surface-soft:rgba(17,17,17,0.04);
           --font:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
@@ -36,6 +37,14 @@
     letter-spacing:-0.4px; color:var(--ink); }
   .kpi i { display:block; font-style:normal; font-size:11px; font-weight:400;
     color:var(--muted); margin-top:2px; }
+
+  /* Soft surface card. For text that belongs to no single panel — a caveat, a
+     data-quality note, an ask. A low-contrast fill separates it without a rule
+     or a coloured bar cutting across the grid. Sits in the flow as its own cell. */
+  .note { background:var(--surface-soft); border-radius:var(--radius);
+    padding:16px 18px; font-size:13.5px; line-height:1.6; color:var(--ink); }
+  .note b { display:block; text-transform:uppercase; font-size:11px;
+    letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
 
   .bento { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; grid-auto-rows:340px; }
   .cell { background:var(--card); border-radius:var(--radius); padding:6px;
@@ -105,6 +114,12 @@ Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
   s.setProperty('--muted', t.secondaryColor);
   s.setProperty('--hair',  t.grid);
   s.setProperty('--font',  t.font);
+  // Soft surfaces are a wash of the ink over the canvas. On a dark canvas that
+  // has to invert — a 4% black wash on navy is invisible — so the direction is
+  // chosen from the canvas luminance rather than hard-coded.
+  const c = (t.bg.match(/\w\w/g) || ['ff','ff','ff']).map(h => parseInt(h, 16));
+  const dark = (0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]) / 255 < 0.4;
+  s.setProperty('--surface-soft', dark ? 'rgba(255,255,255,0.055)' : 'rgba(17,17,17,0.04)');
 })();
 </script>
 <script>

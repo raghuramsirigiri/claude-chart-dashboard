@@ -173,25 +173,82 @@ cramped one. The only sanctioned alternative is charts-lib's own
 `lineLabels: 'inline'`, and if you use it on one line chart, use it on all of
 them.
 
-### Say what the data says, and stop
+### Put the finding in the title, not in a quote box
 
-Chart titles, subtitles, the header scope line and the footer are labelling, not
-copywriting. The reader is an adult looking at their own numbers.
+A chart titled "Weekly throughput by site" makes the reader do the work of
+finding the point. A chart titled "Throughput fell 12% the week of the WMS
+cutover" hands it to them and then proves it underneath. That is an **action
+title**: the headline states what the data shows, and the chart is the evidence.
+The insight lives in the chart's own hierarchy, so it travels with the figure
+into a screenshot, a slide, or an email.
 
-- Title names the thing measured. Subtitle carries units, scope and window. That
-  is the whole job.
-- No editorial adjectives — "impressive growth", "concerning dip", "strong
-  performance". If March is up 24%, the chart already says so, and the callout
-  can say "+24% vs Feb, billing launch 3 March" without an opinion attached.
-- No invented narrative furniture: no "Key insight" banners, no "Executive
-  summary" block you wrote yourself, no highlighted takeaway strip across the
-  top, no emoji, no "🚀". A dashboard is not a slide deck.
+The title-subtitle pair splits cleanly:
+
+```
+title:    'Throughput fell 12% the week of the WMS cutover'   ← the finding
+subtitle: 'Units picked per week by site · W01–W04 2026'      ← units, scope, window
+```
+
+The subtitle keeps doing its old job. What changes is that the title is allowed —
+preferred — to say what happened, when the data supports a specific claim.
+
+**This is not licence to editorialize.** The line is whether the chart proves the
+sentence:
+
+| Write this | Not this | Why |
+|:--|:--|:--|
+| "Throughput fell 12% the week of the cutover" | "Concerning dip in throughput" | The first is measurable off the chart; the second is a verdict the reader should reach themselves |
+| "Billing drives 27% of all tickets" | "Billing is a serious problem" | Same fact, but the second adds an opinion the data doesn't contain |
+| "Weekly throughput by site" | "Throughput improving steadily" | When no single finding dominates, a plain descriptive title is the honest choice — don't manufacture a headline |
+
+So: adjectives and verdicts stay out, quantified findings come in. If you cannot
+put a number or a specific comparison in the title, you probably don't have a
+finding, and a descriptive title is right.
+
+- No invented narrative furniture that repeats what a chart already says: no
+  "Key insight" banners, no "Executive summary" you wrote yourself, no
+  highlighted takeaway strip across the top, no emoji, no "🚀".
 - The header is title, one line of scope, and the reporting window. The footer is
   sources, definitions, and any honesty notes (illustrative figures, carried-
   forward panels, data-quality caveats). Nothing else belongs in either.
 - Conclusions the user themselves stated ("the March spike is the thing I need to
-  explain") belong on the relevant chart as a callout, in their framing, not
-  restated as your own analysis in a banner.
+  explain") belong on the relevant chart — as its title or a callout, in their
+  framing — not restated as your own analysis in a banner.
+
+### Where a finding goes: action title, or soft surface card
+
+Two containers, and the choice between them is almost mechanical. Ask: **can one
+chart prove this sentence on its own?**
+
+**Yes → action title.** It belongs in that chart's `title`, with the descriptive
+detail moving to `subtitle`. The finding and its evidence stay welded together,
+which is what makes the figure survive being screenshotted out of context.
+
+**No → soft surface card** (`.note` in both templates). Use it for text that no
+single figure carries:
+
+- a caveat that changes how several figures should be read ("labor hours don't
+  reconcile with the stated total; site rows used")
+- an honesty note (illustrative figures, carried-forward panels)
+- a method or definition the reader needs up front
+- the ask, in a report — what you want the reader to do
+
+The card is a low-contrast fill, not a bordered pull-quote. A `border-left` bar
+or a big italic quote is decoration borrowed from editorial layout: it shouts
+without adding information, and on a dark theme the coloured bar becomes the
+loudest thing on the page. The soft fill does the same separating job by sitting
+a few percent off the canvas, so the text is set apart and nothing competes with
+the data. `--surface-soft` is computed from the theme, so it inverts correctly on
+dark brands.
+
+**Never both for the same sentence.** A card restating a title that already says
+it is the "AI slop" failure in a new costume — the reader reads the same finding
+twice and trusts the page less. If you catch yourself writing a card that
+paraphrases a chart, delete the card; the title is doing the work.
+
+Pull quotes are out entirely. A quote needs a speaker, and in a data page there
+isn't one — you are quoting yourself, which is why it reads as filler. If a
+number deserves that much emphasis, it is a KPI tile or a chart of its own.
 
 When a page needs argument and prose, that is the report format — where the
 narrative is the point and every claim is tied to a figure. Don't smuggle
@@ -221,8 +278,9 @@ than keeping charts-lib's stack, which was picked to work at 11px in a chart.
 Match the brand's font only when the face is genuinely available (a system font,
 or a file the user supplied). Full method in `references/theming.md`.
 
-The page has exactly four kinds of component, all already in the template:
-**header**, optional **KPI row**, **chart panels**, **footer**. The KPI row
+The page has exactly five kinds of component, all already in the template:
+**header**, optional **KPI row**, **chart panels**, optional **soft surface
+card** (`.note`), **footer**. The KPI row
 exists because headline figures genuinely help — use the template's `.kpi`
 markup, which is sized off the chart type scale so the tiles look like they
 belong to the same page. Writing your own KPI strip with new CSS is the most
