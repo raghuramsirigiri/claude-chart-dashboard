@@ -4,7 +4,7 @@ A tiny, self-contained SVG chart library styled to the clean-charts theme
 (cream background, Inter typography, black + blue gradient palette,
 top-left title, thin dark spines).
 
-Zero dependencies. Drop `charts.js` into your page and call one of ten
+Zero dependencies. Drop `charts.js` into your page and call one of eleven
 factory functions. Every chart is inline SVG with native tooltip, hover, and
 legend interactions — no canvas, no external framework.
 
@@ -34,6 +34,7 @@ legend interactions — no canvas, no external framework.
 | `Charts.column`       | Vertical columns: grouped, stacked, percent-stacked, range, pyramid, 3D.    |
 | `Charts.bar`          | Horizontal bars — same options as `column`, including population pyramid.   |
 | `Charts.barList`      | Axis-free horizontal bars; category label sits above each bar.              |
+| `Charts.barInsightTable` | One row per category: label · bars · insight headline + description · a large stat. |
 | `Charts.donut`        | Donut (default 60% hole) — variable radius, semi-circle, gradient, sliced. |
 | `Charts.pie`          | Full pie (donut with `innerSize:0`).                                        |
 | `Charts.scatter`      | 2D scatter + optional linear regression + point labels.                     |
@@ -145,6 +146,66 @@ Charts.barList('container', {
 - **Long names**: truncated with an ellipsis rather than wrapped, keeping rows equal height
 - Hover highlight + shared tooltip, same as the other engines
 
+### Bar insight table (`Charts.barInsightTable`)
+
+One row per category, read left to right as a sentence:
+
+```
+Gross Revenue │ ▇▇▇▇▇▇   FY22   │ Topline Growth               │ +30%
+              │ ▇▇▇▇▇▇▇▇ FY23   │ Year-over-year expansion     │
+ [row label]    [single or grouped bars]  [insight headline     [big stat]
+                                           + description]
+```
+
+Reach for it when a bar alone under-sells the story and every row has to carry
+three things at once: the comparison, what it means, and the one number the
+reader should walk away with.
+
+```js
+Charts.barInsightTable('container', {
+  title: 'Fiscal Year Income Statement',
+  subtitle: 'FY23 vs FY22 · $ millions',
+  xAxis: { categories: ['Gross Revenue', 'Cost of Goods Sold', 'Gross Profit'] },
+  rows: [                                   // parallel to xAxis.categories
+    { insight: 'Topline Growth', description: 'Year-over-year revenue expansion' },
+    { insight: 'COGS',           description: 'Direct production costs' },
+    { insight: 'Margin',         description: 'Gross profit generated' }
+  ],
+  plotOptions: { barInsightTable: { valueSuffix: 'M', statColorBySign: true } },
+  series: [
+    { name: 'FY 2022', data: [1000, 400, 600] },
+    { name: 'FY 2023', data: [1300, 500, 800] }
+  ]
+});
+```
+
+- **Row extras**: `rows: [{ label, insight, description, stat, statNote, statColor }, …]`
+  runs parallel to `xAxis.categories`. The same keys can hang off a data point
+  instead (`data: [{ name, y, insight, description, stat, statNote }]`), which is
+  the shape for a single-series table.
+- **The stat writes itself.** With 2+ series and no `stat`, each row shows the
+  percent change from the first series to the last — the question a two-column
+  comparison is already asking. Disable with `autoStat: false`; tint negatives
+  with `statColorBySign: true`.
+- **Columns collapse when empty**: no insight text → no insight column; no stats
+  → no stat column, with the bars absorbing the freed width. Override with
+  `columns: { label, bars, insight, stat }` as a fraction (`0.25`) or px (`180`).
+- **One shared scale** across all rows, so rows stay comparable.
+- **Bar metrics**: `barHeight` (20), `barGap` (4), `rowPadding` (18), `columnGap` (22).
+- **Long text wraps**: row labels up to `labelLines` (2), insight headlines 2,
+  descriptions `descriptionLines` (2); only the last line is ellipsized, and the
+  row grows to its tallest column so nothing overlaps.
+- **Type follows the theme**: insight headline is `labelSize + 1.5`, description
+  `tickSize`, stat `round(titleSize × 1.5)`. Per-chart overrides: `insightSize`,
+  `descriptionSize`, `statSize`.
+- **Colors** as in `column`/`bar`: one series takes `defaultColor`, two or more
+  walk `theme.colors`; `statColor` tints an individual stat.
+- **Value labels** off by default — the stat is the readout that matters. Turn on
+  with `dataLabels: true`.
+- **Dividers** are hairlines between rows only; `dividers: false` removes them.
+- **Height**: the container grows to fit the rows; `autoHeight: false` keeps the
+  container's own height.
+
 ### Donut & pie (`Charts.donut`, `Charts.pie`)
 
 > **Nesting:** every donut option below except `startColor`/`endColor` is read
@@ -234,7 +295,27 @@ Charts.geofacet('chart', {
 - **Spacing is not configurable**: cells are always square with a derived gap, so the tiles stay one block at any container aspect ratio
 - Hover a tile for a tooltip with the region name and value
 
-## Theming
+## Titles and subtitles wrap
+
+Every engine measures the heading against the container width and wraps it:
+**titles up to 2 lines, subtitles up to 3**, with the plot area shrinking to make
+room so a longer heading never overlaps the chart. Anything past the line limit
+is clipped with an ellipsis, so length still has a ceiling — it just isn't a
+single-line ceiling any more.
+
+Roughly what fits, measured at the template's cell widths:
+
+| Cell | Title chars per line | Comfortable title length |
+|:--|:--|:--|
+| `w4` (~500px) | ~35 | up to ~70 (uses both lines) |
+| `w6` (~750px) | ~72 | up to ~140 |
+| `w8` (~1000px) | ~95 | up to ~190 |
+| `w12` (~1520px) | ~145 | plenty |
+
+So a finding-style title — "Carrier no-shows and late trailers cause 27% of
+delay events" — fits on one line from `w6` up and wraps to two in a `w4`. Aim
+under ~70 characters and it works in any cell; past ~90 in a narrow cell you
+risk the ellipsis. Nothing needs configuring; there are no wrap options to pass.
 
 All visual tokens (colors, fonts, sizes, weights) are stored in a single
 `Charts.theme` object. Override any property **before** calling a chart

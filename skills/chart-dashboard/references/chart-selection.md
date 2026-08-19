@@ -8,6 +8,7 @@
 | Comparison across ≤12 named categories | columns | `Charts.column` |
 | Comparison across >12 categories, or long labels | horizontal bars | `Charts.bar` |
 | A ranked list, or very long category names | bar list (no axis) | `Charts.barList` + `sort:'desc'` |
+| Each row needs a comparison **and** a sentence **and** a headline number | bar insight table | `Charts.barInsightTable` |
 | Composition over time | stacked columns | `Charts.column` + `plotOptions.column.stacking:'normal'` |
 | Share-of-total over time | 100% stacked | `stacking:'percent'` |
 | Share of a single total, ≤6 parts | donut | `Charts.donut` (add `centerText`) |
@@ -23,6 +24,37 @@
 | Per-region attainment against a shared target | geofacet gauges | `Charts.geofacet` + `chart:{variant:'gauge'}`, real `max` |
 | One value for a handful of named places | ranked bars | `Charts.barList` / `Charts.bar` — a geofacet of 10 states is 40 empty tiles, and the map shape earns its space only when the geography is the finding |
 | A rate spanning orders of magnitude | log axis | `Charts.line` + `yAxis:{type:'logarithmic'}` |
+
+## Choosing between the three bar treatments
+
+They look similar in a list and are not interchangeable. Pick by how much each
+row has to say:
+
+| The row carries… | Use | Because |
+|:--|:--|:--|
+| A length, nothing else | `Charts.bar` / `Charts.column` | An axis and gridlines let the reader compare precisely across many categories |
+| A length and a long name | `Charts.barList` | The name sits above its own bar at full width instead of being squeezed into a left gutter |
+| A length, a sentence, and a headline number | `Charts.barInsightTable` | All three sit in one row, so the reader gets the comparison, the meaning, and the takeaway without looking anywhere else |
+
+`barInsightTable` is the one to reach for on **income statements, KPI reviews,
+before/after comparisons, and scorecards** — anywhere you would otherwise build a
+chart, a table, and a paragraph of commentary and hope the reader connects them.
+Two telling signs you want it: you are about to write a caption that explains
+each bar individually, or the user gave you a metric *and* a note about each
+metric.
+
+It also solves a specific problem the action-title rule can't. A title states one
+finding for the whole chart; when every row has its own finding, they belong in
+the insight column, one per row, rather than crammed into a single headline or
+scattered into cards below the chart.
+
+Keep it to roughly 4–8 rows. Each row is bar-height plus up to two lines of text,
+so a long table stops being a chart and becomes a wall — split it, or drop to a
+plain ranked bar list and put the commentary in prose.
+
+Skip it when the rows have nothing to say: with no `insight` or `stat`, the
+columns collapse and you have a slower `barList`. Never use it for a time series —
+rows are categories, not periods.
 
 ## Anti-patterns
 

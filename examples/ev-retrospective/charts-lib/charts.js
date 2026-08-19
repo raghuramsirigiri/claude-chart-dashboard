@@ -5,6 +5,8 @@
  *   Charts.line(container, config)              — line, spline, step
  *   Charts.column(container, config)            — vertical columns; grouped, stacked, range, pyramid, 3D
  *   Charts.bar(container, config)               — horizontal bars; groups + stacks + population pyramid
+ *   Charts.barList(container, config)           — axis-free horizontal bars, category label above each bar
+ *   Charts.barInsightTable(container, config)   — rows of bars + insight text + a large change/summary stat
  *   Charts.donut(container, config)             — donut, semi-circle, variable-radius, gradient, sliced
  *   Charts.pie(container, config)               — alias of donut with innerSize:0 (full pie)
  *   Charts.scatter(container, config)           — 2D scatter + regression + labels
@@ -32,6 +34,7 @@
 
   // --- theme tokens (populated from window.Charts.theme at render time) ---
   let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, HIGHLIGHT, CALLOUT_C, INV_TEXT, COLORS;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
   let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
   function applyTheme() {
@@ -40,13 +43,20 @@
     GRID = t.grid || '#dcdbd7';
     AXIS = t.axis || '#000000';
     TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#444444';
+    SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
     SEC_COL = t.secondaryColor || '#666666';
     HIGHLIGHT = t.highlight || '#1f77b4';
     CALLOUT_C = t.callout || '#e3120b';
     INV_TEXT = t.inverseText || '#FFFFFF';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
@@ -71,6 +81,39 @@
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function niceTicks(min, max, count) {
@@ -304,7 +347,13 @@
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
     // Left-aligned title zone; extra top space if title/subtitle present
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     // Compute right pad based on longest y-tick label + inline series label estimate
     const yAxis = opts.yAxis || {};
@@ -364,11 +413,10 @@
 
     // --- title / subtitle (top-left) ---
     const titleX = 20;
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL,
-      'font-family': FONT }, svg);
-    if (hasSub)   txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // --- series def ---
     const seriesDefs = seriesRaw.map((s, i) => {
@@ -601,7 +649,7 @@
       yTicks.forEach(v => {
         const y = yScale(v);
         txt(formatY(v), { x: M.l + IW + 8, y: y + 4, 'text-anchor': 'start',
-          'font-size': F_TICK, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+          'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
       });
 
       // X-axis: boundary ticks + centered labels
@@ -634,7 +682,7 @@
       centers.forEach(c => {
         if (c.ms < viewMin - 1e-9 || c.ms > viewMax + 1e-9) return;
         txt(c.label, { x: xScale(c.ms), y: M.t + IH + TICK_L + 14, 'text-anchor': 'middle',
-          'font-size': F_TICK, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+          'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
       });
 
       // Inline line-end labels
@@ -952,6 +1000,7 @@
 
   // clean_charts tokens
   let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, INV_TEXT, HIGHLIGHT, POS_COL, NEG_COL, DEFAULT_COL, COLORS;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, SPINE_W, GRID_W;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
@@ -959,7 +1008,7 @@
     GRID = t.grid || '#dcdbd7';
     AXIS = t.axis || '#000000';
     TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#444444';
+    SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
     SEC_COL = t.secondaryColor || '#666666';
     INV_TEXT = t.inverseText || '#FFFFFF';
@@ -968,6 +1017,13 @@
     NEG_COL = t.negative || '#D1107A';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
@@ -989,6 +1045,39 @@
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function niceTicks(min, max, count) {
@@ -1081,7 +1170,13 @@
     const hasSub = !!opts.subtitle;
 
     // Title zone (fig.text style: top-left)
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     // Determine longest category label for horizontal bar left pad
     const maxCatLen = categories.reduce((a,c) => Math.max(a, String(c).length), 0);
@@ -1128,10 +1223,10 @@
     container.appendChild(svg);
 
     // Title & subtitle top-left (titleX declared above with M)
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // Normalize series (assign gradient colors by default)
     const nSeries = (opts.series || []).length;
@@ -1275,7 +1370,7 @@
             stroke: GRID, 'stroke-width': GRID_W }, gGrid);
           const label = stacking === 'percent' ? (Math.round(v) + '%') : fmtY(v);
           txt(label, { x: titleX, y: y + 4, 'text-anchor': 'start',
-            'font-size': F_TICK, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+            'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
         });
         // Bottom spine (light, thin)
         const y0 = yScale(Math.max(0, ranges.yMin));
@@ -1289,7 +1384,7 @@
           wrap.forEach((line, li) => {
             txt(line, { x, y: M.t + IH + 16 + li * 14,
               'text-anchor': 'middle', 'font-size': F_LABEL,
-              fill: LABEL_COL, 'font-family': FONT }, gAxes);
+              'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
           });
         }
       } else {
@@ -1301,7 +1396,7 @@
           let label = stacking === 'percent' ? (Math.round(v) + '%') : fmtY(v);
           if (opts.tooltip && opts.tooltip.absoluteX) label = fmtY(Math.abs(v));
           txt(label, { x, y: M.t - 10, 'text-anchor': 'middle',
-            'font-size': F_TICK, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+            'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
         });
         // Top spine
         el('line', { x1: M.l, y1: M.t, x2: M.l + IW, y2: M.t,
@@ -1311,7 +1406,7 @@
           const y = catCenterY(i, n);
           const label = categories[i] != null ? String(categories[i]) : String(i);
           txt(label, { x: titleX, y: y + 4, 'text-anchor': 'start',
-            'font-size': F_LABEL, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+            'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
         }
       }
 
@@ -1417,7 +1512,7 @@
           const lx = x + w/2;
           const ly = y - 6;
           txt(label, { x: lx, y: ly, 'text-anchor': 'middle',
-            'font-size': F_VALUE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, gLabels);
+            'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gLabels);
         } else {
           // Value at right end of bar; inside-white if long enough, else outside-dark
           const total = xScaleVal(ranges.yMax) - xScaleVal(ranges.yMin);
@@ -1427,7 +1522,7 @@
               'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor), 'font-family': FONT }, gLabels);
           } else {
             txt(label, { x: x + w + 6, y: y + h/2 + 4, 'text-anchor': 'start',
-              'font-size': F_VALUE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, gLabels);
+              'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gLabels);
           }
         }
       }
@@ -1568,18 +1663,30 @@ Charts.bar = function (container, opts) {
 (function () {
   const NS = 'http://www.w3.org/2000/svg';
 
-  let BG, AXIS, TITLE_COL, SUB_COL, LABEL_COL, CALLOUT_COL, START_COL, END_COL;
+  let BG, AXIS, TITLE_COL, SUB_COL, LABEL_COL, CALLOUT_COL, CONNECT_COL, CONNECT_W, START_COL, END_COL;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE, F_CENTER;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     BG = t.bg || '#f4f3f0';
     AXIS = t.axis || '#000000';
     TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#444444';
+    SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
     CALLOUT_COL = t.connectorLabel || '#555555';
+    // The connector rule carries the label, so it is drawn darker and heavier
+    // than the old hairline; both are theme tokens.
+    CONNECT_COL = t.connectorLine || t.labelColor || '#333333';
+    CONNECT_W = t.connectorWidth != null ? t.connectorWidth : 1.4;
     START_COL = t.gradientStart || '#000000';
     END_COL = t.gradientEnd || '#2323FF';
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
@@ -1599,6 +1706,39 @@ Charts.bar = function (container, opts) {
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
     const s = String(n);
@@ -1692,14 +1832,71 @@ Charts.bar = function (container, opts) {
     const hasSub = !!opts.subtitle;
     // Auto-show legend when there are multiple wedges (each with its own color/name);
     // caller can force off with legend:{enabled:false}.
-    const rawData = (opts.series && opts.series[0] && opts.series[0].data) || [];
+    const allData = (opts.series && opts.series[0] && opts.series[0].data) || [];
+
+    // ── Reject negative and non-finite slices ───────────────────────────
+    // A donut shows parts of a whole, so a negative part has no meaning: it
+    // would shrink the total that every other wedge is measured against and
+    // sweep its own arc backwards over its neighbour. Drawing |y| instead
+    // would be worse — it makes -10 indistinguishable from +10. So such
+    // points are dropped from the geometry, the total, and the legend. The
+    // developer is told once, by name, on the console; the *reader* is told on
+    // the chart itself, by a footnote — otherwise a donut that silently omits
+    // a category looks like a complete picture of the data, which is the same
+    // misreading that drawing |y| would cause.
+    function pointValue(p) {
+      const y = Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? p.y : p);
+      return +y;
+    }
+    function pointName(p, i) {
+      if (Array.isArray(p)) return p[0];
+      if (p && typeof p === 'object') return p.name || 'Slice ' + (i + 1);
+      return String(i);
+    }
+    const dropped = [];
+    const rawData = allData.filter((p, i) => {
+      const y = pointValue(p);
+      if (Number.isFinite(y) && y >= 0) return true;
+      dropped.push({ name: pointName(p, i), raw: Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? p.y : p) });
+      return false;
+    });
+    const droppedNames = dropped.map(d => d.name + ' (' + d.raw + ')');
+    if (dropped.length && typeof console !== 'undefined' && console.warn) {
+      console.warn('[charts-lib donut] Dropped ' + dropped.length +
+        ' slice(s) with a negative or non-finite value, which a part-to-whole chart cannot represent: ' +
+        droppedNames.join(', ') + '.');
+    }
+
+    // On-chart footnote. Names the omitted categories while the list is short
+    // enough to fit on one line; past that it falls back to a count, since a
+    // truncated list is worse than an honest total. Suppressed with
+    // plotOptions.pie.droppedNote = false.
+    const F_NOTE = 11;
+    const noteEnabled = !(plotOpts.droppedNote === false);
+    let droppedNote = '';
+    if (dropped.length && noteEnabled) {
+      const suffix = plotOpts.valueSuffix || '';
+      const listed = dropped.map(d => d.name + ' (' + d.raw + suffix + ')').join(', ');
+      const long = 'Not shown: ' + listed + ' — negative values can’t be part of a whole';
+      const short = 'Not shown: ' + dropped.length +
+        (dropped.length === 1 ? ' slice with a negative value' : ' slices with negative values');
+      droppedNote = (long.length * F_NOTE * 0.5 <= W - 40) ? long : short;
+    }
+    const noteH = droppedNote ? F_NOTE + 10 : 0;
+
     const legendDefault = rawData.length > 1;
     const legendEnabled = (opts.legend && opts.legend.enabled != null)
       ? !!opts.legend.enabled : legendDefault;
 
     // Uniform outer margin (clean-charts uses ~40px)
     const marginPx = 22;
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     svg.style.background = BG;
@@ -1708,10 +1905,10 @@ Charts.bar = function (container, opts) {
 
     // Title & subtitle top-left
     const titleX = 20;
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // ── Legend layout (top, below subtitle, wraps to multiple rows) ─────
     const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
@@ -1737,32 +1934,127 @@ Charts.bar = function (container, opts) {
           return { name };
         }), availLegendW)
       : { rows: [], height: 0 };
-    const legendZone = legendLayout.height + (legendEnabled ? 18 : 0);
+    const rawLegendZone = legendLayout.height + (legendEnabled ? 18 : 0);
 
-    // Chart area below title (+legend)
-    const chartTop = titleBlockH + legendZone + 8;
-    const chartBottom = H - marginPx;
+    // The footnote takes its space out of the plot box, so the ring and the
+    // stacked callouts shrink to make room rather than colliding with it.
+    const chartBottom = H - marginPx - noteH;
     const chartLeft = marginPx;
     const chartRight = W - marginPx;
     const chartW = chartRight - chartLeft;
-    const chartH = chartBottom - chartTop;
 
     const cx = chartLeft + chartW / 2;
     let cy;
     let baseR;
 
-    // Reserve horizontal room for connector-label columns and their text.
-    // Connector labels always draw by default (unrelated to legend); disable with
-    // plotOptions.pie.dataLabels:{enabled:false}.
-    const showConnectorLabels = !(plotOpts.dataLabels === false ||
-      (plotOpts.dataLabels && plotOpts.dataLabels.enabled === false));
-    const labelColPad = showConnectorLabels ? 130 : 30;
+    // ── Connector-label budget ──────────────────────────────────────────
+    // Every wedge always gets a callout unless the caller turns labels off.
+    // What adapts is how much room they take: two-line blocks first, then
+    // one-line blocks, then progressively smaller type, and — when the box is
+    // still too tight — the legend is dropped, since it only repeats the names
+    // the callouts already carry.
+    const userLabels = (plotOpts.dataLabels === false ||
+      (plotOpts.dataLabels && plotOpts.dataLabels.enabled === false)) ? 'off' : 'on';
+
+    const TWO_LINE_H = 40, ONE_LINE_H = 24;
+    // clean-charts callout stub, as fractions of the outer radius.
+    const CALLOUT_GAP = 0.08, CALLOUT_LEN = 0.12;
+    // The elbow sits 40% of the way from the ring edge to the label column,
+    // shared by every label on that side so all the kinks line up.
+    const ELBOW_FRAC = 0.40;
+    const perSide = Math.max(1, Math.ceil(rawData.length / 2));
+
+    // Label columns are measured from the text they will actually hold, not a
+    // flat fraction of the width. Short labels ("A", "30") therefore leave the
+    // donut nearly the whole box, which is what makes the callouts read as
+    // annotations on a large ring rather than a small ring wedged between two
+    // wide gutters.
+    const totalForPct = rawData.reduce((sum, p) => {
+      const y = Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? p.y : p);
+      return sum + (+y || 0);
+    }, 0) || 1;
+    let widestName = 0, widestValue = 0, widestPair = 0;
+    rawData.forEach((p, i) => {
+      const name = Array.isArray(p) ? p[0] : ((p && p.name) || ('Slice ' + (i + 1)));
+      const y = Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? p.y : p);
+      const valueStr = plotOpts.showPercentages
+        ? ((+y || 0) / totalForPct * 100).toFixed(1) + '%'
+        : addCommas(+y || 0) + (plotOpts.valueSuffix || '');
+      const nw = String(name).length * F_LABEL * 0.62;
+      const vw = valueStr.length * F_VALUE * 0.6;
+      widestName = Math.max(widestName, nw);
+      widestValue = Math.max(widestValue, vw);
+      widestPair = Math.max(widestPair, nw + vw + 10);
+    });
+    const showConnectorLabels = userLabels !== 'off';
+
+    // Degrade in this order, taking the first option that fits:
+    //   two-line blocks → one-line blocks → drop the legend → name-only
+    //   labels → shrink the type (floor 0.72).
+    // Something is always drawn; only the amount of detail gives way.
+    const vRoomFor = zone => (chartBottom - (titleBlockH + zone + 8)) - 24;
+    const textWidthFor = mode =>
+      mode === 'two' ? Math.max(widestName, widestValue)
+      : mode === 'one' ? widestPair
+      : mode === 'value' ? widestValue
+      : widestName;
+    const CONNECT_RUN = 44;              // flat run reserved beside the text
+    const capPadFor = mode => chartW * (mode === 'two' ? 0.30 : 0.40);
+
+    let legendZone = rawLegendZone;
+    let labelMode = 'two';
+    let labelScale = 1;
+    if (showConnectorLabels) {
+      const attempts = [];
+      [rawLegendZone, 0].forEach(zone => {
+        ['two', 'one', 'name'].forEach(mode => {
+          // Two-line blocks want to sit comfortably (75% of the column);
+          // tighter modes may use all of it.
+          const blockH = mode === 'two' ? TWO_LINE_H : ONE_LINE_H;
+          const room = vRoomFor(zone) * (mode === 'two' ? 0.75 : 1);
+          const fitsV = perSide * blockH <= room;
+          const fitsH = textWidthFor(mode) + CONNECT_RUN <= capPadFor(mode);
+          attempts.push({ zone, mode, ok: fitsV && fitsH });
+        });
+      });
+      const win = attempts.find(a => a.ok);
+      if (win) {
+        legendZone = win.zone;
+        labelMode = win.mode;
+        // A name-only callout next to a legend says the same thing twice. Let
+        // the legend keep the names and give the callouts the values instead —
+        // which are narrower, so the ring grows too.
+        if (win.mode === 'name' && win.zone > 0) labelMode = 'value';
+      } else {
+        // Nothing fits at full size: keep the most compact layout, drop the
+        // legend (the callouts already carry the names) and shrink the type
+        // until both the stack and the column fit.
+        legendZone = (opts.legend && opts.legend.enabled === true) ? rawLegendZone : 0;
+        labelMode = 'name';
+        const vScale = vRoomFor(legendZone) / (perSide * ONE_LINE_H);
+        const hScale = (capPadFor('name') - CONNECT_RUN) / Math.max(1, textWidthFor('name'));
+        labelScale = Math.max(0.72, Math.min(1, vScale, hScale));
+      }
+    }
+    const legendVisible = legendEnabled && legendZone > 0;
+    const chartTop = titleBlockH + legendZone + 8;
+    const chartH = chartBottom - chartTop;
+    const vRoom = chartH - 24;
+    // The column is only as wide as the text it holds plus the connector run,
+    // so the ring keeps every pixel the labels do not need.
+    const labelPad = Math.max(56, Math.min(capPadFor(labelMode),
+      textWidthFor(labelMode) * labelScale + CONNECT_RUN));
+
+    const labelColPad = showConnectorLabels ? labelPad : 30;
     if (isSemi) {
       cy = chartBottom - 20;
       baseR = Math.max(30, Math.min((chartW - labelColPad * 2) / 2, chartH - 20));
     } else {
       cy = chartTop + chartH / 2;
-      baseR = Math.max(30, Math.min((chartW - labelColPad * 2) / 2, (chartH - 20) / 2));
+      // clean-charts sizes the ring at 40% of the available height (donut_radius),
+      // which is what leaves the vertical room the callout stubs and stacked
+      // labels need above and below the ring.
+      baseR = Math.max(30, Math.min((chartW - labelColPad * 2) / 2, chartH * 0.40));
     }
 
     const sizePct = parseSize(plotOpts.size, Math.min(chartW, chartH)) || (baseR * 2);
@@ -1789,9 +2081,11 @@ Charts.bar = function (container, opts) {
     // Data + gradient colors (clean-charts default black → blue)
     const startCol = plotOpts.startColor || opts.startColor || START_COL;
     const endCol   = plotOpts.endColor   || opts.endColor   || END_COL;
-    const gradList = gradientColors(startCol, endCol, rawSeries.data.length);
+    // Colors span the slices that will actually be drawn, so dropping a bad
+    // point does not leave a gap in the gradient.
+    const gradList = gradientColors(startCol, endCol, rawData.length);
 
-    const data = rawSeries.data.map((d, i) => {
+    const data = rawData.map((d, i) => {
       let name, y, z, color, sliced;
       if (Array.isArray(d)) { name = d[0]; y = d[1]; }
       else if (typeof d === 'object') { name = d.name; y = d.y; z = d.z; color = d.color; sliced = d.sliced; }
@@ -1818,6 +2112,14 @@ Charts.bar = function (container, opts) {
 
     // (Radial gradient wedge fills removed by library policy.)
 
+    // Footnote naming the dropped slices — bottom-left, aligned with the title.
+    if (droppedNote) {
+      txt(droppedNote, {
+        x: titleX, y: H - marginPx + 2, 'text-anchor': 'start',
+        'font-size': F_NOTE, fill: SUB_COL, 'font-family': FONT
+      }, svg);
+    }
+
     function render() {
       gSlices.innerHTML = '';
       gConnectors.innerHTML = '';
@@ -1826,12 +2128,25 @@ Charts.bar = function (container, opts) {
 
       const visible = data.filter(d => d.visible);
       const total = visible.reduce((s, d) => s + d.y, 0);
-      if (total <= 0) return;
+      if (total <= 0) {
+        // Nothing to divide up — every slice was dropped, hidden, or zero.
+        // Say so rather than leaving an unexplained empty box.
+        const why = droppedNames.length && !data.length
+          ? 'No positive values to chart'
+          : 'Nothing to show';
+        txt(why, {
+          x: cx, y: cy, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
+          'font-size': F_LABEL, fill: SUB_COL, 'font-family': FONT
+        }, gCenter);
+        return;
+      }
       const maxZ = isVariableRadius ? Math.max(...visible.map(d => d.z || 0)) : 1;
 
       const explodeDist = 10;
-      const showLabels = !(plotOpts.dataLabels === false ||
-        (plotOpts.dataLabels && plotOpts.dataLabels.enabled === false));
+      const showLabels = showConnectorLabels;
+      const oneLine = labelMode !== 'two';   // 'one' and 'name' share the single baseline
+      const nameOnly = labelMode === 'name';
+      const valueOnly = labelMode === 'value';
 
       // Auto-rotate: pick a startAngle that balances slice midpoints between
       // the left and right label columns (fewer per side ⇒ less connector deflection
@@ -1840,15 +2155,19 @@ Charts.bar = function (container, opts) {
       if (autoRotate && !userSetStartAngle && !isSemi && visible.length > 2) {
         const fracs = visible.map(d => d.y / total);
         let bestOff = 0, bestScore = Infinity;
-        for (let off = 0; off < 360; off += 15) {
-          let acc2 = 0, right = 0, left = 0;
+        for (let off = 0; off < 360; off += 5) {
+          let acc2 = 0, right = 0, left = 0, flat = 0;
           for (const f of fracs) {
             const midDeg = off + (acc2 + f / 2) * spanDeg;
             acc2 += f;
             const midRad = (midDeg - 90) * Math.PI / 180;
             if (Math.cos(midRad) >= 0) right++; else left++;
+            // A wedge whose midpoint sits on the horizontal axis exits the ring
+            // at its widest point, so its connector degenerates into one flat
+            // line with no elbow. Rotate those off the axis.
+            if (Math.abs(Math.sin(midRad)) < 0.20) flat++;
           }
-          const score = Math.max(right, left) * 1000 + Math.abs(right - left);
+          const score = Math.max(right, left) * 1000 + flat * 120 + Math.abs(right - left);
           if (score < bestScore) { bestScore = score; bestOff = off; }
         }
         startAngleDeg = bestOff;
@@ -1871,9 +2190,13 @@ Charts.bar = function (container, opts) {
         d._midA = midA; d._rOut = rOut; d._off = off; d._frac = frac;
         d._a0 = a0; d._a1 = a1;
 
-        // Ideal label y at radial position just outside wedge
-        const rNatural = rOut + 22 + off;
-        const idealY = cy + rNatural * Math.sin(midA);
+        // clean-charts callout stub: a radial segment from r*1.08 to r*1.20.
+        // The label's natural y is the OUTER end of that stub, not the wedge edge.
+        const r1 = rOut * (1 + CALLOUT_GAP) + off;
+        const r2 = rOut * (1 + CALLOUT_GAP + CALLOUT_LEN) + off;
+        d._p1 = [cx + r1 * Math.cos(midA), cy + r1 * Math.sin(midA)];
+        d._p2 = [cx + r2 * Math.cos(midA), cy + r2 * Math.sin(midA)];
+        const idealY = d._p2[1];
         const side = Math.cos(midA) >= 0 ? 'right' : 'left';
         items.push({ d, idealY, side });
       });
@@ -1896,40 +2219,49 @@ Charts.bar = function (container, opts) {
         // Align label columns with the title/legend inner pad (titleX = 20).
         const rightColX = W - titleX;
         const leftColX = titleX;
-        // Elbow column: 40% between donut edge and label column
-        const donutRightX = cx + outerR;
-        const donutLeftX = cx - outerR;
-        const rightElbowX = donutRightX + (rightColX - donutRightX) * 0.40;
-        const leftElbowX = donutLeftX - (donutLeftX - leftColX) * 0.40;
+        // Every connector uses the same short diagonal — a fixed horizontal run
+        // out of the wedge — so the kinks line up across labels and the long
+        // horizontal into the label column is the dominant part of the path.
+        // Shared elbow x per side (clean-charts): 40% of the way from the ring
+        // edge out to the label column. One column of kinks per side.
+        const rightElbowX = (cx + outerR) + (rightColX - (cx + outerR)) * ELBOW_FRAC;
+        const leftElbowX = (cx - outerR) - ((cx - outerR) - leftColX) * ELBOW_FRAC;
 
         const minY = chartTop + 12;
         const maxY = (isSemi ? cy - 6 : chartBottom - 12);
-        // Two-line label block (name + value) with a small gap between blocks.
-        const labelBlockH = 34;
+        // Two-line block: name above the connector's horizontal run, value
+        // below it. In the compact one-line mode both sit above the rule, which
+        // halves the vertical budget per label.
+        // Type shrinks with labelScale when the stack would otherwise overflow.
+        const fLabel = F_LABEL * labelScale, fValue = F_VALUE * labelScale;
+        // clean-charts anchors both lines to the connector's horizontal run:
+        // the name sits on it (baseline just above), the value hangs below it.
+        const nameDY = oneLine ? -(fLabel * 0.35) : -(fLabel * 0.55);
+        const valueDY = oneLine ? -(fLabel * 0.35) : (fValue * 0.25 + fValue * 0.8);
+        // Minimum vertical pitch between two label blocks, as in clean-charts:
+        // (label + value + 4) * 1.1, floored by the mode's nominal block height.
+        const labelBlockH = oneLine
+          ? Math.max(fLabel * 1.6, ONE_LINE_H * labelScale)
+          : Math.max((fLabel + fValue + 4) * 1.1, TWO_LINE_H * labelScale);
 
+        // clean-charts de-overlap: symmetric pairwise relaxation, repeated, with
+        // a clamp to the plot box after each sweep. Unlike a one-directional
+        // cascade this pushes crowded neighbours apart in BOTH directions, so a
+        // cluster stays centred on where its wedges actually are.
         function relax(group) {
-          if (!group.length) return;
+          if (group.length <= 1) { group.forEach(it => it.y = it.idealY); return; }
           group.sort((a, b) => a.idealY - b.idealY);
-          // Cap group size to what actually fits; if too many, drop extras cannot happen here
-          // because callers control label count. Do downward + upward stacking passes so
-          // labels never overlap, clamping to [minY, maxY].
           group.forEach(it => it.y = it.idealY);
-          // Downward pass: enforce minimum spacing walking top → bottom.
-          group[0].y = Math.max(minY, group[0].y);
-          for (let j = 1; j < group.length; j++) {
-            group[j].y = Math.max(group[j].y, group[j-1].y + labelBlockH);
-          }
-          // If bottom overflows, upward pass from bottom clamps everyone up.
-          if (group[group.length-1].y > maxY) {
-            group[group.length-1].y = maxY;
-            for (let j = group.length - 2; j >= 0; j--) {
-              group[j].y = Math.min(group[j].y, group[j+1].y - labelBlockH);
+          for (let pass = 0; pass < 20; pass++) {
+            for (let j = 0; j < group.length - 1; j++) {
+              const diff = group[j + 1].y - group[j].y;
+              if (diff < labelBlockH) {
+                const push = (labelBlockH - diff) / 2;
+                group[j].y -= push;
+                group[j + 1].y += push;
+              }
             }
-            // Final clamp in case there are more labels than vertical room.
-            group[0].y = Math.max(minY, group[0].y);
-            for (let j = 1; j < group.length; j++) {
-              group[j].y = Math.max(group[j].y, group[j-1].y + labelBlockH);
-            }
+            group.forEach(it => { it.y = Math.max(minY, Math.min(maxY, it.y)); });
           }
         }
         items.forEach(it => it.y = it.idealY);
@@ -1941,23 +2273,19 @@ Charts.bar = function (container, opts) {
           const d = it.d;
           const isRight = it.side === 'right';
           const colX = isRight ? rightColX : leftColX;
-          const elbowX = isRight ? rightElbowX : leftElbowX;
           const anch = isRight ? 'end' : 'start';
 
-          // 4-point polyline: p1 (wedge edge + gap) → p2 (short radial out) → elbow → column.
-          // Elbow x is nudged past p2's x so the path never doubles back horizontally
-          // (fixes the Z shape at 12/6 o'clock while keeping the natural radial kink).
-          const gap = 6, len = 8;
-          const p1x = cx + (d._rOut + d._off + gap) * Math.cos(d._midA);
-          const p1y = cy + (d._rOut + d._off + gap) * Math.sin(d._midA);
-          const p2x = cx + (d._rOut + d._off + gap + len) * Math.cos(d._midA);
-          const p2y = cy + (d._rOut + d._off + gap + len) * Math.sin(d._midA);
-          const safeElbowX = isRight
-            ? Math.max(elbowX, p2x + 4)
-            : Math.min(elbowX, p2x - 4);
+          // Four-point connector (clean-charts):
+          //   p1 → p2                radial stub straight out of the wedge
+          //   p2 → (elbowX, labelY)  diagonal to the shared elbow column
+          //   (elbowX, y) → (colX,y) horizontal run into the label column,
+          //                          doubling as the rule under the name.
+          const p1 = d._p1, p2 = d._p2;
+          const elbowX = isRight ? rightElbowX : leftElbowX;
           el('path', {
-            d: `M ${p1x} ${p1y} L ${p2x} ${p2y} L ${safeElbowX} ${it.y} L ${colX} ${it.y}`,
-            stroke: CALLOUT_COL, 'stroke-width': 1, fill: 'none', 'stroke-linecap': 'round'
+            d: `M ${p1[0]} ${p1[1]} L ${p2[0]} ${p2[1]} L ${elbowX} ${it.y} L ${colX} ${it.y}`,
+            stroke: CONNECT_COL, 'stroke-width': CONNECT_W, fill: 'none',
+            'stroke-linecap': 'round', 'stroke-linejoin': 'round'
           }, gConnectors);
 
           // Two-line label: name (bold) above, value (lighter) below
@@ -1967,14 +2295,42 @@ Charts.bar = function (container, opts) {
           if (plotOpts.showPercentages) valueStr = pct.toFixed(1) + '%';
           else valueStr = addCommas(d.y === Math.floor(d.y) ? d.y : (+d.y.toFixed(2))) + valueSuffix;
 
-          txt(d.name, {
-            x: colX, y: it.y - 3, 'text-anchor': anch,
-            'font-size': F_LABEL, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT
-          }, gLabels);
-          txt(valueStr, {
-            x: colX, y: it.y + 12, 'text-anchor': anch,
-            'font-size': F_VALUE, fill: SUB_COL, 'font-family': FONT
-          }, gLabels);
+          // clean-charts insets the text a few px from the end of the rule.
+          const lx = colX + (isRight ? -4 : 4);
+
+          if (valueOnly) {
+            txt(valueStr, {
+              x: lx, y: it.y +nameDY, 'text-anchor': anch,
+              'font-size': fLabel, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
+            }, gLabels);
+          } else if (nameOnly) {
+            txt(d.name, {
+              x: lx, y: it.y +nameDY, 'text-anchor': anch,
+              'font-size': fLabel, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
+            }, gLabels);
+          } else if (oneLine) {
+            // Name then value share one baseline, reading outward-in on both
+            // sides: the name always sits against the column edge.
+            const nameW = d.name.length * fLabel * 0.6 + 8;
+            txt(d.name, {
+              x: lx, y: it.y +nameDY, 'text-anchor': anch,
+              'font-size': fLabel, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
+            }, gLabels);
+            txt(valueStr, {
+              x: isRight ? lx - nameW : lx + nameW, y: it.y + valueDY,
+              'text-anchor': anch,
+              'font-size': fValue, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT
+            }, gLabels);
+          } else {
+            txt(d.name, {
+              x: lx, y: it.y +nameDY, 'text-anchor': anch,
+              'font-size': fLabel, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
+            }, gLabels);
+            txt(valueStr, {
+              x: lx, y: it.y +valueDY, 'text-anchor': anch,
+              'font-size': fValue, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT
+            }, gLabels);
+          }
         });
       }
 
@@ -1986,7 +2342,7 @@ Charts.bar = function (container, opts) {
         lines.forEach((ln, i) => {
           txt(ln, { x: cx, y: cyC - (lines.length - 1) * 8 + i * 20,
             'text-anchor': 'middle', 'font-size': ct.valueFontSize || F_CENTER * 1.6,
-            'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, gCenter);
+            'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gCenter);
         });
         if (ct.label) txt(ct.label, {
           x: cx, y: cyC + (lines.length - 1) * 10 + 22,
@@ -1999,7 +2355,7 @@ Charts.bar = function (container, opts) {
     // Legend — top row(s), below subtitle, wraps as needed
     function renderLegend() {
       gLegend.innerHTML = '';
-      if (!legendEnabled) return;
+      if (!legendVisible) return;
       const startX = titleX;
       const startY = titleBlockH + 2;
       legendLayout.rows.forEach((row, ri) => {
@@ -2016,8 +2372,8 @@ Charts.bar = function (container, opts) {
           el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
           el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
             fill: d.visible ? d.color : '#ccc' }, gr);
-          txt(d.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12, 'font-size': F_LEG, 'font-weight': 600,
-            fill: d.visible ? TITLE_COL : '#ccc',
+          txt(d.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12, 'font-size': F_LEG, 'font-weight': CAT_FW,
+            fill: d.visible ? CAT_COL : '#ccc',
             'text-decoration': d.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {
@@ -2125,7 +2481,7 @@ Charts.pie = function (container, opts) {
     GRID = t.grid || '#dcdbd7';
     AXIS = t.labelColor || '#333333';
     TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#444444';
+    SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
     INV_TEXT = t.inverseText || '#FFFFFF';
     START_COL = t.gradientStart || '#000000';
@@ -2134,10 +2490,18 @@ Charts.pie = function (container, opts) {
     DEFAULT_COL = t.defaultColor || '#000000';
   }
 
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_POINT_LBL, SPINE_W, GRID_W;
   function applyTheme() {
     applyThemeColors();
     const t = (window.Charts && window.Charts.theme) || {};
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
@@ -2159,6 +2523,39 @@ Charts.pie = function (container, opts) {
     e.textContent = t;
     return e;
   }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
     const s = String(n);
@@ -2294,7 +2691,13 @@ Charts.pie = function (container, opts) {
 
     // Layout tokens (clean-charts uses ~45px outer margin)
     const marginPx = 22;
-    const titleBlockH = (hasTitle ? 24 : 0) + (hasSub ? 22 : 0) + 18;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
 
     // Legend: auto-enable when multi-series; wraps across rows as needed.
     const hasLegend = (opts.legend && opts.legend.enabled != null)
@@ -2355,10 +2758,10 @@ Charts.pie = function (container, opts) {
 
     // Title and subtitle top-left, aligned to titleX
     const titleX = 20;
-    if (hasTitle) txt(opts.title, { x: titleX, y: 34, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg);
-    if (hasSub) txt(opts.subtitle, { x: titleX, y: hasTitle ? 54 : 34, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg);
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // Normalize series
     const seriesDefs = (opts.series || []).map((s, i) => {
@@ -2449,14 +2852,14 @@ Charts.pie = function (container, opts) {
         el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y, stroke: GRID, 'stroke-width': GRID_W }, gGrid);
         const label = addCommas((+v.toFixed(6)).toString()) + ySuffix;
         txt(label, { x: M.l - 8, y: y + 4, 'text-anchor': 'end',
-          'font-size': F_TICK, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+          'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
       });
       r.xTicks.forEach(v => {
         const x = xScale(v);
         el('line', { x1: x, x2: x, y1: M.t, y2: M.t + IH, stroke: GRID, 'stroke-width': GRID_W }, gGrid);
         const label = addCommas((+v.toFixed(6)).toString()) + xSuffix;
         txt(label, { x, y: M.t + IH + 18, 'text-anchor': 'middle',
-          'font-size': F_TICK, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+          'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
       });
 
       // Both LEFT and BOTTOM spines (dark)
@@ -2465,11 +2868,11 @@ Charts.pie = function (container, opts) {
 
       // X label bottom-centered
       if (xTitle) txt(xTitle, { x: M.l + IW/2, y: H - 8, 'text-anchor': 'middle',
-        'font-size': F_LABEL, 'font-weight': 700, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+        'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
       // Y label rotated, aligned to titleX
       if (yTitle) {
         const t = txt(yTitle, { x: 0, y: 0, 'text-anchor': 'middle',
-          'font-size': F_LABEL, 'font-weight': 700, fill: LABEL_COL, 'font-family': FONT }, gAxes);
+          'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
         // Shift anchor right by ~ascent so the rotated text's visual left edge sits at titleX.
         t.setAttribute('transform', `translate(${titleX + 11}, ${M.t + IH/2}) rotate(-90)`);
       }
@@ -2503,7 +2906,7 @@ Charts.pie = function (container, opts) {
           // Point labels
           if (s.showLabels && p.name) {
             txt(p.name, { x: cx, y: cy - radius - 4, 'text-anchor': 'middle',
-              'font-size': F_POINT_LBL, 'font-weight': 700, fill: LABEL_COL, 'font-family': FONT }, gLabels);
+              'font-size': F_POINT_LBL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gLabels);
           }
         });
 
@@ -2538,6 +2941,8 @@ Charts.pie = function (container, opts) {
         const gy = M.t + IH / 2;
         groupCenters[s.name] = { x: gx, y: gy };
         s.points.forEach(p => {
+          // Packed bubbles size on `y`; `value` is accepted as an alias.
+          if (p && p.y == null && p.value != null) p.y = p.value;
           if (!p || p.y == null) return;
           flat.push({ s, p, group: s.name });
         });
@@ -2711,3 +3116,1243 @@ Charts.packedBubble = function (container, opts) {
   opts = opts || {}; opts.chart = opts.chart || {}; opts.chart.type = 'packedbubble';
   return Charts.scatter(container, opts);
 };
+
+// ─── barList ───────────────────────────────────────────────────────
+
+/*
+ * Clean-charts-styled bar LIST engine (Charts.barList).
+ *
+ * A horizontal bar chart stripped to its two honest elements — the category
+ * and the length of its bar. There is no axis, no gridline, no tick and no
+ * spine: the category label sits directly ABOVE its own bar, full width, and
+ * the value sits at the bar's end. That makes long category names free (they
+ * are not squeezed into a left gutter that every other row has to pay for)
+ * and suits ranked lists, survey results and share breakdowns.
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the
+ *    other engines, all label x-positions aligned to the same titleX = 20
+ *  - Theme tokens only (Charts.theme) — no literal colors in the draw code
+ *  - Bold value labels, muted category text, hover highlight + shared tooltip
+ *  - Negative values are drawn from a shared zero baseline, in the theme's
+ *    negative color, since a bar chart CAN represent them honestly
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    BG = t.bg || '#f4f3f0';
+    GRID = t.grid || '#dcdbd7';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    LABEL_COL = t.labelColor || '#333333';
+    SEC_COL = t.secondaryColor || '#666666';
+    NEG_COL = t.negative || '#D1107A';
+    DEFAULT_COL = t.defaultColor || '#000000';
+    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function addCommas(n) {
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+  // Rough advance width. The engines all estimate rather than measure so that
+  // layout is decided before anything is added to the DOM.
+  function textW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
+  }
+  function truncate(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (textW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s + '…';
+  }
+
+  // ---------------- main ----------------
+  function Chart(container, opts) {
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 800;
+    const plot = (opts.plotOptions && opts.plotOptions.barList) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+    const yAxis = opts.yAxis || {};
+    const valueSuffix = plot.valueSuffix != null ? plot.valueSuffix
+                      : (yAxis.suffix != null ? yAxis.suffix : '');
+
+    // ── Data ────────────────────────────────────────────────────────────
+    // Accepts the same shapes as the other engines: [{name,y}], [name, y]
+    // pairs, or bare numbers paired with xAxis.categories.
+    const cats = (opts.xAxis && opts.xAxis.categories) || [];
+    const series = (opts.series && opts.series[0]) || { data: [] };
+    const seriesName = series.name || 'Series 1';
+    let points = (series.data || []).map((d, i) => {
+      let name, y, color;
+      if (Array.isArray(d)) { name = d[0]; y = +d[1]; }
+      else if (d && typeof d === 'object') { name = d.name; y = +d.y; color = d.color; }
+      else { y = +d; }
+      if (name == null) name = cats[i] != null ? cats[i] : 'Item ' + (i + 1);
+      return { name, y: Number.isFinite(y) ? y : 0, color, idx: i };
+    });
+
+    // Ranked lists are the common case, so sorting is built in.
+    if (plot.sort === 'desc') points.sort((a, b) => b.y - a.y);
+    else if (plot.sort === 'asc') points.sort((a, b) => a.y - b.y);
+
+    const colorByPoint = plot.colorByPoint === true;
+    points.forEach((p, i) => {
+      if (!p.color) p.color = colorByPoint ? COLORS[i % COLORS.length]
+                                           : (series.color || DEFAULT_COL);
+      if (p.y < 0 && !colorByPoint && !(series.data[p.idx] || {}).color) p.color = NEG_COL;
+    });
+
+    const hasTitle = !!opts.title;
+    const hasSub = !!opts.subtitle;
+    const titleX = 20;                       // shared left edge, as in bar.js
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+    const marginR = 20, marginB = 16;
+
+    // ── Row metrics ─────────────────────────────────────────────────────
+    // A row is: category label, then its bar, then the gap to the next row.
+    // The label belongs to the bar under it, so the label→bar gap is much
+    // tighter than the row→row gap; that grouping is what lets the eye read
+    // the pairs without any rule or axis to separate them.
+    const n = points.length;
+    const labelH = Math.round(F_LABEL * 1.25);
+    const labelGap = 5;
+    const rowGap = plot.rowGap != null ? plot.rowGap : 22;
+    let barH = plot.barHeight != null ? plot.barHeight : 26;
+
+    // Height: honour an explicit container height by fitting the rows into
+    // it; otherwise grow the container to the content, which is what a list
+    // of arbitrary length actually wants.
+    const rowH = () => labelH + labelGap + barH + rowGap;
+    const chromeH = titleBlockH + marginB;
+    const fixedH = container.clientHeight;
+    let H;
+    if (plot.autoHeight === false && fixedH) {
+      H = fixedH;
+      const avail = H - chromeH;
+      if (n) {
+        const need = n * rowH() - rowGap;
+        if (need > avail) barH = Math.max(6, barH - (need - avail) / n);
+      }
+    } else {
+      H = Math.round(chromeH + (n ? n * rowH() - rowGap : 0));
+      container.style.height = H + 'px';
+    }
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+
+    if (!n) return { getData: () => points };
+
+    // ── Horizontal scale ────────────────────────────────────────────────
+    // No axis means no tick rounding: the longest bar simply takes the room
+    // that is left once its own value label is accounted for. Bars stay
+    // strictly proportional to each other, which is the only comparison this
+    // chart type asks the reader to make.
+    const fmt = v => (plot.format ? String(plot.format).replace('{y}', addCommas(v))
+                                  : addCommas(v) + valueSuffix);
+    let widestValue = 0;
+    points.forEach(p => { widestValue = Math.max(widestValue, textW(fmt(p.y), F_VALUE, true)); });
+
+    const valuePad = 8;
+    const contentL = titleX;
+    const contentR = W - marginR;
+
+    const maxV = Math.max(0, ...points.map(p => p.y));
+    const minV = Math.min(0, ...points.map(p => p.y));
+    const span = (maxV - minV) || 1;
+
+    // Room for the value label is reserved at whichever end a bar can reach:
+    // always on the right, and on the left too once any bar runs backwards —
+    // otherwise a negative bar's label is drawn off the edge of the canvas.
+    const leftGutter = minV < 0 ? widestValue + valuePad : 0;
+    const trackL = contentL + leftGutter;
+    const trackW = Math.max(40, (contentR - trackL) - widestValue - valuePad);
+    const zeroX = trackL + (0 - minV) / span * trackW;
+    const scale = v => Math.abs(v) / span * trackW;
+
+    const gBars = el('g', {}, svg);
+    const gLabels = el('g', {}, svg);
+
+    // A zero baseline only earns its keep when bars actually go both ways.
+    if (minV < 0) {
+      el('line', { x1: zeroX, y1: titleBlockH - 6, x2: zeroX, y2: H - marginB,
+        stroke: GRID, 'stroke-width': 1 }, gBars);
+    }
+
+    // ── Rows ────────────────────────────────────────────────────────────
+    let y = titleBlockH;
+    points.forEach(p => {
+      const w = Math.max(1, scale(p.y));
+      const barX = p.y < 0 ? zeroX - w : zeroX;
+      const barY = y + labelH + labelGap;
+
+      // Category label, above its own bar and aligned to the bar's starting
+      // edge, so the pair reads as one unit. With no negatives that edge is
+      // the content left margin, which is the plain left-aligned list.
+      const labelX = Math.min(barX, zeroX);
+      txt(truncate(p.name, F_LABEL, contentR - labelX, false), {
+        x: labelX, y: y + F_LABEL, 'text-anchor': 'start',
+        'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
+      }, gLabels);
+
+      const rect = el('rect', {
+        x: barX, y: barY, width: w, height: barH, fill: p.color,
+        class: 'blist-bar', 'data-idx': p.idx,
+        style: 'cursor:default;transition:opacity .15s'
+      }, gBars);
+      p._node = rect;
+
+      // Value at the bar's end, always outside it — with no axis to anchor
+      // against, the end of the bar is the only place the number can sit
+      // without the reader having to guess where the bar stops.
+      const vx = p.y < 0 ? barX - valuePad : barX + w + valuePad;
+      txt(fmt(p.y), {
+        x: vx, y: barY + barH / 2 + F_VALUE * 0.36,
+        'text-anchor': p.y < 0 ? 'end' : 'start',
+        'font-size': F_VALUE, 'font-weight': VAL_FW,
+        fill: plot.valueColor === 'series' ? p.color : VAL_COL,
+        'font-family': FONT
+      }, gLabels);
+
+      y += labelH + labelGap + barH + rowGap;
+    });
+
+    // ── Tooltip (same treatment as the other engines) ───────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    container.appendChild(tooltip);
+
+    svg.addEventListener('mousemove', ev => {
+      const target = ev.target;
+      if (target && target.classList && target.classList.contains('blist-bar')) {
+        const p = points.find(q => q._node === target);
+        if (!p) return;
+        points.forEach(q => { if (q._node) q._node.style.opacity = '1'; });
+        target.style.opacity = '0.85';
+        tooltip.innerHTML =
+          `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
+          `<div><span style="display:inline-block;width:9px;height:9px;background:${p.color};border-radius:2px;margin-right:6px"></span>${esc(p.name)}: <b style="color:${TITLE_COL}">${esc(fmt(p.y))}</b></div>`;
+        tooltip.style.display = 'block';
+        const rect = svg.getBoundingClientRect();
+        const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = px + 14, ty = py - th / 2;
+        if (tx + tw > W - 4) tx = px - tw - 14;
+        if (ty < 4) ty = 4;
+        if (ty + th > H - 4) ty = H - th - 4;
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+      } else {
+        points.forEach(q => { if (q._node) q._node.style.opacity = '1'; });
+        tooltip.style.display = 'none';
+      }
+    });
+    svg.addEventListener('mouseleave', () => {
+      points.forEach(q => { if (q._node) q._node.style.opacity = '1'; });
+      tooltip.style.display = 'none';
+    });
+
+    return { getData: () => points };
+  }
+
+    Charts.barList = Chart;
+})();
+
+// ─── barInsightTable ───────────────────────────────────────────────
+
+/*
+ * Clean-charts-styled bar INSIGHT TABLE engine (Charts.barInsightTable).
+ *
+ * One row per category, read left to right as a sentence:
+ *
+ *   Gross Revenue │ ▇▇▇▇▇▇ (FY22)   │ Topline Growth              │ +30%
+ *                 │ ▇▇▇▇▇▇▇▇ (FY23) │ Year-over-year expansion    │
+ *
+ *   [row label]     [single or grouped bars]  [insight headline +   [big
+ *                                              description]         stat]
+ *
+ * Use it when a bar alone under-sells the story: each row carries the
+ * comparison (the bars), what it means (the insight text) and the one number
+ * a reader should walk away with (the large stat). It is the chart type for
+ * income statements, KPI reviews, before/after decks and scorecards.
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the
+ *    other engines, all left-column text aligned to the same titleX = 20
+ *  - Same 20px outer pad on every side as column/bar
+ *  - The five shared text roles only (title / subtitle / category / tick /
+ *    value) — no font size or weight is invented here, and every size is
+ *    derived from a theme token so a retheme carries through
+ *  - Same top legend as column/bar: identical metrics, click to toggle a
+ *    series, greyed + struck-through when hidden
+ *  - Single series takes the theme's defaultColor; 2+ walk the palette
+ *  - Hairline dividers between rows, never around them
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    BG = t.bg || '#f4f3f0';
+    GRID = t.grid || '#dcdbd7';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    SEC_COL = t.secondaryColor || '#666666';
+    NEG_COL = t.negative || '#D1107A';
+    DEFAULT_COL = t.defaultColor || '#000000';
+    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || '#333333';
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
+    F_TICK = t.tickSize != null ? t.tickSize : 11;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function addCommas(n) {
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+  function textW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
+  }
+  function truncate(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (textW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s + '…';
+  }
+
+  // ---------------- main ----------------
+  function Chart(container, opts) {
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 900;
+    const plot = (opts.plotOptions && opts.plotOptions.barInsightTable) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+    const yAxis = opts.yAxis || {};
+    const valueSuffix = plot.valueSuffix != null ? plot.valueSuffix
+                      : (yAxis.suffix != null ? yAxis.suffix : '');
+    const fmt = v => (plot.format ? String(plot.format).replace('{y}', addCommas(v))
+                                  : addCommas(v) + valueSuffix);
+
+    // ── Data ────────────────────────────────────────────────────────────
+    // Rows come from xAxis.categories (or from point names); every series
+    // contributes one bar per row, so 1 series = single bars, 2+ = groups.
+    const cats = (opts.xAxis && opts.xAxis.categories) || [];
+    const nSeriesAll = (opts.series || []).length;
+    const seriesDefs = (opts.series || []).map((s, si) => ({
+      name: s.name || 'Series ' + (si + 1),
+      // Same rule as column/bar: one series is the theme's default color,
+      // several walk the palette.
+      color: s.color || (nSeriesAll === 1 ? DEFAULT_COL : COLORS[si % COLORS.length]),
+      data: s.data || [],
+      visible: true
+    }));
+
+    const nRows = Math.max(cats.length, ...seriesDefs.map(s => s.data.length), 0);
+    const pointAt = (s, i) => {
+      const d = s.data[i];
+      if (d == null) return null;
+      if (Array.isArray(d)) return { y: +d[1], name: d[0] };
+      if (typeof d === 'object') return { y: +d.y, name: d.name, color: d.color, extra: d };
+      return { y: +d };
+    };
+
+    // Per-row extras (insight headline, description, stat) may be given as a
+    // parallel `rows` array — the shape an author reaches for first — or
+    // hung off the data points of any series.
+    const rowsOpt = opts.rows || plot.rows || [];
+    const rows = [];
+    for (let i = 0; i < nRows; i++) {
+      const pts = seriesDefs.map(s => {
+        const p = pointAt(s, i);
+        return p && Number.isFinite(p.y) ? p : null;
+      });
+      const fromPoint = pts.find(p => p && p.extra &&
+        (p.extra.insight != null || p.extra.stat != null || p.extra.description != null)) || {};
+      const ex = Object.assign({}, fromPoint.extra || {}, rowsOpt[i] || {});
+      const firstNamed = pts.find(p => p && p.name);
+      rows.push({
+        idx: i,
+        label: ex.label != null ? ex.label
+             : (cats[i] != null ? cats[i] : (firstNamed ? firstNamed.name : 'Row ' + (i + 1))),
+        insight: ex.insight != null ? ex.insight : (ex.headline != null ? ex.headline : ''),
+        description: ex.description != null ? ex.description : '',
+        stat: ex.stat,
+        statNote: ex.statNote != null ? ex.statNote : '',
+        statColor: ex.statColor,
+        points: pts
+      });
+    }
+
+    // A stat is the point of this chart type, so one is derived when the
+    // author did not supply it: the change from the first series to the last,
+    // which is what a two-column comparison is asking about anyway.
+    const autoStat = plot.autoStat !== false && seriesDefs.length >= 2;
+    rows.forEach(r => {
+      if (r.stat != null || !autoStat) return;
+      const a = r.points[0], b = r.points[r.points.length - 1];
+      if (!a || !b || !a.y) return;
+      const pct = (b.y - a.y) / Math.abs(a.y) * 100;
+      if (!Number.isFinite(pct)) return;
+      const rounded = Math.abs(pct) >= 10 ? Math.round(pct) : Math.round(pct * 10) / 10;
+      r.stat = (rounded > 0 ? '+' : '') + rounded + '%';
+      if (r.statColor == null && plot.statColorBySign) r.statColor = rounded < 0 ? NEG_COL : TITLE_COL;
+    });
+
+    const hasInsight = rows.some(r => r.insight || r.description);
+    const hasStat = rows.some(r => r.stat != null && r.stat !== '');
+
+    // ── Title / subtitle ────────────────────────────────────────────────
+    const hasTitle = !!opts.title;
+    const hasSub = !!opts.subtitle;
+    const titleX = 20;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+
+    // ── Legend layout (top row(s), auto-enabled when multi-series) ──────
+    // Metrics, wrap rule and toggle behaviour are the column/bar legend's.
+    const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
+    const legendEnabled = (opts.legend && opts.legend.enabled != null)
+      ? !!opts.legend.enabled : (seriesDefs.length > 1);
+    function layoutLegend(items, availW) {
+      const widths = items.map(it =>
+        LEG_ICON + LEG_ICON_GAP + Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
+      const rowsOut = [];
+      let cur = [], curX = 0;
+      for (let i = 0; i < items.length; i++) {
+        if (cur.length && curX + widths[i] > availW) { rowsOut.push(cur); cur = []; curX = 0; }
+        cur.push({ item: items[i], x: curX, w: widths[i] });
+        curX += widths[i];
+      }
+      if (cur.length) rowsOut.push(cur);
+      return { rows: rowsOut, height: rowsOut.length * LEG_ROW };
+    }
+    const legendLayout = legendEnabled
+      ? layoutLegend(seriesDefs, W - 40) : { rows: [], height: 0 };
+    const legendZone = legendLayout.height + (legendEnabled ? 18 : 0);
+
+    // ── Column geometry ─────────────────────────────────────────────────
+    // Four columns: row label, bars, insight text, stat. Widths are fractions
+    // of the content width (or px when >1), and the columns that carry no
+    // data collapse so a bars-only table still fills the canvas.
+    // The outer pad is 20 on every side, as in column/bar.
+    const marginR = 20, marginB = 20;
+    const contentL = titleX, contentR = W - marginR;
+    const contentW = contentR - contentL;
+    const COL_GAP = plot.columnGap != null ? plot.columnGap : 22;
+
+    const cw = plot.columns || {};
+    const px = (v, dflt) => (v == null ? dflt : (v > 1 ? v : v * contentW));
+    let wLabel = px(cw.label, contentW * 0.22);
+    let wBars = px(cw.bars, contentW * 0.30);
+    let wInsight = hasInsight ? px(cw.insight, contentW * 0.30) : 0;
+    let wStat = hasStat ? px(cw.stat, contentW * 0.16) : 0;
+    const gaps = COL_GAP * ((wInsight ? 1 : 0) + (wStat ? 1 : 0) + 1);
+    // Any slack (or overflow) is absorbed by the bars column — it is the only
+    // one whose width is a design choice rather than a function of its text.
+    wBars += contentW - (wLabel + wBars + wInsight + wStat + gaps);
+    wBars = Math.max(40, wBars);
+
+    const xLabel = contentL;
+    const xBars = xLabel + wLabel + COL_GAP;
+    const xInsight = xBars + wBars + COL_GAP;
+
+    // ── Type scale ──────────────────────────────────────────────────────
+    // Every size is a theme token or derived from one, so retuning titleSize
+    // / labelSize / tickSize in the theme moves this chart with the rest.
+    const F_INSIGHT = plot.insightSize != null ? plot.insightSize : F_LABEL + 1.5;
+    const F_DESC = plot.descriptionSize != null ? plot.descriptionSize : F_TICK;
+    const F_STAT = plot.statSize != null ? plot.statSize : Math.round(F_TITLE * 1.5);
+    const LABEL_LH = Math.round(F_LABEL * 1.35);
+    const IN_LH = Math.round(F_INSIGHT * 1.3);
+    const DESC_LH = Math.round(F_DESC * 1.35);
+    const LABEL_LINES = plot.labelLines != null ? plot.labelLines : 2;
+    const DESC_LINES = plot.descriptionLines != null ? plot.descriptionLines : 2;
+
+    // ── Row metrics ─────────────────────────────────────────────────────
+    const barH = plot.barHeight != null ? plot.barHeight : 20;
+    const barGap = plot.barGap != null ? plot.barGap : 4;
+    const rowPad = plot.rowPadding != null ? plot.rowPadding : 18;
+    const dividers = plot.dividers !== false;
+
+    // Long text is wrapped, not cut: row labels take up to 2 lines (as the
+    // column engine wraps its category names), insight headlines 2, the
+    // description `descriptionLines`. Only the last line is ever ellipsised.
+    rows.forEach(r => {
+      r.labelLines = wrapHeading(r.label, F_LABEL, wLabel, LABEL_LINES, CAT_FW >= 600);
+      r.insightLines = r.insight
+        ? wrapHeading(r.insight, F_INSIGHT, wInsight, 2, true) : [];
+      r.descLines = r.description
+        ? wrapHeading(r.description, F_DESC, wInsight, DESC_LINES, false) : [];
+    });
+
+    const container_ = container;
+    const svg = el('svg', { xmlns: NS });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container_.appendChild(svg);
+
+    // ── Tooltip (same treatment as the other engines) ───────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    container_.appendChild(tooltip);
+
+    let bars = [], H = 0;
+
+    function render() {
+      svg.innerHTML = '';
+      bars = [];
+      const vis = seriesDefs.filter(s => s.visible);
+      const nSeries = Math.max(1, vis.length);
+
+      // Row heights depend on how many series are showing, so they are
+      // measured on every render rather than once.
+      rows.forEach(r => {
+        const barsH = vis.length ? vis.length * barH + (vis.length - 1) * barGap : 0;
+        const labelH = r.labelLines.length * LABEL_LH;
+        const insightH = r.insightLines.length * IN_LH + r.descLines.length * DESC_LH;
+        const statH = r.stat != null && r.stat !== ''
+          ? F_STAT * 1.1 + (r.statNote ? DESC_LH : 0) : 0;
+        r.h = Math.max(barsH, labelH, insightH, statH) + rowPad * 2;
+      });
+
+      const bodyH = rows.reduce((a, r) => a + r.h, 0);
+      const chromeH = titleBlockH + legendZone + marginB;
+      const fixedH = container_.clientHeight;
+      if (plot.autoHeight === false && fixedH) H = fixedH;
+      else { H = Math.round(chromeH + bodyH); container_.style.height = H + 'px'; }
+      svg.setAttribute('width', W);
+      svg.setAttribute('height', H);
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+        'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+      subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+        'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+
+      // Legend — identical metrics and toggle behaviour to column/bar.
+      if (legendEnabled) {
+        const startY = titleBlockH + 2;
+        legendLayout.rows.forEach((row, ri) => {
+          row.forEach(cell => {
+            const s = cell.item;
+            const x = titleX + cell.x;
+            const y = startY + ri * LEG_ROW;
+            const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, svg);
+            el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
+            el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
+              fill: s.visible ? s.color : '#ccc' }, gr);
+            txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
+              'font-size': F_LEG, 'font-weight': CAT_FW,
+              fill: s.visible ? CAT_COL : '#ccc',
+              'text-decoration': s.visible ? 'none' : 'line-through',
+              'font-family': FONT }, gr);
+            gr.addEventListener('click', () => {
+              if (vis.length === 1 && s.visible) return;   // never hide the last one
+              s.visible = !s.visible;
+              render();
+            });
+          });
+        });
+      }
+
+      if (!nRows) return;
+
+      // ── Shared horizontal scale ───────────────────────────────────────
+      // Every row is measured against the same maximum — that is the whole
+      // point of stacking the rows in one table, and a per-row scale would
+      // quietly make a small row look like a big one.
+      const values = [];
+      rows.forEach(r => r.points.forEach((p, si) =>
+        { if (p && seriesDefs[si].visible) values.push(p.y); }));
+      const maxV = Math.max(0, ...values);
+      const minV = Math.min(0, ...values);
+      const span = (maxV - minV) || 1;
+      // With value labels on, the track gives up the room its widest label
+      // needs at either end it can reach — otherwise the longest bar's number
+      // runs into the insight column.
+      const LBL_PAD = 8;
+      let labelRoom = 0;
+      if (plot.dataLabels) {
+        values.forEach(v => { labelRoom = Math.max(labelRoom, textW(fmt(v), F_VALUE, true)); });
+        labelRoom += LBL_PAD;
+      }
+      const trackL = xBars + (minV < 0 ? labelRoom : 0);
+      const trackW = Math.max(20, wBars - labelRoom - (minV < 0 ? labelRoom : 0));
+      const zeroX = trackL + (0 - minV) / span * trackW;
+      const scale = v => Math.abs(v) / span * trackW;
+
+      const gBars = el('g', {}, svg);
+      const gText = el('g', {}, svg);
+
+      let y = titleBlockH + legendZone;
+      rows.forEach((r, ri) => {
+        const mid = y + r.h / 2;
+
+        // Row label — the category role, vertically centered against the whole
+        // row rather than the bars, so it stays put when the insight text is
+        // the tallest thing in the row.
+        let ly = mid - (r.labelLines.length - 1) * LABEL_LH / 2 + F_LABEL * 0.36;
+        r.labelLines.forEach(ln => {
+          txt(ln, { x: xLabel, y: ly, 'text-anchor': 'start',
+            'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gText);
+          ly += LABEL_LH;
+        });
+
+        // Bars — one per visible series, grouped and centered in the row.
+        const barsH = vis.length * barH + (vis.length - 1) * barGap;
+        let by = mid - barsH / 2;
+        r.points.forEach((p, si) => {
+          if (!seriesDefs[si].visible) return;
+          if (!p) { by += barH + barGap; return; }
+          const w = Math.max(1, scale(p.y));
+          const bx = p.y < 0 ? zeroX - w : zeroX;
+          const color = p.color || (p.y < 0 && nSeries === 1 ? NEG_COL : seriesDefs[si].color);
+          const rect = el('rect', {
+            x: bx, y: by, width: w, height: barH, fill: color,
+            class: 'bit-bar', style: 'cursor:default;transition:opacity .15s'
+          }, gBars);
+          bars.push({ node: rect, row: r, series: seriesDefs[si], value: p.y, color });
+          if (plot.dataLabels) {
+            // Value role, outside the bar end — as in barList.
+            txt(fmt(p.y), {
+              x: p.y < 0 ? bx - LBL_PAD : bx + w + LBL_PAD, y: by + barH / 2 + F_VALUE * 0.36,
+              'text-anchor': p.y < 0 ? 'end' : 'start',
+              'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT
+            }, gText);
+          }
+          by += barH + barGap;
+        });
+
+        // Insight column — headline in the category role, description under it
+        // in the quieter tick role. The pair is centered as one block.
+        if (wInsight && (r.insightLines.length || r.descLines.length)) {
+          const blockH = r.insightLines.length * IN_LH + r.descLines.length * DESC_LH;
+          let ty = mid - blockH / 2 + F_INSIGHT * 0.9;
+          r.insightLines.forEach(ln => {
+            txt(ln, { x: xInsight, y: ty, 'text-anchor': 'start', 'font-size': F_INSIGHT,
+              'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gText);
+            ty += IN_LH;
+          });
+          r.descLines.forEach(ln => {
+            txt(ln, { x: xInsight, y: ty, 'text-anchor': 'start', 'font-size': F_DESC,
+              'font-weight': TICK_FW, fill: SEC_COL, 'font-family': FONT }, gText);
+            ty += DESC_LH;
+          });
+        }
+
+        // Stat column — the value role at display size, right-aligned to the
+        // content edge so the column reads as one stack of figures.
+        if (wStat && r.stat != null && r.stat !== '') {
+          const noteH = r.statNote ? DESC_LH : 0;
+          const sy = mid + F_STAT * 0.36 - noteH / 2;
+          txt(truncate(r.stat, F_STAT, wStat, true), {
+            x: contentR, y: sy, 'text-anchor': 'end', 'font-size': F_STAT,
+            'font-weight': VAL_FW, fill: r.statColor || VAL_COL, 'font-family': FONT
+          }, gText);
+          if (r.statNote) {
+            txt(truncate(r.statNote, F_DESC, wStat, false), {
+              x: contentR, y: sy + DESC_LH + 2, 'text-anchor': 'end',
+              'font-size': F_DESC, 'font-weight': TICK_FW, fill: SEC_COL, 'font-family': FONT
+            }, gText);
+          }
+        }
+
+        y += r.h;
+        if (dividers && ri < rows.length - 1) {
+          el('line', { x1: contentL, y1: y, x2: contentR, y2: y,
+            stroke: GRID, 'stroke-width': 1 }, gBars);
+        }
+      });
+    }
+
+    render();
+
+    svg.addEventListener('mousemove', ev => {
+      const target = ev.target;
+      const hit = target && bars.find(b => b.node === target);
+      if (hit) {
+        bars.forEach(b => { b.node.style.opacity = '1'; });
+        hit.node.style.opacity = '0.85';
+        tooltip.innerHTML =
+          `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(hit.row.label)}</div>` +
+          `<div><span style="display:inline-block;width:9px;height:9px;background:${hit.color};border-radius:2px;margin-right:6px"></span>${esc(hit.series.name)}: <b style="color:${TITLE_COL}">${esc(fmt(hit.value))}</b></div>` +
+          (hit.row.stat != null && hit.row.stat !== ''
+            ? `<div style="color:${SEC_COL};margin-top:2px">${esc(hit.row.insight || 'Change')}: <b style="color:${TITLE_COL}">${esc(hit.row.stat)}</b></div>` : '');
+        tooltip.style.display = 'block';
+        const rect = svg.getBoundingClientRect();
+        const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = cx + 14, ty = cy - th / 2;
+        if (tx + tw > W - 4) tx = cx - tw - 14;
+        if (ty < 4) ty = 4;
+        if (ty + th > H - 4) ty = H - th - 4;
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+      } else {
+        bars.forEach(b => { b.node.style.opacity = '1'; });
+        tooltip.style.display = 'none';
+      }
+    });
+    svg.addEventListener('mouseleave', () => {
+      bars.forEach(b => { b.node.style.opacity = '1'; });
+      tooltip.style.display = 'none';
+    });
+
+    return { getData: () => rows, redraw: render };
+  }
+
+    Charts.barInsightTable = Chart;
+})();
+
+// ─── geofacet ──────────────────────────────────────────────────────
+
+/*
+ * Geofacet chart engine — small multiples laid out on a geographic grid.
+ *
+ * One tile per region, positioned by (row, col) in a grid that approximates
+ * the real map. Three tile variants, selected with chart.variant:
+ *   'bar'   — code + value on top, mini horizontal progress bar below (default)
+ *   'heat'  — solid choropleth tile, color scaled across the value range
+ *   'gauge' — radial progress ring with the value in the middle
+ *
+ * Regions present in the grid but absent from the data render as faint
+ * placeholder labels, so the map keeps its shape (see the gauge example).
+ *
+ * Cells are always square and share one derived gap, so the tiles read as a
+ * single block at any container aspect ratio. Spacing is deliberately not
+ * configurable.
+ *
+ * Grids: 'us' (default, 50 states + DC) via Charts.geofacet.grids. Pass
+ * chart.grid as an array of {code,row,col} (optionally {name}) for any other
+ * geography.
+ *
+ * Interactions: hover tile → highlight + tooltip.
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, START_COL, END_COL, INV_COL;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_CODE, F_VALUE;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    BG = t.bg || '#f4f3f0';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    LABEL_COL = t.labelColor || '#333333';
+    SEC_COL = t.secondaryColor || '#666666';
+    START_COL = t.gradientStart || '#000000';
+    END_COL = t.gradientEnd || '#2323FF';
+    INV_COL = t.inverseText || '#FFFFFF';
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_CODE = t.pointLabelSize != null ? t.pointLabelSize : 10;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function hex2rgb(hex) {
+    const c = hex.replace('#', '');
+    const n = parseInt(c.length === 3 ? c.split('').map(x => x + x).join('') : c, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function rgb2hex(r, g, b) {
+    return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+  }
+  function mix(startHex, endHex, t) {
+    const [r1, g1, b1] = hex2rgb(startHex);
+    const [r2, g2, b2] = hex2rgb(endHex);
+    return rgb2hex(r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t);
+  }
+  function lighten(hex, amt) {
+    const [r, g, b] = hex2rgb(hex);
+    return rgb2hex(r + (255 - r) * amt, g + (255 - g) * amt, b + (255 - b) * amt);
+  }
+  function luminance(hex) {
+    const [r, g, b] = hex2rgb(hex);
+    return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  }
+
+  // ── Grids ───────────────────────────────────────────────────────────
+  // us_state_grid: 50 states + DC on an 11-col × 8-row lattice.
+  const US_GRID = (function () {
+    const rows = [
+      [[11, 'ME']],
+      [[6, 'WI'], [10, 'VT'], [11, 'NH']],
+      [[1, 'WA'], [2, 'ID'], [3, 'MT'], [4, 'ND'], [5, 'MN'], [6, 'IL'], [7, 'MI'], [9, 'NY'], [10, 'MA']],
+      [[1, 'OR'], [2, 'NV'], [3, 'WY'], [4, 'SD'], [5, 'IA'], [6, 'IN'], [7, 'OH'], [8, 'PA'], [9, 'NJ'], [10, 'CT'], [11, 'RI']],
+      [[1, 'CA'], [2, 'UT'], [3, 'CO'], [4, 'NE'], [5, 'MO'], [6, 'KY'], [7, 'WV'], [8, 'VA'], [9, 'MD'], [10, 'DE']],
+      [[2, 'AZ'], [3, 'NM'], [4, 'KS'], [5, 'AR'], [6, 'TN'], [7, 'NC'], [8, 'SC'], [9, 'DC']],
+      [[4, 'OK'], [5, 'LA'], [6, 'MS'], [7, 'AL'], [8, 'GA']],
+      [[1, 'AK'], [2, 'HI'], [4, 'TX'], [9, 'FL']]
+    ];
+    const out = [];
+    rows.forEach((cells, r) => cells.forEach(([col, code]) => out.push({ code, row: r + 1, col })));
+    return out;
+  })();
+
+  // ---------------- main ----------------
+  function Chart(container, opts) {
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 800;
+    const H = container.clientHeight || 500;
+    const chartOpts = opts.chart || {};
+    const plotOpts = (opts.plotOptions && opts.plotOptions.geofacet) || {};
+
+    const variant = (chartOpts.variant || 'bar').toLowerCase();
+    const grid = Array.isArray(chartOpts.grid) ? chartOpts.grid
+      : (Chart.grids[chartOpts.grid || 'us'] || US_GRID);
+
+    // Data: series[0].data as [{code,value,name}] or [[code, value]] or {CA: 98}
+    const series0 = (opts.series && opts.series[0]) || {};
+    const seriesName = series0.name || 'Value';
+    const raw = series0.data || opts.data || [];
+    const byCode = {};
+    if (Array.isArray(raw)) {
+      raw.forEach(d => {
+        if (Array.isArray(d)) byCode[d[0]] = { value: +d[1] };
+        else if (d && typeof d === 'object') byCode[d.code || d.name] = { value: +d.value, name: d.name };
+      });
+    } else if (raw && typeof raw === 'object') {
+      for (const k in raw) byCode[k] = { value: +raw[k] };
+    }
+
+    const values = Object.keys(byCode).map(k => byCode[k].value).filter(v => isFinite(v));
+    const dataMin = plotOpts.min != null ? plotOpts.min : (values.length ? Math.min(...values) : 0);
+    const dataMax = plotOpts.max != null ? plotOpts.max : (values.length ? Math.max(...values) : 1);
+    // Bars and gauges read as a share of a total, so they start at zero unless told otherwise.
+    const scaleMin = variant === 'heat' ? dataMin : (plotOpts.min != null ? plotOpts.min : 0);
+    const span = (dataMax - scaleMin) || 1;
+    const frac = v => Math.max(0, Math.min(1, (v - scaleMin) / span));
+
+    const fmt = plotOpts.format || (v => String(v));
+    const suffix = plotOpts.valueSuffix || '';
+    const showEmpty = plotOpts.showEmpty !== false;
+
+    const hasTitle = !!opts.title;
+    const hasSub = !!opts.subtitle;
+    const marginPx = 20;
+    const titleX = 20;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + (hasTitle || hasSub ? 24 : 0);
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+
+    // ── Tile geometry ───────────────────────────────────────────────────
+    const nCols = Math.max(...grid.map(g => g.col));
+    const nRows = Math.max(...grid.map(g => g.row));
+    const gridTop = titleBlockH + 8;
+    const availW = W - marginPx * 2;
+    const availH = H - gridTop - marginPx;
+    // One square cell size for both axes: the grid keeps its map shape at any
+    // aspect ratio, and the space between tiles is identical horizontally and
+    // vertically. The gap is derived from the cell — it is not configurable,
+    // because an author-set gap is what makes a tile map read as disjoint.
+    const cell = Math.max(12, Math.min(availW / nCols, availH / nRows));
+    const gap = Math.max(2, Math.min(8, cell * 0.1));
+    const tileW = cell - gap, tileH = cell - gap;
+
+    // Whatever room the shorter axis leaves over becomes outer margin, so the
+    // block of tiles stays centred instead of spreading out.
+    const gridW = nCols * cell, gridH = nRows * cell;
+    const originX = marginPx + (availW - gridW) / 2;
+    const originY = gridTop + (availH - gridH) / 2;
+
+    // Small-tile behaviour: shrink the type with the tile, and drop labels once
+    // even the shrunken type would not fit. Below `minText` a tile is mark-only.
+    const k = Math.max(0.62, Math.min(1, tileW / 64));
+    const fCode = Math.round(F_CODE * k * 10) / 10;
+    const fValue = Math.round(F_VALUE * k * 10) / 10;
+    const roomForCode = tileW >= 34 && tileH >= 22;
+    const roomForValue = tileW >= 26;
+
+    const radius = plotOpts.borderRadius != null ? plotOpts.borderRadius : 6;
+    const emptyFill = lighten(SEC_COL, 0.88);
+    const trackFill = lighten(SEC_COL, 0.82);
+
+    // ── Interaction ─────────────────────────────────────────────────────
+    // Same conventions as the other engines: a 4% black slot highlight behind
+    // the hovered mark (column/bar), the mark itself easing to 0.85 opacity
+    // (donut), and the shared cursor-following tooltip.
+    const highlight = el('rect', { x: 0, y: 0, width: 0, height: 0, rx: radius,
+      fill: '#000', 'fill-opacity': 0.04,
+      style: 'display:none;pointer-events:none' }, svg);
+
+    const tip = document.createElement('div');
+    tip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
+      ';border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ' + FONT +
+      ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    container.appendChild(tip);
+
+    function showTip(html, evt) {
+      tip.innerHTML = html;
+      tip.style.display = 'block';
+      const r = svg.getBoundingClientRect();
+      const px = evt.clientX - r.left, py = evt.clientY - r.top;
+      const tw = tip.offsetWidth, th = tip.offsetHeight;
+      let tx = px + 14, ty = py - th / 2;
+      if (tx + tw > W - 4) tx = px - tw - 14;
+      if (ty < 4) ty = 4;
+      if (ty + th > H - 4) ty = H - th - 4;
+      tip.style.left = tx + 'px';
+      tip.style.top = ty + 'px';
+    }
+    function hideTip() { tip.style.display = 'none'; highlight.style.display = 'none'; }
+
+    // ── Render tiles ────────────────────────────────────────────────────
+    const cells = [];
+    grid.forEach(g => {
+      const x = originX + (g.col - 1) * cell + gap / 2;
+      const y = originY + (g.row - 1) * cell + gap / 2;
+      const rec = byCode[g.code];
+      const label = g.code;
+      const grp = el('g', { class: 'geo-tile' }, svg);
+
+      if (!rec || !isFinite(rec.value)) {
+        if (showEmpty && roomForCode) {
+          txt(label, { x: x + tileW / 2, y: y + tileH / 2 + fCode / 3, 'text-anchor': 'middle',
+            'font-size': fCode, 'font-weight': 600, fill: lighten(SEC_COL, 0.75),
+            'font-family': FONT }, grp);
+        }
+        return;
+      }
+
+      const v = rec.value;
+      const f = frac(v);
+      const valueText = fmt(v) + suffix;
+      let hitRect, mark;   // `mark` is the element that reacts to hover
+
+      if (variant === 'heat') {
+        const fill = mix(lighten(END_COL, 0.7), START_COL === '#000000' ? END_COL : START_COL, f);
+        const ink = luminance(fill) > 0.55 ? LABEL_COL : INV_COL;
+        hitRect = mark = el('rect', { x, y, width: tileW, height: tileH, rx: radius, fill }, grp);
+        const stacked = roomForCode && tileH >= fCode + fValue + 10;
+        if (roomForCode) {
+          txt(label, { x: x + tileW / 2, y: y + tileH / 2 - (stacked ? 4 : -fCode / 3),
+            'text-anchor': 'middle', 'font-size': fCode, 'font-weight': 700, fill: ink,
+            'font-family': FONT }, grp);
+        }
+        if (stacked || (!roomForCode && roomForValue)) {
+          txt(valueText, { x: x + tileW / 2,
+            y: y + tileH / 2 + (stacked ? fValue + 2 : fValue / 3), 'text-anchor': 'middle',
+            'font-size': fValue + (stacked ? 2 : 0), 'font-weight': 700, fill: ink,
+            'font-family': FONT }, grp);
+        }
+
+      } else if (variant === 'gauge') {
+        const cx = x + tileW / 2, cy = y + tileH / 2;
+        const ring = Math.max(3, tileW * 0.09);
+        const r = tileW / 2 - ring / 2 - 4;
+        el('rect', { x, y, width: tileW, height: tileH, rx: radius, fill: lighten(SEC_COL, 0.9) }, grp);
+        el('circle', { cx, cy, r, fill: 'none', stroke: trackFill, 'stroke-width': ring }, grp);
+        const circ = 2 * Math.PI * r;
+        mark = el('circle', { cx, cy, r, fill: 'none', stroke: END_COL, 'stroke-width': ring,
+          'stroke-linecap': 'round', 'stroke-dasharray': `${circ * f} ${circ}`,
+          transform: `rotate(-90 ${cx} ${cy})` }, grp);
+        // Inside a ring there is far less room than in a full tile.
+        const ringRoom = tileW >= 54;
+        if (ringRoom) {
+          txt(label, { x: cx, y: cy - 3, 'text-anchor': 'middle', 'font-size': fCode - 1,
+            'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, grp);
+        }
+        if (tileW >= 34) {
+          txt(valueText, { x: cx, y: cy + (ringRoom ? 11 : fValue / 3), 'text-anchor': 'middle',
+            'font-size': fValue, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, grp);
+        }
+        hitRect = el('rect', { x, y, width: tileW, height: tileH, rx: radius,
+          fill: 'transparent' }, grp);
+
+      } else { // 'bar'
+        el('rect', { x, y, width: tileW, height: tileH, rx: radius, fill: lighten(SEC_COL, 0.9) }, grp);
+        const padX = Math.max(3, Math.round(8 * k));
+        const barH = Math.max(5, Math.min(12, tileH * 0.22));
+        // Code and value sit on one line above the bar; both are dropped once the
+        // tile is too narrow to hold them without colliding.
+        const labelW = (label.length * fCode + valueText.length * fValue) * 0.55 + padX * 2 + 4;
+        const showRow = roomForCode && tileW >= labelW && tileH >= barH + fCode + 12;
+        const barY = showRow ? y + tileH - barH - 10 : y + (tileH - barH) / 2;
+        const barW = tileW - padX * 2;
+        if (showRow) {
+          const rowY = y + fCode + 7;
+          txt(label, { x: x + padX, y: rowY, 'text-anchor': 'start', 'font-size': fCode,
+            'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, grp);
+          txt(valueText, { x: x + tileW - padX, y: rowY, 'text-anchor': 'end',
+            'font-size': fValue, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, grp);
+        }
+        el('rect', { x: x + padX, y: barY, width: barW, height: barH, rx: 2,
+          fill: INV_COL }, grp);
+        mark = el('rect', { x: x + padX, y: barY, width: Math.max(1.5, barW * f), height: barH, rx: 2,
+          fill: f > 0.5 ? END_COL : START_COL }, grp);
+        hitRect = el('rect', { x, y, width: tileW, height: tileH, rx: radius,
+          fill: 'transparent' }, grp);
+      }
+
+      hitRect.style.cursor = 'pointer';
+      mark.style.transition = 'opacity .15s';
+      const entry = { code: g.code, name: rec.name || g.name || g.code, value: v, grp, x, y };
+      cells.push(entry);
+
+      const tipHtml = '<div style="font-size:12px;font-weight:700;color:' + TITLE_COL +
+        ';margin-bottom:2px">' + esc(entry.name) + '</div>' +
+        '<div style="color:' + LABEL_COL + '">' + esc(seriesName) + ': ' +
+        '<b style="color:' + TITLE_COL + '">' + esc(valueText) + '</b></div>';
+
+      function enter(evt) {
+        mark.style.opacity = '0.85';
+        highlight.setAttribute('x', x - gap / 2);
+        highlight.setAttribute('y', y - gap / 2);
+        highlight.setAttribute('width', cell);
+        highlight.setAttribute('height', cell);
+        highlight.style.display = 'block';
+        showTip(tipHtml, evt);
+      }
+      hitRect.addEventListener('mouseenter', enter);
+      hitRect.addEventListener('mousemove', enter);
+      hitRect.addEventListener('mouseleave', () => { mark.style.opacity = '1'; hideTip(); });
+    });
+
+    return { getData: () => cells, redraw: () => Chart(container, opts) };
+  }
+
+  Chart.grids = { us: US_GRID };
+
+    Charts.geofacet = Chart;
+})();

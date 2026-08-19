@@ -320,6 +320,17 @@ So: adjectives and verdicts stay out, quantified findings come in. If you cannot
 put a number or a specific comparison in the title, you probably don't have a
 finding, and a descriptive title is right.
 
+**Length has room, but not unlimited room.** charts-lib wraps titles across two
+lines and subtitles across three, measuring against the panel width and shrinking
+the plot area to fit, so a full sentence is safe — this is why an action title
+doesn't have to be compressed into a label. Keep titles under about 70
+characters and they work in any cell, including the narrow `w4` (~35 characters
+per line, two lines). Past roughly 90 characters in a narrow cell the tail is
+ellipsized, which loses exactly the part carrying the finding. If a title won't
+fit that budget, the usual fix is that it's carrying two findings — split the
+panel — or that the qualifying detail belongs in the subtitle. Exact per-cell
+limits are in `references/chart-api.md`.
+
 - No invented narrative furniture that repeats what a chart already says: no
   "Key insight" banners, no "Executive summary" you wrote yourself, no
   highlighted takeaway strip across the top, no emoji, no "🚀".
@@ -330,17 +341,24 @@ finding, and a descriptive title is right.
   explain") belong on the relevant chart — as its title or a callout, in their
   framing — not restated as your own analysis in a banner.
 
-### Where a finding goes: action title, or soft surface card
+### Where a finding goes: action title, insight column, or soft surface card
 
-Two containers, and the choice between them is almost mechanical. Ask: **can one
-chart prove this sentence on its own?**
+Three containers, and the choice is almost mechanical. Ask: **how many findings
+are there, and can one chart prove them?**
 
-**Yes → action title.** It belongs in that chart's `title`, with the descriptive
-detail moving to `subtitle`. The finding and its evidence stay welded together,
-which is what makes the figure survive being screenshotted out of context.
+**One finding, one chart proves it → action title.** It belongs in that chart's
+`title`, with the descriptive detail moving to `subtitle`. The finding and its
+evidence stay welded together, which is what makes the figure survive being
+screenshotted out of context.
 
-**No → soft surface card** (`.note` in both templates). Use it for text that no
-single figure carries:
+**One finding per row → `Charts.barInsightTable`.** When every category carries
+its own point — an income statement, a KPI review, a scorecard — a single title
+can't hold them all, and writing one card per row buries the chart. This chart
+type puts each row's sentence and its headline number beside that row's bars.
+Selection guidance in `references/chart-selection.md`.
+
+**No single figure carries it → soft surface card** (`.note` in both templates).
+Use it for text that spans figures:
 
 - a caveat that changes how several figures should be read ("labor hours don't
   reconcile with the stated total; site rows used")

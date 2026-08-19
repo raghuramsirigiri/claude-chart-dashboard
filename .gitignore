@@ -16,5 +16,5 @@ chart-dashboard-workspace/
 # Evals
 evals/
 
-# Temporary files
+# Temporary files (often created during testing)
 temp/
