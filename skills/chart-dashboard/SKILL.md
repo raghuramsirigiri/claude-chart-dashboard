@@ -87,6 +87,11 @@ HTML page of SVG charts rendered with `charts-lib`.
      ```
    Either way, fix any panel that renders empty or overflows its cell first.
 
+   **If the page has any control, test it.** Change each dropdown to a
+   non-default value and confirm — with a screenshot or by reading the rendered
+   text back — that the affected charts redraw *and* that any action title
+   recomputed with them. An untested filter is usually a broken filter.
+
 ## Rules that keep output good
 
 - One idea per panel. A panel whose title needs "and" is two panels.
@@ -155,6 +160,116 @@ badly in a different context:
 None of this changes the design system — same palette, same type scale
 relationships, same components. It changes how much you put on the page and at
 what size.
+
+### Make the chart show the finding, not just the data
+
+Three defaults in charts-lib are deliberately plain, and taking them as-is is
+how a page ends up technically correct and useless. Override them on purpose:
+
+- **Emphasis.** Read the title you just wrote. If it names specific categories,
+  a specific series, or a specific moment — "the top two account for 90%",
+  "Direct outperformed Partner", "the drop came after the March update" — the
+  chart leaves categorical mode and enters emphasis mode: the subject takes the
+  accent, everything else takes `Charts.theme.muted`. A finding stated in words
+  above eight identical bars is a finding the reader has to re-derive.
+
+  The mechanism differs by what the subject is — per-point `color` for
+  categories, series `color` + `lineWidth` for one line among many, `plotBands`
+  and `callouts` for a moment, a tinted `centerText` for a donut's focal wedge.
+  All of them, plus the grouped-chart series-vs-cluster split, are in
+  `references/chart-selection.md` § Emphasis. Three constraints hold across all
+  of them: **two colors, not a rainbow** (multi-hue *and* an accent reads as no
+  emphasis at all), **at most 2–3 accented items** (past that, go back to the
+  full categorical palette), and **muted still has to be readable** — context
+  bars are data too, which is why `muted` is derived at 3:1 against the canvas
+  rather than picked for how quiet it looks.
+
+  Three standing rules that apply whether or not the chart is in emphasis mode:
+  residual categories ("Other", "Don't know", a rolled-up tail) always take
+  `muted`, since they can never be the finding; several context series take one
+  identical mute rather than a ramp, so they read as a single band; and one
+  emphasis per chart — an accented bar *and* a callout on that same bar is two
+  competing signals, not double the emphasis.
+- **Status vs. emphasis.** When a chart mixes measured, planned, and projected
+  numbers, don't spend a palette color on the distinction — encode it in the
+  fill with `scenario: 'plan' | 'forecast'` (outlined / hatched) and keep color
+  for the finding. A projection drawn identically to a measurement is the same
+  failure as inventing the number.
+- **Data labels.** On by default for bar, column, and bar-list —
+  `plotOptions: { series: { dataLabels: { enabled: true } } }`. Off only when
+  they'd collide (many bars, dense grouped columns). See § Data labels.
+- **Geofacet variant.** `'bar'` is what you get by typing nothing, which is not
+  a reason to use it three times on one page. `'heat'` when the spatial pattern
+  is the point, `'gauge'` when regions are measured against a shared target.
+  See `references/chart-api.md` § Geofacet.
+
+### If you add a control, wire it
+
+A dropdown that doesn't change the charts is worse than no dropdown: it reads as
+a broken page, and the reader stops trusting the numbers that *are* correct. So
+either add no controls at all — a static page is a perfectly good deliverable —
+or wire them completely. There is no acceptable middle.
+
+Wiring completely means three things, and the third is the one that gets missed:
+
+1. **The data is filtered, not just the label.** Keep the full dataset in one
+   `const DATA`, derive the filtered rows inside a `render(state)` function, and
+   have every affected chart drawn *inside* that function. Re-calling a factory
+   on the same container id is the supported update path — each engine clears
+   the container first.
+2. **Every dependent panel re-renders**, including KPI tiles and any note that
+   quotes a number. A grid where two panels respond to the filter and four don't
+   is the same broken-trust failure in a subtler form.
+3. **Action titles re-compute.** This is the trap in the combination of the two
+   features. The moment a title states a finding — "The top two categories drive
+   90% of volume" — that sentence is a *function of the filtered data*, and a
+   filter that leaves it frozen makes the page assert something false about what
+   is on screen. So the title must be built from the same filtered rows:
+
+   ```js
+   const DATA = [ /* every row, unfiltered */ ];
+
+   function render(state) {
+     const rows = DATA.filter(r => state.region === 'all' || r.region === state.region)
+                      .sort((a, b) => b.value - a.value);
+     const total = rows.reduce((s, r) => s + r.value, 0);
+     const topTwo = rows.slice(0, 2).reduce((s, r) => s + r.value, 0);
+     const share = Math.round(100 * topTwo / total);
+     const scope = state.region === 'all' ? 'all regions' : state.region;
+
+     Charts.bar('c1', {
+       title: `Top two categories drive ${share}% of volume`,   // recomputed
+       subtitle: `Units shipped · ${scope} · FY2026`,           // scope follows too
+       xAxis: { categories: rows.map(r => r.name) },
+       plotOptions: { series: { dataLabels: { enabled: true } } },
+       legend: { enabled: false },
+       series: [{ name: 'Units', data: rows.map((r, i) => ({
+         y: r.value, color: i < 2 ? Charts.theme.colors[1] : Charts.theme.muted
+       })) }]
+     });
+     // …every other dependent panel, drawn here too
+   }
+
+   document.querySelectorAll('.filter-bar select').forEach(sel =>
+     sel.addEventListener('change', () => render(readState())));
+   render(readState());   // first paint goes through the same path
+   ```
+
+   If a filtered slice can't support the claim — one category left, no top two —
+   fall back to a descriptive title for that state rather than printing a
+   sentence the chart no longer proves.
+
+Two guards worth applying before you ship a control: the **first paint must go
+through `render()`** (never draw once statically and wire the dropdown to a
+second code path — they drift), and **every filter value must be reachable and
+non-empty**. A dropdown option that yields zero rows should draw an empty-state,
+not a blank card.
+
+The last question to ask is whether the control earns its place. A filter is
+worth it when the reader genuinely has several slices to inspect; when there are
+three regions and the comparison *is* the finding, three small-multiple panels
+beat a dropdown, because the reader sees all three at once instead of holding
+two in memory.
 
 ### Legends go in one place
 

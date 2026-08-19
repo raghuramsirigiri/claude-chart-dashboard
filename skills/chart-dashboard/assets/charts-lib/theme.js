@@ -21,6 +21,11 @@
   const c = {
     n0:       '#f4f3f0',   // page/canvas surface (lightest)
     n1:       '#dcdbd7',   // hairlines, gridlines
+    n3:       '#8f8d87',   // de-emphasised fills — 3.0:1 on n0, the WCAG 1.4.11
+                           // floor for graphical objects. Lighter than this and
+                           // the context bars stop being readable as data.
+    n2:       '#a8a6a0',   // second de-emphasis step, for a muted ramp
+    n2a:      '#c2c0ba',   // third step (use only where a ramp needs three)
     n4:       '#666666',   // secondary text
     n5:       '#555555',   // tertiary text, connectors
     n6:       '#444444',   // subtitle text
@@ -76,6 +81,15 @@
     valueWeight:    700,
 
     // ── Accent / semantic ───────────────────────────────────────────────
+    // `muted` is the fill for everything that is NOT the point of the chart:
+    // the bars outside the top two, the lines behind the focus line. It is a
+    // neutral, never a second hue — two hues read as two categories, one hue
+    // plus a neutral reads as "these matter, those are context".
+    muted:          c.n3,
+    // Ordered de-emphasis ramp, darkest first. Use when the context itself has
+    // internal order worth keeping (a muted cluster, the tail of a donut).
+    // Two steps is usually plenty; a long grey ramp is just a palette again.
+    mutedScale:     [c.n3, c.n2, c.n2a],
     highlight:      c.accent,
     callout:        c.danger,
     positive:       c.s2,

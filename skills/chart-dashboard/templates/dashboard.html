@@ -46,6 +46,17 @@
   .note b { display:block; text-transform:uppercase; font-size:11px;
     letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
 
+  /* Optional filter bar. Delete it entirely if the page is static — but if you
+     keep it, every control must be wired to render(). See SKILL.md § If you add
+     a control, wire it. Styled off the same tokens; no second design system. */
+  .filter-bar { display:flex; flex-wrap:wrap; gap:12px; align-items:center;
+    margin-bottom:16px; }
+  .filter-bar label { display:flex; align-items:center; gap:8px; font-size:11px;
+    font-weight:400; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+  .filter-bar select { font-family:var(--font); font-size:13px; color:var(--ink);
+    background:var(--card); border:1px solid var(--hair); border-radius:8px;
+    padding:7px 10px; }
+
   .bento { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; grid-auto-rows:340px; }
   .cell { background:var(--card); border-radius:var(--radius); padding:6px;
     box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
@@ -74,8 +85,22 @@
   <!-- Optional: headline figures. Label, value, and one line of context — no
        arrows, no colour-coded verdicts, no editorial. Delete if not needed. -->
   <div class="kpis">
-    <div class="kpi"><span>Metric name</span><b>1,234</b><i>vs 1,180 prior period</i></div>
+    <div class="kpi"><span>Metric name</span><b id="k1">—</b><i>vs 1,180 prior period</i></div>
     <div class="kpi"><span>Metric name</span><b>56%</b><i>Q1 average</i></div>
+  </div>
+
+  <!-- Optional filter bar. DELETE THIS BLOCK if the page is static. If you keep
+       it, every option must actually filter the data, every dependent panel and
+       KPI must redraw, and any action title must be recomputed from the filtered
+       rows — see render() below. A dead dropdown discredits the whole page. -->
+  <div class="filter-bar">
+    <label>Region
+      <select id="f-region">
+        <option value="all">All regions</option>
+        <option value="North">North</option>
+        <option value="South">South</option>
+      </select>
+    </label>
   </div>
 
   <!-- One .cell per panel. Adjust spans; keep ids in sync with the script below. -->
@@ -148,15 +173,8 @@ Charts.donut('c2', {
   ]}]
 });
 
-/* 3 · Ranking */
-Charts.bar('c3', {
-  title: 'Top categories',
-  subtitle: 'Sorted by value',
-  xAxis: { categories: ['Cat A','Cat B','Cat C','Cat D'] },
-  series: [{ name: 'Value', data: [980, 740, 610, 420] }]
-});
-
-/* 4 · Grouped comparison */
+/* 4 · Grouped comparison — data labels off here on purpose: grouped columns
+   with two series and four categories would collide. The axis carries it. */
 Charts.column('c4', {
   title: 'Comparison by period',
   subtitle: 'Grouped columns · units',
@@ -188,6 +206,64 @@ Charts.column('c6', {
     { name: 'C', data: [25,24,23,22,21,20] }
   ]
 });
+
+/* ── 3 · Ranking — the filter-driven panel ────────────────────────────────
+   Three things happen together here, and all three are required:
+     · the rows are FILTERED from one full dataset, not relabelled
+     · the top two bars are EMPHASISED with a per-point colour, so the picture
+       agrees with the sentence in the title
+     · the ACTION TITLE is recomputed from the filtered rows — a frozen title
+       over filtered data asserts something false
+   Delete the filter bar and the listener below if the page is static; keep the
+   emphasis and the data labels either way. */
+const DATA = [
+  { name: 'Cat A', region: 'North', value: 980 },
+  { name: 'Cat B', region: 'South', value: 740 },
+  { name: 'Cat C', region: 'North', value: 610 },
+  { name: 'Cat D', region: 'South', value: 420 }
+];
+
+function readState() {
+  return { region: document.getElementById('f-region').value };
+}
+
+function render(state) {
+  const T = Charts.theme;
+  const rows = DATA
+    .filter(r => state.region === 'all' || r.region === state.region)
+    .sort((a, b) => b.value - a.value);
+
+  const total  = rows.reduce((s, r) => s + r.value, 0);
+  const topTwo = rows.slice(0, 2).reduce((s, r) => s + r.value, 0);
+  const share  = total ? Math.round(100 * topTwo / total) : 0;
+  const scope  = state.region === 'all' ? 'All regions' : state.region;
+
+  // Every dependent readout updates, KPI tiles included.
+  document.getElementById('k1').textContent = total.toLocaleString();
+
+  Charts.bar('c3', {
+    // Descriptive fallback when the slice is too small to support the claim.
+    title: rows.length > 2
+      ? `Top two categories drive ${share}% of volume`
+      : 'Volume by category',
+    subtitle: `Units · ${scope}`,
+    xAxis: { categories: rows.map(r => r.name) },
+    plotOptions: { series: { dataLabels: { enabled: true } } },
+    legend: { enabled: false },
+    // Emphasis only exists while there is something to de-emphasise. In the
+    // fallback state every bar takes the plain accent — an all-grey chart reads
+    // as disabled, not as neutral.
+    series: [{ name: 'Units', data: rows.map((r, i) => ({
+      y: r.value,
+      color: (rows.length <= 2 || i < 2) ? T.colors[1] : T.muted
+    })) }]
+  });
+}
+
+document.querySelectorAll('.filter-bar select').forEach(sel =>
+  sel.addEventListener('change', () => render(readState())));
+
+render(readState());   // first paint goes through the same path — never a second one
 </script>
 </body>
 </html>
