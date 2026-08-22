@@ -54,7 +54,16 @@ Every option below is optional; the library picks sensible defaults.
 
 ### Line (`Charts.line`)
 
-- **Series type per series**: `type: 'line' | 'spline' | 'step'`
+- **Series type per series**: `type: 'line' | 'spline' | 'step'`. **The
+  default is `'spline'`**, not `'line'` — opt out per series with
+  `type:'line'`, or for the whole chart with `chart: { smooth: false }`.
+  This matters for more than looks: the smoothing routine **drops `null`
+  points instead of breaking the path**, so a series with an interior gap
+  is drawn as one unbroken curve straight through the missing data. Any
+  series containing a real hole must set `type:'line'`.
+- **Colour, `lineWidth` and `dashStyle` are per-series**, and there is no
+  `zones` option — a line that changes appearance partway along is two
+  series sharing an x-axis. See `annotation.md` § Intervention and forecast.
 - **Step alignment**: `step: 'left' | 'center' | 'right'` (for step series)
 - **Dash style**: `dashStyle: 'Solid'|'ShortDash'|'ShortDot'|'Dot'|'Dash'|'LongDash'|'DashDot'`
 - **Markers**: `marker: { enabled, symbol: 'circle'|'square'|'diamond'|'triangle', radius }`
@@ -75,9 +84,15 @@ Every option below is optional; the library picks sensible defaults.
     plots as a flat line along the bottom; the axis silently starts at 1 when
     the data minimum is ≤ 0.
 - **Reference regions & lines**:
-  - `xAxis.plotBands` / `yAxis.plotBands`: `[{ from, to, color, alpha, label:{text}, paragraph }]`
-  - `xAxis.plotLines` / `yAxis.plotLines`: `[{ value, color, width, dashStyle, label:{text} }]`
+  - `xAxis.plotBands` / `yAxis.plotBands`: `[{ from, to, color, alpha, label:{text}, paragraph, paragraphY }]`
+    — `label.text` draws centred above the plot area (keep it short);
+    `paragraph` draws a boxed note inside it, `paragraphY` (0–1, default
+    0.85) sets its height
+  - `xAxis.plotLines` / `yAxis.plotLines`: `[{ value, color, width, dashStyle, label:{text}, paragraph, paragraphY }]`
 - **Callouts (annotations)**: `callouts: [{ x, series, text, color, dx, dy }]`
+  — `series` matches by series **name** and falls back to the *first*
+  series when omitted or unmatched; `x` snaps to the nearest point, so on a
+  category axis it is the category index
 - **Negative color**: `series[i].negativeColor` + `threshold`
 - **Zoom**: `chart: { zoomType: 'x' }` — drag to zoom, "Reset zoom" button appears
 - **Legend**: auto-shown at the top below the subtitle whenever there are 2+ series, wraps to multiple rows. Opt in to inline line-end labels instead with `lineLabels: 'inline' | 'name' | 'value' | 'both'`.
@@ -435,10 +450,11 @@ The full list of theme tokens lives in
 | `inverseText` | `#FFFFFF` | White-on-dark text |
 | `muted` | `#8f8d87` | De-emphasised fill — the bars/lines that are context, not the finding. Derived to clear 3:1 on the canvas |
 | `mutedScale` | `['#8f8d87','#a8a6a0','#c2c0ba']` | Ordered de-emphasis ramp, darkest first — for muted groups that keep internal order |
-| `highlight` | `#1f77b4` | Zoom / plot-band accent |
-| `callout` | `#e3120b` | Callout dot default |
-| `positive` | `#2323FF` | Positive bar accent |
-| `negative` | `#D1107A` | Negative bar accent |
+| `highlight` | `#243E63` | Zoom / plot-band accent |
+| `callout` | `#B31B38` | Callout leaders, boxes, threshold rules |
+| `aboveThreshold` | `#2323FF` | Value on the upper side of the threshold — see `annotation.md` § Threshold shift |
+| `belowThreshold` | `#D1107A` | Value on the lower side. Named for the threshold, **not** for good/bad |
+| `positive` / `negative` | `#2323FF` / `#D1107A` | Aliases of the two above, kept for existing configs |
 | `trend` | `#2323FF` | Regression line color |
 | `connectorLabel` | `#555555` | Donut connector label text |
 | `connectorLine` / `connectorWidth` | `#333333` / `1.4` | Donut callout rule |

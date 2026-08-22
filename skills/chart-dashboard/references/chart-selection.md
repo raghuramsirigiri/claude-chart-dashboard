@@ -63,6 +63,8 @@ loses data. Use a column chart with `negativeColor` instead.
 | A value over time, 1–4 series | line / spline | `Charts.line` (`type:'spline'` per series to smooth) — x must be dates or numbers, never names |
 | A value over time, irregular timestamps | datetime line | `Charts.line` + `xAxis:{type:'datetime'}` |
 | A level that holds between changes | step line | `Charts.line` + `type:'step'` |
+| A trend interrupted by an event, or continued as a projection | line + separator, split actual/forecast | `Charts.line` — see `annotation.md` § Intervention and forecast |
+| A series with a real hole in it | line, **unsmoothed** | `Charts.line` + `type:'line'` — the default spline hides interior `null`s |
 | Comparison across ≤12 named categories | columns | `Charts.column` — the answer whenever x is a *name*, whether or not the numbers look like a trend |
 | Comparison across >12 categories, or long labels | horizontal bars | `Charts.bar` |
 | A ranked list, or very long category names | bar list (no axis) | `Charts.barList` + `sort:'desc'` |
@@ -276,9 +278,10 @@ Rules:
 - **Never hatch something that was measured** to make a chart look busier, and
   never leave a projection solid. This is the same honesty rule as § 1 of the
   workflow, expressed in pixels.
-- Available on `Charts.column` and `Charts.bar`. For lines, the equivalent is
-  `dashStyle: 'ShortDash'` on the projected series — same idea, same subtitle
-  obligation.
+- Available on `Charts.column` and `Charts.bar`. Lines carry the same
+  distinction with a dashed stroke on the projected series — but because stroke
+  and colour are per-series, that means splitting actual from forecast into two
+  series. See `annotation.md` § Intervention and forecast.
 
 ### Grouped columns and bars
 
@@ -351,18 +354,11 @@ legend (see SKILL.md § Legends go in one place) — use it on every line panel 
 the page or none.
 
 **A moment, not a series** — *"The drop came after the March update"*. The line
-itself is not the subject, so leave it in the neutral default and let the accent
-mark the moment:
-
-```js
-xAxis: { plotBands: [{ from: 2, to: 3, color: T.highlight, alpha: 0.12,
-                       label: { text: 'v4.2 rollout' } }] },
-callouts: [{ x: 3, text: 'Retention −12% the week after release' }]
-```
-
-`plotBands` for a window, `plotLines` for a single instant or a target, and a
+itself is not the subject, so leave it in the neutral default and let the mark
+carry the moment: `plotBands` for a window, `plotLines` for an instant, a
 `callout` for the sentence. Don't also recolor the line — two emphases on one
-chart is none.
+chart is none. Full recipe, including forecast notation, in
+`annotation.md` § Intervention and forecast.
 
 ### Pie and donut
 
@@ -404,63 +400,10 @@ plotOptions: { series: { dataLabels: { enabled: true, format: '{y}%' } } }
 - **Line charts stay unlabelled** unless there are few points; a labelled line
   becomes a wall of text. Use `callouts` for the points that matter.
 
-## Reference marks
+## Reference marks, intervention, thresholds, annotation
 
-- Use `plotBands` for context regions (recession, promo window) and `plotLines`
-  for targets and thresholds.
-- Use `callouts:[{x, series, text}]` to say *why* a spike happened; a chart
-  without a labeled anomaly makes the reader do the work.
-
-### Target lines, and colouring against a threshold
-
-When the finding is *attainment* — who cleared the bar and who didn't — draw the
-target as a labelled `plotLine` and colour each bar by which side of it the
-value falls:
-
-```js
-yAxis: { plotLines: [{ value: 100, dashStyle: 'ShortDash', width: 1.5,
-                       color: T.axis, label: { text: 'Target 100' } }] },
-series: [{ name: 'Attainment', data: rows.map(r => ({
-  y: r.value, color: r.value >= 100 ? T.colors[1] : T.muted
-})) }]
-```
-
-**This is the one exception to the 2–3 accent cap.** That cap protects emphasis,
-where accent means "this is what the sentence is about" and a fourth accent
-dilutes the first three. Threshold colouring is *evaluative*, not emphatic — the
-colour is a second reading of the value, so seven bars above target may all be
-accented without ambiguity. The reader learns one rule and applies it across the
-whole chart.
-
-Two cautions that keep it honest:
-
-- **Name the rule in the subtitle** ("Bars at or above the 100 target in blue").
-  A colour split the reader has to reverse-engineer is worse than no split.
-- **Don't stack it with emphasis.** A chart that is both threshold-coloured and
-  has two highlighted categories has two colour systems fighting; pick the one
-  the title is making.
-
-`plotLines` also carry prior-year, budget, and break-even in exactly this way.
-A target that only appears in the subtitle is a target the reader can't check.
-
-### Annotation as the emphasis
-
-Recolouring is not the only way to point. Often the strongest treatment leaves
-every mark in the chart identical and adds a single annotation — a `callout`
-with a connector, or a `plotBand` around the moment — because the annotation
-says *what* is interesting and *why*, where colour only says *that* something
-is.
-
-Prefer annotation-only when:
-
-- the finding is about **one point or one window**, not a category or series
-  (see the milestone pattern above)
-- the chart is a **scatter or a dense cloud**, where recolouring a few markers
-  reads as a new category rather than a highlight
-- the reason matters more than the magnitude — "the WMS cutover" tells the
-  reader something the accent colour never could
-
-And the rule that keeps this from doubling up: **one emphasis per chart.** If
-the annotation is doing the pointing, leave the marks in the neutral default —
-an accented bar *and* a callout on the same bar is not twice the emphasis, it
-is two competing signals plus a reader wondering what they missed.
+Everything you draw *on top of* the data — `plotBands`, `plotLines`, `callouts`,
+intervention and forecast notation, threshold colouring, and the
+question of when an annotation earns its place — now lives in
+`references/annotation.md`. Read it whenever a panel shows an intervention, a
+projection, a target, or a labelled anomaly.

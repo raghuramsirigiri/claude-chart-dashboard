@@ -19,7 +19,10 @@ HTML page of SVG charts rendered with `charts-lib`.
 
    Three things count as invention, and the last two are easy to miss:
    - **Filling a gap.** A missing week is a gap (`null`), not a zero — a zero
-     draws a collapse that never happened.
+     draws a collapse that never happened. And a gap only reads as one if the
+     series is unsmoothed: `Charts.line` defaults to `spline`, which drops nulls
+     and draws an unbroken curve through the hole. Set `type: 'line'` on any
+     series with an interior gap.
    - **Estimating onto a real chart.** If you interpolate or model a value, it
      does not belong as another point on the primary trend, however carefully you
      dash the line or footnote it. Readers remember the shape, not the caveat.
@@ -66,6 +69,11 @@ HTML page of SVG charts rendered with `charts-lib`.
    (regions, browsers, departments) render an error panel instead of a chart,
    and even bare month names like `'Jan'` fail because they don't parse as
    dates; write `'Jan 2025'`, or use `Charts.column` when x is a name.
+
+   **When a panel marks something up** — an intervention, a projection, a
+   target, a labelled anomaly — read `references/annotation.md` for the cue and
+   its mechanics. Colour and stroke are per-series on a line, so actual-vs-
+   forecast is two series, not one styled midway.
 5. **If the user pointed at a brand** — their site, a stylesheet, a screenshot, a
    set of hex codes — recolor to match, and change nothing else. Read
    `references/theming.md` and run the bundled extractor:
@@ -142,6 +150,9 @@ HTML page of SVG charts rendered with `charts-lib`.
 - Every panel gets a `title` and a `subtitle` that states units and scope
   ("USD thousands · Q4 2025"). Put units in `yAxis.suffix` and
   `tooltip.valueSuffix` too.
+- A projection is never drawn in the same stroke as a measurement: dash the
+  forecast (or `scenario:'forecast'` on bars) and name the notation in the
+  subtitle. See `references/annotation.md`.
 - Match the chart to what the data *is*, not to what looks good: a line only
   where x is time or a number, a donut/waffle only where the parts are
   non-negative and sum to one whole, a scatter only where both axes are
