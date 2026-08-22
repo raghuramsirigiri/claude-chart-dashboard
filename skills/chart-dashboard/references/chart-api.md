@@ -16,7 +16,8 @@ legend interactions — no canvas, no external framework.
   Charts.line('chart', {
     title: 'Monthly Average Temperature',
     subtitle: 'Source: WorldClimate.com',
-    xAxis: { categories: ['Jan','Feb','Mar','Apr','May','Jun'] },
+    // Line x-labels must parse as dates — 'Jan' alone does not, 'Jan 2025' does.
+    xAxis: { categories: ['Jan 2025','Feb 2025','Mar 2025','Apr 2025','May 2025','Jun 2025'] },
     yAxis: { suffix: '°C' },
     series: [
       { name: 'Tokyo',   data: [7, 6.9, 9.5, 14.5, 18.4, 21.5] },
@@ -30,7 +31,7 @@ legend interactions — no canvas, no external framework.
 
 | Function              | Purpose                                                                     |
 | :-------------------- | :-------------------------------------------------------------------------- |
-| `Charts.line`         | Line / spline / step chart with linear, datetime, category, or log axes.    |
+| `Charts.line`         | Line / spline / step chart. **Ordered x only** — linear, datetime, or parseable date labels; never named categories. |
 | `Charts.column`       | Vertical columns: grouped, stacked, percent-stacked, range, pyramid, 3D.    |
 | `Charts.bar`          | Horizontal bars — same options as `column`, including population pyramid.   |
 | `Charts.barList`      | Axis-free horizontal bars; category label sits above each bar.              |
@@ -58,11 +59,21 @@ Every option below is optional; the library picks sensible defaults.
 - **Dash style**: `dashStyle: 'Solid'|'ShortDash'|'ShortDot'|'Dot'|'Dash'|'LongDash'|'DashDot'`
 - **Markers**: `marker: { enabled, symbol: 'circle'|'square'|'diamond'|'triangle', radius }`
 - **Data labels**: `dataLabels: { enabled, format }`
-- **Axis types**:
-  - Linear (default)
-  - Datetime: `xAxis: { type: 'datetime', tickInterval: 'year'|'quarter'|'month'|'week'|'day'|'hour'|'minute'|'second' }`
-  - Categorical: `xAxis: { categories: [...] }`
-  - Logarithmic Y: `yAxis: { type: 'logarithmic' }`
+- **X must be continuous or temporal.** The engine *refuses to draw* a line
+  over named categories and renders an error panel instead — see `chart-selection.md`
+  § Input contract. Valid axes:
+  - Linear (default): numeric `x`, or `data: [[x, y], …]`
+  - Datetime: `xAxis: { type: 'datetime', tickInterval: 'year'|'quarter'|'month'|'week'|'day'|'hour'|'minute'|'second' }` with epoch-ms `x` values
+  - Date-labelled categories: `xAxis: { categories: [...] }` where **every**
+    label parses as a date. It must contain a 4-digit year or a `d/d` pair *and*
+    survive `Date.parse`, so `'2019'`, `'Jan 2025'`, `'2024-01-01'`, `'3/14'`
+    all work — while `'Jan'`, `'Q1'`, `'Q1 2024'`, `'Week 1'`, `'Mon'` do not.
+    For quarters, pass the quarter's start date (`'2024-01-01'`) or its year
+    when one point per year (`'2024'`).
+  - Logarithmic Y: `yAxis: { type: 'logarithmic' }` — **strictly positive
+    values only.** A zero or negative point is clamped to the axis floor and
+    plots as a flat line along the bottom; the axis silently starts at 1 when
+    the data minimum is ≤ 0.
 - **Reference regions & lines**:
   - `xAxis.plotBands` / `yAxis.plotBands`: `[{ from, to, color, alpha, label:{text}, paragraph }]`
   - `xAxis.plotLines` / `yAxis.plotLines`: `[{ value, color, width, dashStyle, label:{text} }]`
@@ -299,6 +310,13 @@ Charts.panels('chart', {
 - **Bubble size scale (area)**: `plotOptions.bubble: { minSize, maxSize }` — area in "points²", radius derived
 - **Bubble color gradient**: automatically applied when there's only one bubble series (larger bubbles → bluer)
 - **Packed clusters**: with N series → N separate clusters; with 1 series → single cluster and color-by-size gradient
+- **Both axes are numeric measures.** `xAxis.categories` is *ignored* by these
+  engines: a `[name, value]` pair plots at `x = index`, so a categorical scatter
+  silently draws its points against a meaningless 0,1,2… axis. If one dimension
+  is a category, the chart is a bar/column, not a scatter.
+- **`bubble` needs three numbers per point** — `[x, y, z]` or `{x, y, z}`; a
+  point with no `z` has no size to encode. `packedBubble` is the one that takes
+  `[name, value]`, because it drops the axes entirely.
 - **Axis limits & suffix**: `xAxis: { min, max, suffix, title }`, `yAxis: { … }`
 
 ### Geofacet (`Charts.geofacet`)

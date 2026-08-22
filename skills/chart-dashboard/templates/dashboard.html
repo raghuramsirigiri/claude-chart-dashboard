@@ -152,7 +152,9 @@ Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
 Charts.line('c1', {
   title: 'Hero metric over time',
   subtitle: 'Units · scope',
-  xAxis: { categories: ['Jan','Feb','Mar','Apr','May','Jun'] },
+  /* A line needs an ordered x. Category labels must parse as dates:
+     'Jan 2025' works, bare 'Jan' does not. Names belong on a column chart. */
+  xAxis: { categories: ['Jan 2025','Feb 2025','Mar 2025','Apr 2025','May 2025','Jun 2025'] },
   yAxis: { suffix: 'k' },
   tooltip: { valueSuffix: 'k' },
   series: [

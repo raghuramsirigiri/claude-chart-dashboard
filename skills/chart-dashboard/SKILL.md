@@ -58,6 +58,14 @@ HTML page of SVG charts rendered with `charts-lib`.
    the config against `references/chart-api.md` (the full charts-lib API: every
    factory, option, and theme token). Read that file before writing chart code —
    don't guess option names.
+
+   **Check the chart's input contract first** (`chart-selection.md` § Input
+   contract). Each engine accepts a particular kind of x and y, and a mismatch
+   is a broken panel rather than a style choice. The one that bites most often:
+   a line chart needs an *ordered* x — dates or numbers. Named categories
+   (regions, browsers, departments) render an error panel instead of a chart,
+   and even bare month names like `'Jan'` fail because they don't parse as
+   dates; write `'Jan 2025'`, or use `Charts.column` when x is a name.
 5. **If the user pointed at a brand** — their site, a stylesheet, a screenshot, a
    set of hex codes — recolor to match, and change nothing else. Read
    `references/theming.md` and run the bundled extractor:
@@ -94,7 +102,30 @@ HTML page of SVG charts rendered with `charts-lib`.
        ? 'MISMATCH panels without charts: '+orphan+' | charts without panels: '+ghost
        : 'OK '+ids.length+' panels, all wired');"
      ```
-   Either way, fix any panel that renders empty or overflows its cell first.
+
+     Then check every line chart's x-axis, since an invalid one renders an error
+     panel rather than failing loudly at build time:
+     ```bash
+     node -e "const h=require('fs').readFileSync('index.html','utf8');
+     const bad=[];
+     h.split('Charts.').slice(1).forEach(ch=>{
+       if(!/^line\s*\(/.test(ch)) return;
+       const id=(ch.match(/^line\s*\(\s*'([^']+)'/)||[])[1]||'?';
+       const m=ch.slice(0,ch.indexOf('series:')+1||undefined).match(/categories:\s*\[([^\]]*)\]/);
+       if(!m) return;
+       const cats=m[1].split(',').map(c=>c.trim().replace(/^['\"]|['\"]$/g,'')).filter(Boolean);
+       const ok=c=>/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(c)&&!isNaN(Date.parse(c));
+       const fails=cats.filter(c=>!ok(c));
+       if(fails.length) bad.push(id+': '+fails.slice(0,4).join(', '));
+     });
+     console.log(bad.length
+       ? 'BAD LINE X-AXIS -- not parseable as dates. Use a column chart, or full dates like Jan 2025. || '+bad.join(' || ')
+       : 'OK all line x-axes are temporal');"
+     ```
+   Either way, fix any panel that renders empty or overflows its cell first. A
+   panel reading *"Line charts need a continuous or temporal x-axis"* is the
+   input-contract failure above — change the chart type or the x values, don't
+   restyle it.
 
    **If the page has any control, test it.** Change each dropdown to a
    non-default value and confirm — with a screenshot or by reading the rendered
@@ -111,6 +142,10 @@ HTML page of SVG charts rendered with `charts-lib`.
 - Every panel gets a `title` and a `subtitle` that states units and scope
   ("USD thousands · Q4 2025"). Put units in `yAxis.suffix` and
   `tooltip.valueSuffix` too.
+- Match the chart to what the data *is*, not to what looks good: a line only
+  where x is time or a number, a donut/waffle only where the parts are
+  non-negative and sum to one whole, a scatter only where both axes are
+  measures. See `chart-selection.md` § Input contract.
 - Order categorical bars by value, not alphabetically. Keep time on the x-axis
   left-to-right.
 - Donuts stop being readable somewhere around six wedges — below a few percent

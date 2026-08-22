@@ -1,11 +1,69 @@
 # Choosing a chart
 
+## Input contract — check this before the table
+
+Chart type is not a free choice on top of the data; each engine accepts a
+particular *kind* of x and a particular *kind* of y, and picking one whose
+contract the data doesn't meet produces a broken panel, not a stylistic
+mismatch. Check the row before you write the config.
+
+| Chart | x / rows accept | y accepts | Violating it gives you |
+|:--|:--|:--|:--|
+| `line` (incl. spline, step) | **Ordered continuous or temporal only** — numbers, epoch-ms with `type:'datetime'`, or category labels that *every one* parse as dates | Numbers; `null` for a gap | An error panel — the engine refuses named categories outright |
+| `column`, `bar` | Named categories (the normal case), or any ordered labels | Numbers, may be negative; `[low, high]` pairs for `columnrange` | Nothing breaks; this is the permissive engine |
+| `barList` | Named categories | Numbers, one per row | — |
+| `barInsightTable` | Named categories, each with an `insight` and/or `stat` | Numbers, one per row | Collapsed empty columns — a slower `barList` |
+| `waffle` | Named categories, each a share of the *same* whole | Non-negative numbers ≤ `total` | Negatives silently clamped to zero |
+| `donut`, `pie` | Named categories that sum to a whole | Positive numbers only | Negative/non-finite wedges dropped, console warning, footnote |
+| `scatter`, `bubble` | **A numeric measure** — `xAxis.categories` is ignored | A numeric measure (`bubble`: plus a numeric `z`) | Points plotted against a meaningless 0,1,2… index axis |
+| `packedBubble` | Named categories (`[name, value]`) | Non-negative magnitudes | — |
+| `geofacet` | **Region codes present in the grid** (`'us'` by default) | One number per region | Unmatched codes vanish; missing regions draw as faint placeholders |
+| `panels` | n/a — each panel carries its own contract | n/a | Whatever the inner chart would do |
+| `yAxis: {type:'logarithmic'}` | any | **Strictly positive** numbers | Zero/negative clamped to the floor; axis silently restarts at 1 |
+
+Three of these are worth stating as rules, because they are the mistakes that
+actually get made:
+
+**A line needs an ordered x, and "ordered" means time or number.** Browsers,
+regions, product SKUs, survey answers, departments — these have no order and no
+distance between them, so the segment joining two of them encodes nothing. Sort
+them differently and the line changes shape while the data doesn't; that is the
+tell. charts-lib enforces this and draws *"Line charts need a continuous or
+temporal x-axis"* instead of the chart. When you catch yourself reaching for a
+line over categories, you want `Charts.column` (or `Charts.bar`), and the
+finding you were about to draw is a ranking, not a trend.
+
+Two cases look like exceptions and aren't:
+
+- *Categories measured at several periods* — "revenue by region, 2019–2025" —
+  is a time series **per region**: one series each, time on x. That is a line,
+  and it is what the error message means by "give each category its own series
+  over a date or numeric x-axis".
+- *Ordered non-temporal bins* — age bands, deciles, funnel stages, Likert
+  points — genuinely have order, and a line over them is legitimate in
+  principle. charts-lib still refuses them, so plot the bin's numeric midpoint
+  on a linear x, or use columns. Don't fake a date to get past the guard.
+
+**Date-labelled categories must actually parse.** The label needs a 4-digit year
+or a `d/d` pair *and* must survive `Date.parse`. So `'2019'`, `'Jan 2025'`,
+`'2024-01-01'`, `'3/14'` are fine — and `'Jan'`, `'Q1'`, `'Q1 2024'`, `'Week 1'`,
+`'Mon'` are **not**, even though they read as time to a human. Bare month names
+are the single most common way this fails: write `'Jan 2025'`, not `'Jan'`. For
+quarters, pass the quarter's start date and say "quarterly" in the subtitle.
+
+**Part-of-whole charts need parts of one whole.** Donut, pie, and waffle all
+assume the values are non-negative shares that add up to something meaningful.
+A donut of "revenue by region" where one region lost money, or a waffle of two
+unrelated percentages, has no honest drawing — the library drops or clamps the
+offending values rather than lying about them, which means your panel quietly
+loses data. Use a column chart with `negativeColor` instead.
+
 | The data is… | Use | charts-lib call |
 |:--|:--|:--|
-| A value over time, 1–4 series | line / spline | `Charts.line` (`type:'spline'` per series to smooth) |
+| A value over time, 1–4 series | line / spline | `Charts.line` (`type:'spline'` per series to smooth) — x must be dates or numbers, never names |
 | A value over time, irregular timestamps | datetime line | `Charts.line` + `xAxis:{type:'datetime'}` |
 | A level that holds between changes | step line | `Charts.line` + `type:'step'` |
-| Comparison across ≤12 named categories | columns | `Charts.column` |
+| Comparison across ≤12 named categories | columns | `Charts.column` — the answer whenever x is a *name*, whether or not the numbers look like a trend |
 | Comparison across >12 categories, or long labels | horizontal bars | `Charts.bar` |
 | A ranked list, or very long category names | bar list (no axis) | `Charts.barList` + `sort:'desc'` |
 | Each row needs a comparison **and** a sentence **and** a headline number | bar insight table | `Charts.barInsightTable` |
@@ -14,7 +72,7 @@
 | Share-of-total over time | 100% stacked | `stacking:'percent'` |
 | Share of a single total, ≤6 parts | donut | `Charts.donut` (add `centerText`) |
 | Share where each part also has a size | variable-radius donut | `Charts.donut` + `variableRadius:true` |
-| Relationship between two measures | scatter | `Charts.scatter` (`regression:true` for a trend line) |
+| Relationship between two **numeric** measures | scatter | `Charts.scatter` (`regression:true` for a trend line) — a category on either axis means it isn't a scatter |
 | Two measures plus a magnitude | bubble | `Charts.bubble` |
 | Many items, only relative size matters | packed bubbles | `Charts.packedBubble` |
 | A min–max span per category | column range | `Charts.column` + `type:'columnrange'`, `data:[[low,high],…]` |
@@ -25,7 +83,7 @@
 | Per-region attainment against a shared target | geofacet gauges | `Charts.geofacet` + `chart:{variant:'gauge'}`, real `max` |
 | One value for a handful of named places | ranked bars | `Charts.barList` / `Charts.bar` — a geofacet of 10 states is 40 empty tiles, and the map shape earns its space only when the geography is the finding |
 | 2–4 charts that are one exhibit under one headline | panels | `Charts.panels` (`charts:[{type,…}]`, max 4 per row) |
-| A rate spanning orders of magnitude | log axis | `Charts.line` + `yAxis:{type:'logarithmic'}` |
+| A rate spanning orders of magnitude | log axis | `Charts.line` + `yAxis:{type:'logarithmic'}` — only if every value is > 0 |
 
 ## Choosing between the three bar treatments
 
@@ -60,6 +118,15 @@ rows are categories, not periods.
 
 ## Anti-patterns
 
+- **A line over named categories** — browsers, regions, departments, SKUs.
+  The engine refuses it and you ship an error panel; even if it drew, the
+  slope between two names means nothing. Use columns.
+- Bare month names (`'Jan'`) or quarter labels (`'Q1 2024'`) as line
+  categories — they don't parse as dates. Write `'Jan 2025'` or the
+  quarter's start date.
+- A log y-axis over data containing zero or negative values.
+- A scatter where one axis is a category — `xAxis.categories` is ignored,
+  so the points land on an index axis that means nothing.
 - Pie/donut for time, for >6 wedges, or for parts that don't sum to a whole.
 - More than 4 lines on one chart — split it, or highlight one and gray the rest.
 - Stacked columns when the reader needs to compare the *middle* bands; only the
