@@ -35,6 +35,8 @@ legend interactions — no canvas, no external framework.
 | `Charts.bar`          | Horizontal bars — same options as `column`, including population pyramid.   |
 | `Charts.barList`      | Axis-free horizontal bars; category label sits above each bar.              |
 | `Charts.barInsightTable` | One row per category: label · bars · insight headline + description · a large stat. |
+| `Charts.waffle`       | Part-of-whole dot grids; one panel per statistic, headline stat + caption.  |
+| `Charts.panels`       | Compositor: up to 4 charts of any type side by side under one shared title. |
 | `Charts.donut`        | Donut (default 60% hole) — variable radius, semi-circle, gradient, sliced. |
 | `Charts.pie`          | Full pie (donut with `innerSize:0`).                                        |
 | `Charts.scatter`      | 2D scatter + optional linear regression + point labels.                     |
@@ -205,6 +207,66 @@ Charts.barInsightTable('container', {
 - **Dividers** are hairlines between rows only; `dividers: false` removes them.
 - **Height**: the container grows to fit the rows; `autoHeight: false` keeps the
   container's own height.
+
+### Waffle (`Charts.waffle`)
+
+One panel per statistic — headline stat, dot grid, label, description — split
+evenly across the content width. Reach for it when the reader has to *feel* a
+proportion rather than compare magnitudes: survey shares, adoption rates, "x in
+100" facts. A bar compares lengths; a waffle counts units.
+
+```js
+Charts.waffle('chart', {
+  title: 'Key Strategic Priorities',
+  subtitle: 'Percentage of surveyed organizations reporting on key focus areas',
+  series: [{ name: 'Share of organizations', data: [
+    { name: 'Growth Focus',        y: 29, description: 'Organizations focusing 30% or more of their time on long-term growth' },
+    { name: 'Resource Allocation', y: 30, description: 'Companies that increase resourcing during market volatility' },
+    { name: 'Customer Centricity', y: 15, description: 'Firms that incorporate direct customer input into decisions' }
+  ] }]
+});
+```
+
+- **Data**: same shapes as `barList` — `[{name, y, description, color}]`, `[name, y]` pairs, or bare numbers with `xAxis.categories` (descriptions via a parallel `rows: [{description}]`).
+- **Grid**: `rows` / `cols` (default `10 × 10`); `total` (default `100`) is what the value is a share *of*, so `total: 500` with `y: 430` fills 86 dots. Values round to whole dots.
+- **Fill**: bottom-up by default so the block reads as a level; `fillDirection: 'top'` fills downward.
+- **Dots**: `dotSize` caps the diameter, `dotGap` is the gap as a share of it, `emptyColor` / `emptyOpacity` style the remainder.
+- **Text**: `statSize`, `nameSize`, `descriptionSize`, `descriptionLines`; the headline uses `format: '{y}'` / `valueSuffix` (default `'%'`). Panels size to the tallest description so baselines line up.
+- **Color**: walks the series palette per panel; `series.color` or a point `color` overrides, `colorByPoint: false` gives every panel one color.
+- **Negative values are clamped to zero** — a part-of-whole grid can't show them honestly, same rule as the donut.
+- **Other**: `dividers: false` drops the vertical rules, `panelPadding` sets the gutter inside each panel.
+
+### Panels (`Charts.panels`)
+
+Not an engine — a compositor. One shared title/subtitle, the width split into up
+to four panels per line, each handed to whichever factory you name. Use it when
+a bar and a donut are **one** exhibit with one headline, not two panels in the
+dashboard grid.
+
+```js
+Charts.panels('chart', {
+  title: 'Q3 commercial review',
+  subtitle: 'Bookings trajectory, where the revenue came from, and the accounts driving it',
+  plotOptions: { panels: { columns: 3, separators: true, panelHeight: 300 } },
+  charts: [
+    { type: 'column', title: 'Bookings by month',
+      xAxis: { categories: ['Jul','Aug','Sep'] },
+      series: [{ name: 'Bookings', data: [42, 51, 68] }] },
+    { type: 'donut', title: 'Revenue mix',
+      series: [{ name: 'Revenue', data: [['New business',48],['Expansion',31],['Renewal',21]] }] },
+    { type: 'barList', title: 'Top accounts',
+      plotOptions: { barList: { valueSuffix: 'k', sort: 'desc' } },
+      series: [{ name: 'ARR', data: [['Northwind',210],['Acme',184],['Globex',121]] }] }
+  ]
+});
+```
+
+- **Panels**: `charts: [...]` (alias `panels:`). Each entry is an ordinary chart config plus `type` — any factory on the namespace (`line`, `column`, `bar`, `barList`, `barInsightTable`, `waffle`, `donut`, `pie`, `scatter`, `bubble`, `packedBubble`, `geofacet`) — and an optional per-panel `height`. Everything else passes through untouched, so a panel is configured exactly as it would be standalone, keeping its own title, legend and tooltip.
+- **Columns**: `columns` (default: the number of charts, capped at **4** — past four a panel is too narrow to read). Extra charts wrap onto further rows, so a 2×2 is just `columns: 2`.
+- **Separators**: hairlines between panels, on by default; `separators: false` turns them off.
+- **Heading**: the group title is a size up from a panel's own title (`titleSize`, `subtitleSize` override).
+- **Sizing**: `panelHeight` (default 320) applies to every panel except the self-sizing types (`barList`, `barInsightTable`, `waffle`), which grow to their content. `gap` between panels, `rowGap` between rows.
+- **Returns**: `{ charts: [...], panels: [...] }` — each engine's handle, and the panel `<div>`s.
 
 ### Donut & pie (`Charts.donut`, `Charts.pie`)
 

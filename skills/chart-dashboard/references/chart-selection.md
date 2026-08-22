@@ -9,6 +9,7 @@
 | Comparison across >12 categories, or long labels | horizontal bars | `Charts.bar` |
 | A ranked list, or very long category names | bar list (no axis) | `Charts.barList` + `sort:'desc'` |
 | Each row needs a comparison **and** a sentence **and** a headline number | bar insight table | `Charts.barInsightTable` |
+| A proportion the reader should *feel* ("29 in 100") | waffle | `Charts.waffle` — survey shares, adoption rates; a bar compares lengths, a waffle counts units |
 | Composition over time | stacked columns | `Charts.column` + `plotOptions.column.stacking:'normal'` |
 | Share-of-total over time | 100% stacked | `stacking:'percent'` |
 | Share of a single total, ≤6 parts | donut | `Charts.donut` (add `centerText`) |
@@ -23,6 +24,7 @@
 | One value per region, the *spatial pattern* is the finding | geofacet heat | `Charts.geofacet` + `chart:{variant:'heat'}`, pin `min`/`max` |
 | Per-region attainment against a shared target | geofacet gauges | `Charts.geofacet` + `chart:{variant:'gauge'}`, real `max` |
 | One value for a handful of named places | ranked bars | `Charts.barList` / `Charts.bar` — a geofacet of 10 states is 40 empty tiles, and the map shape earns its space only when the geography is the finding |
+| 2–4 charts that are one exhibit under one headline | panels | `Charts.panels` (`charts:[{type,…}]`, max 4 per row) |
 | A rate spanning orders of magnitude | log axis | `Charts.line` + `yAxis:{type:'logarithmic'}` |
 
 ## Choosing between the three bar treatments
@@ -62,7 +64,12 @@ rows are categories, not periods.
 - More than 4 lines on one chart — split it, or highlight one and gray the rest.
 - Stacked columns when the reader needs to compare the *middle* bands; only the
   bottom band and the total are readable.
-- Dual axes. Split into two panels instead.
+- Dual axes. Split into two panels instead (`Charts.panels` keeps them under
+  one headline).
+- `Charts.panels` as a second grid. It groups charts that are one exhibit; a
+  panel that stands on its own belongs in the dashboard grid, not nested.
+- A waffle for anything that isn't a share of a whole — negatives are clamped
+  to zero, and comparing two waffles is worse than comparing two bars.
 - Truncated y-axis on a column chart (bar length must encode the value).
 - Bubbles sized by radius rather than area — charts-lib already scales by area
   via `plotOptions.bubble:{minSize,maxSize}`; don't fight it.

@@ -7,6 +7,8 @@
  *   Charts.bar(container, config)               — horizontal bars; groups + stacks + population pyramid
  *   Charts.barList(container, config)           — axis-free horizontal bars, category label above each bar
  *   Charts.barInsightTable(container, config)   — rows of bars + insight text + a large change/summary stat
+ *   Charts.waffle(container, config)            — part-of-whole dot-grid panels with headline stat + caption
+ *   Charts.panels(container, config)            — up to 4 charts of any type side by side under one shared title
  *   Charts.donut(container, config)             — donut, semi-circle, variable-radius, gradient, sliced
  *   Charts.pie(container, config)               — alias of donut with innerSize:0 (full pie)
  *   Charts.scatter(container, config)           — 2D scatter + regression + labels
@@ -50,7 +52,7 @@
     CALLOUT_C = t.callout || '#e3120b';
     INV_TEXT = t.inverseText || '#FFFFFF';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
+    // Shared text roles â€” see the hierarchy comment in theme.js.
     CAT_COL = t.categoryColor || TITLE_COL;
     CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
     TICK_COL = t.tickColor || LABEL_COL;
@@ -70,6 +72,16 @@
     TICK_W = t.tickWidth != null ? t.tickWidth : 1.5;
   }
 
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
+
   function el(tag, attrs, parent) {
     const e = document.createElementNS(NS, tag);
     if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -82,7 +94,7 @@
     return e;
   }
 
-  // ── Heading wrapping ────────────────────────────────────────────────
+  // â”€â”€ Heading wrapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
@@ -92,8 +104,8 @@
   function _clipLine(str, fontSize, maxW, bold) {
     let s = String(str);
     if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
+    while (s.length > 1 && _headW(s + 'â€¦', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + 'â€¦';
   }
   function wrapHeading(str, fontSize, maxW, maxLines, bold) {
     const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
@@ -149,67 +161,239 @@
       + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
   }
 
-  // Boundary + midpoint tick generator for datetime, mimicking clean_charts.
-  // Returns { boundaries: [ms...], centers: [{ms, label}] }
-  function dateBoundaries(minMs, maxMs, freq) {
-    freq = (freq || 'auto').toLowerCase();
-    if (freq === 'auto') {
-      const span = maxMs - minMs;
-      const day = 86400000;
-      if (span > 3 * 365 * day) freq = 'year';
-      else if (span > 365 * day) freq = 'quarter';
-      else if (span > 60 * day) freq = 'month';
-      else if (span > 14 * day) freq = 'week';
-      else if (span > day) freq = 'day';
-      else if (span > 3 * 3600000) freq = 'hour';
-      else if (span > 3 * 60000) freq = 'minute';
-      else freq = 'second';
+
+  // â”€â”€ dense-axis tick thinning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // With many categories every label would be drawn, so they collide and the
+  // axis looks squeezed. When the labels parse as dates we keep only the ones
+  // that open a calendar period (hour â†’ day â†’ week â†’ month â†’ quarter â†’ year),
+  // stepping up to a coarser period until the kept labels fit the available
+  // pixels; otherwise we fall back to an even stride. Called from render(), so
+  // a chart whose data keeps growing re-thins itself on every update.
+  const TMONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function tpad(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function parseAxisDate(v) {
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === 'number') return v > 1e11 ? v : null;
+    if (typeof v !== 'string') return null;
+    if (!/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(v)) return null;
+    const t = Date.parse(v);
+    return isNaN(t) ? null : t;
+  }
+
+  // Coarsest-last ladder of calendar periods.
+  const AXIS_PERIODS = [
+    { key: ms => Math.floor(ms / 3600000),
+      fmt: (d) => tpad(d.getUTCHours()) + ':' + tpad(d.getUTCMinutes()) },
+    { key: ms => Math.floor(ms / 86400000),
+      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
+    { key: ms => Math.floor((ms / 86400000 - 4) / 7),
+      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
+    { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 12 + d.getUTCMonth(); },
+      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + (first || d.getUTCMonth() === 0 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
+    { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3); },
+      fmt: (d, first) => 'Q' + (Math.floor(d.getUTCMonth() / 3) + 1) + (first || d.getUTCMonth() < 3 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
+    { key: ms => new Date(ms).getUTCFullYear(),
+      fmt: (d) => String(d.getUTCFullYear()) }
+  ];
+
+  // Does this label set fit in `avail` px of axis length? Only x-axes need this:
+  // their labels sit side by side and collide, whereas a y-axis (horizontal bar)
+  // gives every category its own row and can carry the full-length label, so
+  // y-axis labels are never thinned.
+  function labelsFit(items, avail, fontSize) {
+    if (items.length <= 1) return true;
+    const per = items.reduce((a, it) => Math.max(a, it.label.length), 0) * fontSize * 0.62 + 12;
+    return items.length * per <= avail;
+  }
+
+  // Plan the x-axis category labels for `avail` px of axis.
+  // Temporal categories collapse to a coarser calendar period (see above) â€”
+  // dropping "Feb 3" from a run of days still leaves a readable time axis.
+  // Named categories cannot be dropped that way: "Chrome, ?, ?, Safari" is
+  // worse than no axis at all. So for them nothing is ever dropped; instead the
+  // labels are given more room, in order â€” full width, smaller type, two
+  // wrapped lines, two staggered rows, 45Â° slant, then 90Â° vertical. An
+  // ellipsis is the last resort, used only after wrapping has been tried.
+  // Returns { ticks:[{i, lines:[...]}], font, rotate, stagger, lines, height }.
+  function layoutCategoryAxis(cats, avail, baseFont, maxBand) {
+    const n = cats.length;
+    const CW = 0.62;                       // avg glyph width / font-size
+    const base = baseFont || 11;
+    maxBand = maxBand || 96;
+    const FONTS = [base, base - 1, base - 2].filter(f => f >= 9);
+    const upright = (ticks, font, lines, stagger) => ({
+      ticks, font, rotate: 0, stagger: !!stagger, lines, count: n,
+      height: Math.round(font * 1.25 * lines * (stagger ? 2 : 1)) + 20
+    });
+    const one = items => items.map(it => ({ i: it.i, lines: [it.label] }));
+    if (!n) return upright([], base, 1);
+
+    const all = cats.map((c, i) => ({ i, label: c == null ? String(i) : String(c) }));
+    const widest = all.reduce((a, it) => Math.max(a, it.label.length), 0) * CW * base;
+    const slot = avail / n;
+    if (widest + 10 <= slot) return upright(one(all), base, 1);
+
+    // Temporal: step up the calendar ladder instead of crowding.
+    const times = cats.map(parseAxisDate);
+    if (times.every(t => t !== null)) {
+      for (let p = 0; p < AXIS_PERIODS.length; p++) {
+        const period = AXIS_PERIODS[p];
+        const picked = [];
+        let prev = null;
+        for (let i = 0; i < n; i++) {
+          const k = period.key(times[i]);
+          if (prev === null || k !== prev) {
+            picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
+            prev = k;
+          }
+        }
+        if (picked.length < n && picked.length > 1 && labelsFit(picked, avail, base)) {
+          return upright(one(picked), base, 1);
+        }
+      }
     }
+
+    // Named categories: keep every label, find a presentation that fits.
+    // 1) upright â€” shrink the type a little, wrapping onto two lines if it helps
+    for (const font of FONTS) {
+      if (widest * (font / base) + 10 <= slot) return upright(one(all), font, 1);
+      const wrapped = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, 2) }));
+      if (maxLineChars(wrapped) * CW * font + 8 <= slot) return upright(wrapped, font, 2);
+    }
+    // 2) stagger onto two baselines â€” each label gets two slots of width
+    for (const font of FONTS) {
+      if (widest * (font / base) + 8 <= slot * 2) return upright(one(all), font, 1, true);
+    }
+    // 3) slant 45Â°, then 4) stand labels vertically. Spacing now costs about a
+    // glyph height per wrapped line, and length is bounded by the band depth â€”
+    // so try a second line before giving up any characters.
+    const slanted = (ticks, font, rotate, lines, proj) => ({
+      ticks, font, rotate, stagger: false, lines, count: n,
+      height: Math.round(Math.min(maxBand, maxLineChars(ticks) * CW * font / proj + 16)) + 6
+    });
+    for (const rotate of [45, 90]) {
+      const proj = rotate === 45 ? Math.SQRT2 : 1;      // band px per text px
+      const thin = rotate === 45 ? base * 0.95 : base * 1.05;
+      for (const font of FONTS) {
+        const maxChars = Math.max(4, Math.floor((maxBand - 16) * proj / (CW * font)));
+        for (const lines of [1, 2]) {
+          if (thin * (font / base) * lines > slot) break;
+          const ticks = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, lines) }));
+          if (maxLineChars(ticks) <= maxChars) return slanted(ticks, font, rotate, lines, proj);
+        }
+      }
+      // Wrapping was not enough for this angle: truncate to the band depth.
+      for (const font of FONTS) {
+        const maxChars = Math.max(4, Math.floor((maxBand - 16) * proj / (CW * font)));
+        for (const lines of [2, 1]) {
+          if (thin * (font / base) * lines > slot) continue;
+          const ticks = all.map(it => ({
+            i: it.i, lines: wrapAxisLabel(it.label, lines).map(l => ellipsize(l, maxChars))
+          }));
+          return slanted(ticks, font, rotate, lines, proj);
+        }
+      }
+    }
+    // Slots too narrow for any legible text â€” the tooltip carries the names.
+    return upright([], base, 1);
+  }
+
+  function maxLineChars(ticks) {
+    return ticks.reduce((a, t) => Math.max(a, t.lines.reduce((b, l) => Math.max(b, l.length), 0)), 0);
+  }
+  function ellipsize(s, maxChars) {
+    s = String(s);
+    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + 'â€¦';
+  }
+  // Word wrap into at most `lines` lines, split where the longest line comes
+  // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
+  function wrapAxisLabel(label, lines) {
+    const s = String(label);
+    const words = s.split(/\s+/);
+    if (lines < 2 || words.length <= 1) return [s];
+    let best = null;
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
+      const score = Math.max(a.length, b.length);
+      if (!best || score < best.score) best = { score, out: [a, b] };
+    }
+    if (lines <= 2 || words.length === 2) return best.out;
+    return [best.out[0]].concat(wrapAxisLabel(best.out[1], lines - 1));
+  }
+
+  // Draw one planned axis label. `x` is the slot centre, `yTop` the first
+  // baseline. Rotated labels hang from the axis anchored at their end, with
+  // wrapped lines stepping along the rotated frame's own y so they stay
+  // perpendicular to the axis.
+  function drawCategoryLabel(g, layout, tick, k, x, yTop, color, weight) {
+    const a = { 'font-size': layout.font, 'font-weight': weight, fill: color, 'font-family': FONT };
+    const lh = layout.font * 1.25;
+    const y0 = yTop + (layout.stagger && k % 2 ? lh : 0);
+    tick.lines.forEach((ln, li) => {
+      const t = txt(ln, Object.assign({ x, y: y0 + li * lh,
+        'text-anchor': layout.rotate ? 'end' : 'middle' }, a), g);
+      if (layout.rotate) t.setAttribute('transform', `rotate(-${layout.rotate} ${x} ${yTop})`);
+    });
+  }
+
+  const UNIT_MS = { second: 1000, minute: 60000, hour: 3600000, day: 86400000,
+    week: 604800000, month: 2629800000, quarter: 7889400000, year: 31557600000 };
+
+  // Ladder of (unit, multiple) tick intervals, finest first. `auto` walks it
+  // from the top and stops at the first interval whose labels fit the axis, so
+  // a denser dataset simply lands on a coarser rung instead of cramming ticks.
+  const DATE_LADDER = [
+    ['second', 1], ['second', 5], ['second', 15], ['second', 30],
+    ['minute', 1], ['minute', 5], ['minute', 15], ['minute', 30],
+    ['hour', 1], ['hour', 3], ['hour', 6], ['hour', 12],
+    ['day', 1], ['day', 2], ['week', 1], ['week', 2],
+    ['month', 1], ['quarter', 1], ['month', 6],
+    ['year', 1], ['year', 2], ['year', 5], ['year', 10], ['year', 25],
+    ['year', 50], ['year', 100]
+  ];
+
+  // Period-start boundaries at `mult` Ã— unit, covering [minMs, maxMs].
+  function genBoundaries(freq, mult, minMs, maxMs) {
+    mult = mult || 1;
+    const out = [];
     const first = new Date(minMs);
-    const boundaries = [];
-    function push(d) { boundaries.push(Date.UTC(d.y, d.m, d.d, d.h || 0, d.mi || 0, d.s || 0)); }
-    function make(y,m,d,h,mi,s){return {y,m,d,h:h||0,mi:mi||0,s:s||0};}
-
+    const LIMIT = 4000;
     if (freq === 'year') {
-      let y = first.getUTCFullYear();
-      while (true) { push(make(y,0,1)); if (Date.UTC(y,0,1) > maxMs + 366*86400000) break; y++; }
-    } else if (freq === 'quarter') {
-      let y = first.getUTCFullYear(), q = Math.floor(first.getUTCMonth()/3);
-      while (true) { push(make(y,q*3,1)); const t = Date.UTC(y,q*3,1); if (t > maxMs + 95*86400000) break; q++; if (q>3){q=0;y++;} }
-    } else if (freq === 'month') {
-      let y = first.getUTCFullYear(), m = first.getUTCMonth();
-      while (true) { push(make(y,m,1)); const t = Date.UTC(y,m,1); if (t > maxMs + 31*86400000) break; m++; if(m>11){m=0;y++;} }
-    } else if (freq === 'week') {
-      // Start on Monday
-      const d0 = new Date(minMs);
-      const dow = (d0.getUTCDay() + 6) % 7; // 0 = Mon
-      let t = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate()) - dow * 86400000;
-      while (t <= maxMs + 7 * 86400000) { boundaries.push(t); t += 7 * 86400000; }
-    } else if (freq === 'day') {
-      let t = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate());
-      while (t <= maxMs + 86400000) { boundaries.push(t); t += 86400000; }
-    } else if (freq === 'hour') {
-      let t = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate(), first.getUTCHours());
-      while (t <= maxMs + 3600000) { boundaries.push(t); t += 3600000; }
-    } else if (freq === 'minute') {
-      let t = Math.floor(minMs / 60000) * 60000;
-      while (t <= maxMs + 60000) { boundaries.push(t); t += 60000; }
+      let y = Math.floor(first.getUTCFullYear() / mult) * mult;
+      while (out.length < LIMIT) {
+        const t = Date.UTC(y, 0, 1);
+        out.push(t);
+        if (t > maxMs) break;
+        y += mult;
+      }
+    } else if (freq === 'quarter' || freq === 'month') {
+      const step = freq === 'quarter' ? 3 * mult : mult;
+      let idx = Math.floor((first.getUTCFullYear() * 12 + first.getUTCMonth()) / step) * step;
+      while (out.length < LIMIT) {
+        const t = Date.UTC(Math.floor(idx / 12), idx % 12, 1);
+        out.push(t);
+        if (t > maxMs) break;
+        idx += step;
+      }
     } else {
-      let t = Math.floor(minMs / 1000) * 1000;
-      while (t <= maxMs + 1000) { boundaries.push(t); t += 1000; }
+      let step, t;
+      if (freq === 'week') {
+        step = 7 * 86400000 * mult;
+        const dow = (first.getUTCDay() + 6) % 7; // 0 = Mon
+        t = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate()) - dow * 86400000;
+      } else {
+        step = (UNIT_MS[freq] || 86400000) * mult;
+        t = Math.floor(minMs / step) * step;
+      }
+      while (out.length < LIMIT) { out.push(t); if (t > maxMs) break; t += step; }
     }
+    return out;
+  }
 
-    // Sample down if too many
-    const MAX = 12;
-    if (boundaries.length - 1 > MAX) {
-      const k = Math.ceil((boundaries.length - 1) / MAX);
-      const sampled = [];
-      for (let i = 0; i < boundaries.length; i += k) sampled.push(boundaries[i]);
-      if (sampled[sampled.length - 1] < boundaries[boundaries.length - 1]) sampled.push(boundaries[boundaries.length - 1]);
-      boundaries.splice(0, boundaries.length, ...sampled);
-    }
-
-    // Compose centers with labels
+  // Midpoint label per boundary span; the year/date part is repeated only when
+  // it changes, matching the clean_charts axis style.
+  function composeCenters(boundaries, freq) {
     const centers = [];
     let prev = null;
     for (let i = 0; i < boundaries.length - 1; i++) {
@@ -242,8 +426,43 @@
       centers.push({ ms: mid, label });
       prev = s;
     }
-    return { boundaries, centers };
+    return centers;
   }
+
+  // Boundary + midpoint tick generator for datetime axes.
+  // `avail` is the plot width in px; the interval is coarsened until the labels
+  // fit it, so the axis stays readable as the number of datapoints grows.
+  // Returns { boundaries: [ms...], centers: [{ms, label}] }
+  function dateBoundaries(minMs, maxMs, freq, avail, fontSize) {
+    freq = (freq || 'auto').toLowerCase();
+    const span = Math.max(1, maxMs - minMs);
+    const fs = fontSize || 11;
+
+    function build(f, mult) {
+      const bs = genBoundaries(f, mult, minMs, maxMs);
+      return { boundaries: bs, centers: composeCenters(bs, f) };
+    }
+    function fits(r) {
+      if (r.centers.length < 2) return r.centers.length === 1;
+      return avail ? labelsFit(r.centers, avail, fs, false) : r.centers.length <= 12;
+    }
+
+    let start = 0;
+    if (freq !== 'auto') {
+      const idx = DATE_LADDER.findIndex(l => l[0] === freq);
+      if (idx < 0) return build(freq, 1);   // unknown interval: honour as-is
+      start = idx;
+    }
+    let last = null;
+    for (let i = start; i < DATE_LADDER.length; i++) {
+      const [f, mult] = DATE_LADDER[i];
+      if (span / (UNIT_MS[f] * mult) > 500) continue;   // way too fine to bother building
+      last = build(f, mult);
+      if (fits(last)) return last;
+    }
+    return last || build('year', 100);
+  }
+
 
   // --- paths ---
   function linePath(pts) {
@@ -330,6 +549,267 @@
     }
   }
 
+  // Refusal panel: drawn in place of the chart when the options describe
+  // something a line chart cannot honestly show. Returns the same stub API
+  // shape as Chart() so callers do not blow up on .redraw().
+  function errorChart(container, W, H, opts, headline, detail) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[charts-lib line] ' + headline + ' ' + detail);
+    }
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+    let y = 34;
+    if (opts.title) {
+      wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true).forEach(l => {
+        txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL,
+          'font-family': FONT }, svg);
+        y += TITLE_LH;
+      });
+      y += 10;
+    }
+    const cy = Math.max(y + 20, H / 2 - 10);
+    wrapHeading(headline, 13, W - 40, 2, true).forEach((l, i) => {
+      txt(l, { x: 20, y: cy + i * 18, 'font-size': 13, 'font-weight': 700,
+        fill: TITLE_COL, 'font-family': FONT }, svg);
+    });
+    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+      txt(l, { x: 20, y: cy + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+        'font-weight': 400, fill: SUB_COL, 'font-family': FONT }, svg);
+    });
+    return {
+      redraw() {}, addPoint() {}, shift() {}, getSeries() { return []; },
+      error: headline
+    };
+  }
+
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
   // ---------------- main ----------------
   function Chart(container, opts) {
     applyTheme();
@@ -343,6 +823,7 @@
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 500;
     const chartOpts = opts.chart || {};
+
 
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
@@ -359,6 +840,18 @@
     const yAxis = opts.yAxis || {};
     const xAxis = opts.xAxis || {};
     const xType = xAxis.type || (xAxis.categories ? 'category' : 'linear');
+    // A line implies a continuous x. Named (non-temporal) categories are not a
+    // valid x-axis for this engine: give each category its own series over a
+    // date/number x-axis, or use a bar chart. Refuse loudly rather than drawing
+    // a line across an axis whose labels cannot be shown.
+    if (xType === 'category') {
+      const _cats = xAxis.categories || [];
+      if (!_cats.length || !_cats.every(c => parseAxisDate(c) !== null)) {
+        return errorChart(container, W, H, opts,
+          'Line charts need a continuous or temporal x-axis.',
+          'Named categories cannot be plotted as a line. Use a bar chart, or give each category its own series over a date or numeric x-axis.');
+      }
+    }
     const yType = yAxis.type || 'linear';
     const isLog = yType === 'logarithmic';
     const valueSuffix = (yAxis.suffix != null) ? yAxis.suffix : '';
@@ -377,7 +870,7 @@
     const maxNameLen = seriesRaw.reduce((a, s) => Math.max(a, (s.name || '').length), 0);
     const rightPadForNames = showInline ? Math.min(140, 8 + maxNameLen * 6.5) : 0;
 
-    // ── Legend layout (top rows, wraps as needed) ───────────────────────
+    // â”€â”€ Legend layout (top rows, wraps as needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
     function _layoutLegend(items, availW) {
       const widths = items.map(it => LEG_ICON + LEG_ICON_GAP + Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
@@ -404,6 +897,24 @@
       b: 42
     };
     const IW = W - M.l - M.r;
+    // Category axis: plan the labels before fixing the bottom margin so a
+    // slanted or stacked band gets the room it needs. planCatAxis() is re-run
+    // from render() (inside the reserved band) when the data length changes.
+    // A line implies a continuous x, so a list of names is not something this
+    // axis can label: the series still draw (names stay in the tooltip), but
+    // named categories get no tick labels. Categories that parse as dates are
+    // labelled normally, collapsed to a calendar period.
+    function planCatAxis(n, band) {
+      const cats = (xAxis.categories || []).slice(0, n);
+      const empty = { ticks: [], font: F_TICK, rotate: 0, stagger: false,
+        lines: 1, count: n, height: 20 };
+      if (!cats.length || !cats.every(c => parseAxisDate(c) !== null)) return empty;
+      return layoutCategoryAxis(cats, IW, F_TICK,
+        band || Math.max(40, Math.min(110, H * 0.3)));
+    }
+    let catLayout = (xAxis.categories && (xAxis.type || 'category') === 'category')
+      ? planCatAxis(xAxis.categories.length) : null;
+    if (catLayout) M.b = Math.max(42, catLayout.height + TICK_L + 6);
     const IH = H - M.t - M.b;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
@@ -427,8 +938,14 @@
       const marker = Object.assign({ enabled: false, symbol: 'circle', radius: 4 },
         (opts.plotOptions && opts.plotOptions.series && opts.plotOptions.series.marker) || {}, s.marker || {});
       const points = normalizePoints(s.data, xType, xAxis.categories);
-      const dataLabels = Object.assign({ enabled: false },
-        (opts.plotOptions && opts.plotOptions.series && opts.plotOptions.series.dataLabels) || {}, s.dataLabels || {});
+      // On by default, as everywhere else. A series with many points gets
+      // crowded, so dataLabels:false â€” globally or per series â€” is the way
+      // back to a bare line.
+      const plotDL = opts.plotOptions && opts.plotOptions.series && opts.plotOptions.series.dataLabels;
+      const dataLabels = Object.assign({},
+        typeof plotDL === 'object' ? plotDL : {},
+        typeof s.dataLabels === 'object' ? s.dataLabels : {},
+        { enabled: dlEnabled(s.dataLabels, dlEnabled(plotDL, true)) });
       return {
         name: s.name || 'Series ' + (i + 1), color, type, points,
         legendColor: s.legendColor,
@@ -475,8 +992,10 @@
     }
 
     let viewMin = xMin, viewMax = xMax;
-    // Padding on the right of x range (like clean_charts pad_duration 3%)
-    const xPad = (xMax - xMin) * 0.03;
+    // Padding on the right of x range (like clean_charts pad_duration 3%).
+    // Recomputed by recomputeXRange() so a live series keeps its 3%% as the
+    // window slides.
+    let xPad = (xMax - xMin) * 0.03;
     viewMax += xPad;
 
     function xScale(x) { return M.l + ((x - viewMin) / (viewMax - viewMin)) * IW; }
@@ -496,6 +1015,9 @@
     const gSeries = el('g', {}, svg);
     const gMarkers = el('g', {}, svg);
     const gLabels = el('g', {}, svg);
+    // Boxes of the labels already placed, shared across series so no two
+    // value labels can overlap (see the greedy placement below).
+    const labelBoxes = [];
     const gAxes = el('g', {}, svg);
     const gAnnot = el('g', {}, svg);
     const gLegend = el('g', {}, svg);
@@ -509,8 +1031,12 @@
     gMarkers.setAttribute('clip-path', 'url(#' + clipId + ')');
 
     function addCommas(n) {
-      // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
-      // 0.30000000000000004 → 0.3. See the fuller note on the module-level copy.
+      // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+      // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
+      // fed a computed share or a summed column, and String() renders every
+      // artefact digit. 12 significant figures sits well inside double
+      // precision, so genuine values are untouched while accumulated ~1e-15
+      // error rounds away.
       if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
       const s = String(n);
       const neg = s.startsWith('-') ? '-' : '';
@@ -544,6 +1070,7 @@
       gSeries.innerHTML = '';
       gMarkers.innerHTML = '';
       gLabels.innerHTML = '';
+      labelBoxes.length = 0;      // placement is per-render; zoom redraws re-run it
       gAxes.innerHTML = '';
       gAnnot.innerHTML = '';
 
@@ -639,7 +1166,18 @@
             const label = s.dataLabels.format
               ? String(s.dataLabels.format).replace('{y}', formatValue(p.y, s))
               : formatValue(p.y, s);
-            const t = txt(label, { x: xScale(p.x), y: yScale(p.y) - 10,
+            // Since labels are on by default, a dense series would otherwise
+            // stack numbers on top of each other. Placement is greedy: a label
+            // that would collide with one already drawn is dropped, so what
+            // survives is always readable. Widths are estimated, as elsewhere.
+            const lx = xScale(p.x), ly = yScale(p.y) - 10;
+            const lw = label.length * 11 * 0.60 + 4, lh = 13;
+            const box = { x1: lx - lw / 2, x2: lx + lw / 2, y1: ly - lh, y2: ly + 3 };
+            const clash = labelBoxes.some(b =>
+              box.x1 < b.x2 && box.x2 > b.x1 && box.y1 < b.y2 && box.y2 > b.y1);
+            if (clash) return;
+            labelBoxes.push(box);
+            const t = txt(label, { x: lx, y: ly,
               'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700,
               fill: TITLE_COL, 'font-family': FONT }, gLabels);
             t.setAttribute('stroke', BG);
@@ -660,12 +1198,25 @@
       let boundaries = [];
       let centers = [];
       if (xType === 'category') {
-        // Boundaries between categories; labels at each category
+        // Planned category axis (see layoutCategoryAxis): named categories all
+        // keep a label, temporal ones collapse to calendar periods. Drawn here
+        // rather than through `centers`, which only handles plain upright text.
         const n = xAxis.categories.length;
-        for (let i = -0.5; i <= n - 0.5 + 0.001; i++) boundaries.push(i);
-        centers = xAxis.categories.map((c, i) => ({ ms: i, label: c }));
+        if (!catLayout || n !== catLayout.count) catLayout = planCatAxis(n, M.b - TICK_L - 6);
+        catLayout.ticks.forEach((tk, k) => {
+          drawCategoryLabel(gAxes, catLayout, tk, k, xScale(tk.i),
+            M.t + IH + TICK_L + 12, TICK_COL, TICK_FW);
+        });
+        if (!catLayout.ticks.length) {
+          boundaries.push(-0.5, n - 0.5);
+        } else if (catLayout.ticks.length === n) {
+          for (let i = -0.5; i <= n - 0.5 + 0.001; i++) boundaries.push(i);
+        } else {
+          catLayout.ticks.forEach(tk => boundaries.push(tk.i - 0.5));
+          boundaries.push(n - 0.5);
+        }
       } else if (xType === 'datetime') {
-        const bs = dateBoundaries(viewMin, viewMax, xAxis.tickInterval || 'auto');
+        const bs = dateBoundaries(viewMin, viewMax, xAxis.tickInterval || 'auto', IW, F_TICK);
         boundaries = bs.boundaries;
         centers = bs.centers;
       } else {
@@ -692,7 +1243,7 @@
       // Inline line-end labels
       if (showInline) placeInlineLabels();
 
-      // Callouts / annotations — auto-placed together to avoid overlap
+      // Callouts / annotations â€” auto-placed together to avoid overlap
       layoutCallouts(opts.callouts || []);
     }
 
@@ -732,87 +1283,35 @@
       });
     }
 
-    function drawParagraphBox(g, cx, cy, text, edge, ha) {
-      const lines = String(text).split('\n');
-      const lh = 13;
-      const pad = 8;
-      const w = Math.min(220, Math.max(...lines.map(l => l.length)) * 6 + pad * 2);
-      const h = lines.length * lh + pad * 2;
-      const bx = (ha === 'center') ? cx - w / 2 : cx;
-      el('rect', { x: bx, y: cy, width: w, height: h, rx: 6, ry: 6,
-        fill: BG, 'fill-opacity': 0.92, stroke: edge, 'stroke-width': 0.8 }, g);
-      lines.forEach((ln, i) => {
-        txt(ln, { x: bx + pad, y: cy + pad + (i + 1) * lh - 3, 'font-size': 10,
-          fill: LABEL_COL, 'font-family': FONT }, g);
-      });
-    }
-
-    function measureBox(text) {
-      const lines = String(text).split('\n');
-      const w = Math.min(220, Math.max(...lines.map(l => l.length)) * 6 + 16);
-      const h = lines.length * 13 + 16;
-      return { w, h };
-    }
-
+    // `callouts: [{ x, series, text, color }]` — anchored to the nearest point
+    // at that x. The line and its value labels are handed in as obstacles, so a
+    // note lands in clear plot rather than across the trend it is describing.
     function layoutCallouts(callouts) {
       if (!callouts.length) return;
-      // Resolve anchor point + geometry for each callout
       const items = callouts.map(co => {
         const seriesIdx = co.series != null ? seriesDefs.findIndex(s => s.name === co.series) : 0;
         const s = seriesDefs[seriesIdx >= 0 ? seriesIdx : 0];
+        if (!s) return null;
         let best = null, bd = Infinity;
         s.points.forEach(p => { if (!p) return; const d = Math.abs(p.x - co.x); if (d < bd) { bd = d; best = p; } });
         if (!best) return null;
-        const box = measureBox(co.text);
-        return { co, cx: xScale(best.x), cy: yScale(best.y), w: box.w, h: box.h,
-          color: co.color || CALLOUT_C };
-      }).filter(Boolean).sort((a, b) => a.cx - b.cx);
+        return { x: xScale(best.x), y: yScale(best.y), text: co.text, color: co.color };
+      }).filter(Boolean);
 
-      // Candidate offsets (dx from anchor to box top-left, dy from anchor to box top).
-      // Ordered by preference: up-right (default), up-left, further up-right, further up-left,
-      // down-right, down-left, etc. Leader always draws to the near corner of the box.
-      const OFFSETS = [
-        [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-        [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-        [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-      ];
-      const placed = [];
-      const inBounds = (x, y, w, h) =>
-        x >= M.l + 2 && y >= M.t + 2 && x + w <= M.l + IW - 2 && y + h <= M.t + IH - 2;
-      const overlaps = (x, y, w, h) => placed.some(r =>
-        !(x + w + 6 < r.x || x > r.x + r.w + 6 || y + h + 6 < r.y || y > r.y + r.h + 6));
-
-      items.forEach(it => {
-        // Auto-place: pick first candidate offset that stays in-plot and clear of prior boxes.
-        // Legacy dx/dy on the callout are ignored — layout is deterministic.
-        let chosen = null;
-        for (const [ox, oy] of OFFSETS) {
-          const x = ox >= 0 ? it.cx + ox : it.cx + ox - it.w;
-          const y = oy < 0 ? it.cy + oy - it.h : it.cy + oy;
-          if (inBounds(x, y, it.w, it.h) && !overlaps(x, y, it.w, it.h)) { chosen = [x, y]; break; }
-        }
-        if (!chosen) {
-          const x = Math.max(M.l + 2, Math.min(M.l + IW - it.w - 2, it.cx - it.w / 2));
-          const y = Math.max(M.t + 2, it.cy - it.h - 20);
-          chosen = [x, y];
-        }
-        const [bx, by] = chosen;
-        placed.push({ x: bx, y: by, w: it.w, h: it.h });
-
-        // Leader endpoint = nearest box edge midpoint from the anchor
-        const midX = bx + it.w / 2, midY = by + it.h / 2;
-        let lx = midX, ly = midY;
-        if (it.cx < bx) lx = bx;                     // box is to the right → connect left edge
-        else if (it.cx > bx + it.w) lx = bx + it.w;  // box is to the left → right edge
-        if (it.cy < by) ly = by;                     // box is below anchor → connect top edge
-        else if (it.cy > by + it.h) ly = by + it.h;  // box above anchor → bottom edge
-
-        el('line', { x1: it.cx, y1: it.cy, x2: lx, y2: ly,
-          stroke: it.color, 'stroke-width': 1.2 }, gAnnot);
-        el('circle', { cx: it.cx, cy: it.cy, r: 5, fill: it.color,
-          stroke: INV_TEXT, 'stroke-width': 1 }, gAnnot);
-        drawParagraphBox(gAnnot, bx, by, it.co.text, it.color, 'left');
+      // Sample every visible series into small rects: cheap, and enough to keep
+      // a box off the line without hit-testing the path itself.
+      const obstacles = labelBoxes.map(b =>
+        ({ x: b.x1, y: b.y1, w: b.x2 - b.x1, h: b.y2 - b.y1 }));
+      seriesDefs.forEach(s => {
+        if (!s.visible) return;
+        s.points.forEach(p => {
+          if (!p || p.x < viewMin || p.x > viewMax) return;
+          const px = xScale(p.x), py = yScale(p.y);
+          obstacles.push({ x: px - 4, y: py - 4, w: 8, h: 8 });
+        });
       });
+      drawCallouts(gAnnot, items, { x: M.l, y: M.t, w: IW, h: IH },
+        { mode: 'auto', obstacles: obstacles });
     }
 
     // ---- interaction ----
@@ -928,12 +1427,18 @@
         if (p.x < mn) mn = p.x;
         if (p.x > mx) mx = p.x;
       }));
-      const wasAtEnd = Math.abs(viewMax - (xMax + xPad)) < 1;
+      // Move both edges only while the view is still tracking the data (i.e.
+      // the user has not drag-zoomed). addPoint/shift then scrolls the axis
+      // instead of stretching it: points dropped off the left would otherwise
+      // leave a growing blank, since viewMin stayed pinned to the first sample.
+      const following = Math.abs(viewMax - (xMax + xPad)) < 1
+        && Math.abs(viewMin - xMin) < 1;
       xMin = mn; xMax = mx;
-      if (wasAtEnd) viewMax = xMax + xPad;
+      xPad = (xMax - xMin) * 0.03;
+      if (following) { viewMin = xMin; viewMax = xMax + xPad; }
     }
 
-    // ── Top legend (below subtitle) ─────────────────────────────────────
+    // â”€â”€ Top legend (below subtitle) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function renderLegend() {
       gLegend.innerHTML = '';
       if (!legendEnabled) return;
@@ -1021,7 +1526,7 @@
     NEG_COL = t.negative || '#D1107A';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
+    // Shared text roles â€” see the hierarchy comment in theme.js.
     CAT_COL = t.categoryColor || TITLE_COL;
     CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
     TICK_COL = t.tickColor || LABEL_COL;
@@ -1038,6 +1543,16 @@
     GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
   }
 
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
+
   function el(tag, attrs, parent) {
     const e = document.createElementNS(NS, tag);
     if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -1050,7 +1565,7 @@
     return e;
   }
 
-  // ── Heading wrapping ────────────────────────────────────────────────
+  // â”€â”€ Heading wrapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
@@ -1060,8 +1575,8 @@
   function _clipLine(str, fontSize, maxW, bold) {
     let s = String(str);
     if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
+    while (s.length > 1 && _headW(s + 'â€¦', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + 'â€¦';
   }
   function wrapHeading(str, fontSize, maxW, maxLines, bold) {
     const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
@@ -1083,6 +1598,218 @@
   }
   const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+
+  // â”€â”€ dense-axis tick thinning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // With many categories every label would be drawn, so they collide and the
+  // axis looks squeezed. When the labels parse as dates we keep only the ones
+  // that open a calendar period (hour â†’ day â†’ week â†’ month â†’ quarter â†’ year),
+  // stepping up to a coarser period until the kept labels fit the available
+  // pixels; otherwise we fall back to an even stride. Called from render(), so
+  // a chart whose data keeps growing re-thins itself on every update.
+  const TMONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function tpad(n) { return n < 10 ? '0' + n : '' + n; }
+
+  function parseAxisDate(v) {
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === 'number') return v > 1e11 ? v : null;
+    if (typeof v !== 'string') return null;
+    if (!/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(v)) return null;
+    const t = Date.parse(v);
+    return isNaN(t) ? null : t;
+  }
+
+  // Coarsest-last ladder of calendar periods.
+  const AXIS_PERIODS = [
+    { key: ms => Math.floor(ms / 3600000),
+      fmt: (d) => tpad(d.getUTCHours()) + ':' + tpad(d.getUTCMinutes()) },
+    { key: ms => Math.floor(ms / 86400000),
+      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
+    { key: ms => Math.floor((ms / 86400000 - 4) / 7),
+      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
+    { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 12 + d.getUTCMonth(); },
+      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + (first || d.getUTCMonth() === 0 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
+    { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3); },
+      fmt: (d, first) => 'Q' + (Math.floor(d.getUTCMonth() / 3) + 1) + (first || d.getUTCMonth() < 3 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
+    { key: ms => new Date(ms).getUTCFullYear(),
+      fmt: (d) => String(d.getUTCFullYear()) }
+  ];
+
+  // Does this label set fit in `avail` px of axis length? Only x-axes need this:
+  // their labels sit side by side and collide, whereas a y-axis (horizontal bar)
+  // gives every category its own row and can carry the full-length label, so
+  // y-axis labels are never thinned.
+  function labelsFit(items, avail, fontSize) {
+    if (items.length <= 1) return true;
+    const per = items.reduce((a, it) => Math.max(a, it.label.length), 0) * fontSize * 0.62 + 12;
+    return items.length * per <= avail;
+  }
+
+  // Plan the x-axis category labels for `avail` px of axis.
+  // Temporal categories collapse to a coarser calendar period (see above) â€”
+  // dropping "Feb 3" from a run of days still leaves a readable time axis.
+  // Named categories cannot be dropped that way: "Chrome, ?, ?, Safari" is
+  // worse than no axis at all. So for them nothing is ever dropped; instead the
+  // labels are given more room, in order â€” full width, smaller type, two
+  // wrapped lines, two staggered rows, 45Â° slant, then 90Â° vertical. An
+  // ellipsis is the last resort, used only after wrapping has been tried.
+  // Returns { ticks:[{i, lines:[...]}], font, rotate, stagger, lines, height }.
+  function layoutCategoryAxis(cats, avail, baseFont, maxBand) {
+    const n = cats.length;
+    const CW = 0.62;                       // avg glyph width / font-size
+    const base = baseFont || 11;
+    maxBand = maxBand || 96;
+    const FONTS = [base, base - 1, base - 2].filter(f => f >= 9);
+    const upright = (ticks, font, lines, stagger) => ({
+      ticks, font, rotate: 0, stagger: !!stagger, lines, count: n,
+      height: Math.round(font * 1.25 * lines * (stagger ? 2 : 1)) + 20
+    });
+    const one = items => items.map(it => ({ i: it.i, lines: [it.label] }));
+    if (!n) return upright([], base, 1);
+
+    const all = cats.map((c, i) => ({ i, label: c == null ? String(i) : String(c) }));
+    const widest = all.reduce((a, it) => Math.max(a, it.label.length), 0) * CW * base;
+    const slot = avail / n;
+    if (widest + 10 <= slot) return upright(one(all), base, 1);
+
+    // Temporal: step up the calendar ladder instead of crowding.
+    const times = cats.map(parseAxisDate);
+    if (times.every(t => t !== null)) {
+      for (let p = 0; p < AXIS_PERIODS.length; p++) {
+        const period = AXIS_PERIODS[p];
+        const picked = [];
+        let prev = null;
+        for (let i = 0; i < n; i++) {
+          const k = period.key(times[i]);
+          if (prev === null || k !== prev) {
+            picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
+            prev = k;
+          }
+        }
+        if (picked.length < n && picked.length > 1 && labelsFit(picked, avail, base)) {
+          return upright(one(picked), base, 1);
+        }
+      }
+    }
+
+    // Named categories: keep every label, find a presentation that fits.
+    // 1) upright â€” shrink the type a little, wrapping onto two lines if it helps
+    for (const font of FONTS) {
+      if (widest * (font / base) + 10 <= slot) return upright(one(all), font, 1);
+      const wrapped = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, 2) }));
+      if (maxLineChars(wrapped) * CW * font + 8 <= slot) return upright(wrapped, font, 2);
+    }
+    // 2) stagger onto two baselines â€” each label gets two slots of width
+    for (const font of FONTS) {
+      if (widest * (font / base) + 8 <= slot * 2) return upright(one(all), font, 1, true);
+    }
+    // 3) slant 45Â°, then 4) stand labels vertically. Spacing now costs about a
+    // glyph height per wrapped line, and length is bounded by the band depth â€”
+    // so try a second line before giving up any characters.
+    const slanted = (ticks, font, rotate, lines, proj) => ({
+      ticks, font, rotate, stagger: false, lines, count: n,
+      height: Math.round(Math.min(maxBand, maxLineChars(ticks) * CW * font / proj + 16)) + 6
+    });
+    for (const rotate of [45, 90]) {
+      const proj = rotate === 45 ? Math.SQRT2 : 1;      // band px per text px
+      const thin = rotate === 45 ? base * 0.95 : base * 1.05;
+      for (const font of FONTS) {
+        const maxChars = Math.max(4, Math.floor((maxBand - 16) * proj / (CW * font)));
+        for (const lines of [1, 2]) {
+          if (thin * (font / base) * lines > slot) break;
+          const ticks = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, lines) }));
+          if (maxLineChars(ticks) <= maxChars) return slanted(ticks, font, rotate, lines, proj);
+        }
+      }
+      // Wrapping was not enough for this angle: truncate to the band depth.
+      for (const font of FONTS) {
+        const maxChars = Math.max(4, Math.floor((maxBand - 16) * proj / (CW * font)));
+        for (const lines of [2, 1]) {
+          if (thin * (font / base) * lines > slot) continue;
+          const ticks = all.map(it => ({
+            i: it.i, lines: wrapAxisLabel(it.label, lines).map(l => ellipsize(l, maxChars))
+          }));
+          return slanted(ticks, font, rotate, lines, proj);
+        }
+      }
+    }
+    // Slots too narrow for any legible text â€” the tooltip carries the names.
+    return upright([], base, 1);
+  }
+
+  // Y-axis (horizontal bar) row labels. Each category owns a row, so nothing is
+  // ever dropped; a label that outgrows the gutter wraps onto a second line
+  // whenever the row is tall enough for one, and only what still does not fit
+  // after wrapping is cut with an ellipsis. Type shrinks a step or two, both to
+  // buy that second line and to keep tightly packed rows from colliding.
+  function layoutRowLabels(cats, availW, rowH, baseFont) {
+    const CW = 0.62;
+    const strs = cats.map(c => (c == null ? '' : String(c)));
+    const fonts = [baseFont, baseFont - 1, baseFont - 2].filter(f => f >= 9);
+    for (const font of fonts) {
+      const lh = font * 1.2;
+      if (lh > rowH && font !== fonts[fonts.length - 1]) continue;   // row too short for this size
+      const maxChars = Math.max(3, Math.floor(availW / (CW * font)));
+      if (strs.every(l => l.length <= maxChars)) return { lines: strs.map(l => [l]), font, lh };
+      if (rowH >= lh * 2) {
+        const wrapped = strs.map(l => wrapAxisLabel(l, 2));
+        if (wrapped.every(w => w.every(l => l.length <= maxChars))) return { lines: wrapped, font, lh };
+      }
+    }
+    // Longer than the gutter even wrapped: wrap if the row allows, then clip.
+    const font = fonts[0] || baseFont;
+    const lh = font * 1.2;
+    const maxChars = Math.max(3, Math.floor(availW / (CW * font)));
+    const maxLines = rowH >= lh * 2 ? 2 : 1;
+    return {
+      lines: strs.map(l => wrapAxisLabel(l, maxLines).slice(0, maxLines).map(x => ellipsize(x, maxChars))),
+      font, lh
+    };
+  }
+
+  // Widest rendered line of a row-label layout, in px.
+  function rowLabelWidth(rl) {
+    return rl.lines.reduce((a, lns) =>
+      Math.max(a, lns.reduce((b, l) => Math.max(b, l.length), 0)), 0) * 0.62 * rl.font;
+  }
+
+  function maxLineChars(ticks) {
+    return ticks.reduce((a, t) => Math.max(a, t.lines.reduce((b, l) => Math.max(b, l.length), 0)), 0);
+  }
+  function ellipsize(s, maxChars) {
+    s = String(s);
+    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + 'â€¦';
+  }
+  // Word wrap into at most `lines` lines, split where the longest line comes
+  // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
+  function wrapAxisLabel(label, lines) {
+    const s = String(label);
+    const words = s.split(/\s+/);
+    if (lines < 2 || words.length <= 1) return [s];
+    let best = null;
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
+      const score = Math.max(a.length, b.length);
+      if (!best || score < best.score) best = { score, out: [a, b] };
+    }
+    if (lines <= 2 || words.length === 2) return best.out;
+    return [best.out[0]].concat(wrapAxisLabel(best.out[1], lines - 1));
+  }
+
+  // Draw one planned axis label. `x` is the slot centre, `yTop` the first
+  // baseline. Rotated labels hang from the axis anchored at their end, with
+  // wrapped lines stepping along the rotated frame's own y so they stay
+  // perpendicular to the axis.
+  function drawCategoryLabel(g, layout, tick, k, x, yTop, color, weight) {
+    const a = { 'font-size': layout.font, 'font-weight': weight, fill: color, 'font-family': FONT };
+    const lh = layout.font * 1.25;
+    const y0 = yTop + (layout.stagger && k % 2 ? lh : 0);
+    tick.lines.forEach((ln, li) => {
+      const t = txt(ln, Object.assign({ x, y: y0 + li * lh,
+        'text-anchor': layout.rotate ? 'end' : 'middle' }, a), g);
+      if (layout.rotate) t.setAttribute('transform', `rotate(-${layout.rotate} ${x} ${yTop})`);
+    });
+  }
 
   function niceTicks(min, max, count) {
     count = count || 5;
@@ -1132,13 +1859,239 @@
     if (cur) lines.push(cur);
     if (lines.length > maxLines) {
       const last = lines.slice(0, maxLines);
-      last[maxLines - 1] = last[maxLines - 1].slice(0, maxChars - 1) + '…';
+      last[maxLines - 1] = last[maxLines - 1].slice(0, maxChars - 1) + 'â€¦';
       return last;
     }
     return lines;
   }
 
   // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
   function Chart(container, opts) {
     applyTheme();
     opts = opts || {};
@@ -1168,7 +2121,11 @@
     const groupPadding = plotCommon.groupPadding != null ? plotCommon.groupPadding : 0.2;
     const forcedType = plotCommon.type || chartOpts.type;
     const valueSuffix = (yAxis.suffix != null) ? yAxis.suffix : '';
-    const showValues = !!(plotCommon.dataLabels && plotCommon.dataLabels.enabled);
+    // Value labels are on by default: the number a bar encodes is what the
+    // reader came for, and making them read it off an axis is a needless
+    // indirection. Opt out with dataLabels:false or {enabled:false}, at
+    // plotOptions or series level.
+    const showValues = dlEnabled(plotCommon.dataLabels, true);
 
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
@@ -1184,12 +2141,11 @@
 
     // Determine longest category label for horizontal bar left pad
     const maxCatLen = categories.reduce((a,c) => Math.max(a, String(c).length), 0);
-    const leftPadForBars = inverted ? Math.min(172, 20 + maxCatLen * 6.5 + 14) : 24;
 
     // titleX is the shared left edge for title, subtitle, and (for columns) y-labels
     const titleX = 20;
 
-    // ── Legend layout (top row(s), auto-enabled when multi-series) ──────
+    // â”€â”€ Legend layout (top row(s), auto-enabled when multi-series) â”€â”€â”€â”€â”€â”€
     const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
     const seriesCount = (opts.series || []).length;
     const legendEnabled = (opts.legend && opts.legend.enabled != null)
@@ -1212,6 +2168,25 @@
       : { rows: [], height: 0 };
     const legendZone = legendLayout.height + (legendEnabled ? 18 : 0);
 
+    // Horizontal bars carry their category label in the left gutter. Lay the
+    // labels out against the widest gutter we would ever allow (a third of the
+    // chart), then pull the gutter in to the width the text actually uses —
+    // otherwise a wrapped label leaves a canyon between itself and the bars.
+    const rowCount = Math.max(1, categories.length
+      || ((opts.series || [])[0] ? ((opts.series[0].data || []).length) : 1));
+    const gutterMax = Math.min(Math.max(172, W * 0.34), 20 + maxCatLen * 6.5 + 14);
+    const rowLabelCats = categories.length
+      ? categories : Array.from({ length: rowCount }, (_, i) => i);
+    let rowLabels = null;
+    let leftPadForBars = 24;
+    if (inverted) {
+      const ihEst = Math.max(40, H - (titleBlockH + legendZone + 34) - 26);
+      rowLabels = layoutRowLabels(rowLabelCats, gutterMax - titleX - 10,
+        ihEst / rowCount, F_LABEL);
+      leftPadForBars = Math.min(gutterMax,
+        Math.round(titleX + rowLabelWidth(rowLabels) + 12));
+    }
+
     const M = {
       l: inverted ? leftPadForBars : 62,   // column: room for y-labels left-aligned to titleX
       r: 20,
@@ -1219,6 +2194,16 @@
       b: (inverted ? 26 : 40)  // room for category labels + ~20px outer pad
     };
     const IW = W - M.l - M.r;
+    // Columns: plan the category labels before fixing the bottom margin, so a
+    // slanted or stacked band gets the room it needs. Recomputed per render()
+    // via renderCatLayout() when the data length changes.
+    const catCount = categories.length || ((opts.series || [])[0] ? (opts.series[0].data || []).length : 0);
+    let catLayout = inverted
+      ? null
+      : layoutCategoryAxis(
+          categories.length ? categories : Array.from({ length: catCount }, (_, i) => i),
+          IW, F_LABEL, Math.max(40, Math.min(110, H * 0.3)));
+    if (catLayout) M.b = Math.max(26, catLayout.height);
     const IH = H - M.t - M.b;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
@@ -1240,9 +2225,10 @@
       const color = s.color || defaultColor;
       const type = s.type || forcedType || 'column';
       const dataLabels = Object.assign(
-        { enabled: showValues, format: null, y: -4 },
-        plotCommon.dataLabels || {},
-        s.dataLabels || {}
+        { format: null, y: -4 },
+        typeof plotCommon.dataLabels === 'object' ? plotCommon.dataLabels : {},
+        typeof s.dataLabels === 'object' ? s.dataLabels : {},
+        { enabled: dlEnabled(s.dataLabels, showValues) }
       );
       const points = (s.data || []).map((d, j) => {
         if (d === null || d === undefined) return null;
@@ -1297,12 +2283,22 @@
           });
         });
       }
+      // Callouts live in a band past the ends of the bars — above them on a
+      // column chart, right of them on a horizontal bar chart. The room has to
+      // come out of the value axis, or the tallest bar and the note fight over
+      // the same pixels. Skipped when the author fixed the axis themselves.
+      if ((opts.callouts || []).length && yAxis.max == null && yMax > 0) {
+        const band = calloutBandPx(opts.callouts);
+        const plotPx = inverted ? IW : IH;
+        const frac = Math.min(0.42, band / Math.max(60, plotPx));
+        yMax = yMax + (yMax - Math.min(0, yMin)) * frac;
+      }
       if (yAxis.min != null) yMin = yAxis.min;
       if (yAxis.max != null) yMax = yAxis.max;
       if (yMin === Infinity) yMin = 0;
       if (yMax === -Infinity) yMax = 1;
       // add small headroom for value labels
-      const pad = (yMax - yMin) * (showValues ? 0.12 : 0.05);
+      const pad = (yMax - yMin) * (showValues && !stacking ? 0.12 : 0.05);
       let yLo = yMin - (yMin < 0 ? pad : 0);
       let yHi = yMax + pad;
       if (yAxis.min != null) yLo = yAxis.min;
@@ -1316,7 +2312,22 @@
     const gGrid = el('g', {}, svg);
     const gBars = el('g', {}, svg);
     const gLabels = el('g', {}, svg);
+    // Boxes of the value labels already placed this render. A label that would
+    // overlap one already drawn is dropped, so what survives is always
+    // readable. Widths are estimated, as everywhere else in the engines.
+    const labelBoxes = [];
+    function placeLabel(cx, cy, text, anchor) {
+      const w = String(text).length * F_VALUE * 0.60 + 4, h = 13;
+      const x1 = anchor === 'end' ? cx - w : anchor === 'start' ? cx : cx - w / 2;
+      const box = { x1: x1, x2: x1 + w, y1: cy - h, y2: cy + 3 };
+      if (labelBoxes.some(b => box.x1 < b.x2 && box.x2 > b.x1 && box.y1 < b.y2 && box.y2 > b.y1)) {
+        return false;
+      }
+      labelBoxes.push(box);
+      return true;
+    }
     const gAxes = el('g', {}, svg);
+    const gAnnot = el('g', {}, svg);   // callouts sit above bars and labels
     const gLegend = el('g', {}, svg);
     const gInteract = el('g', {}, svg);
 
@@ -1335,8 +2346,12 @@
     function catCenterY(i, n) { return M.t + ((i + 0.5) / n) * IH; }
 
     function addCommas(n) {
-      // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
-      // 0.30000000000000004 → 0.3. See the fuller note on the module-level copy.
+      // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+      // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
+      // fed a computed share or a summed column, and String() renders every
+      // artefact digit. 12 significant figures sits well inside double
+      // precision, so genuine values are untouched while accumulated ~1e-15
+      // error rounds away.
       if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
       const s = String(n);
       const neg = s.startsWith('-') ? '-' : '';
@@ -1361,10 +2376,32 @@
       return (s.valuePrefix || '') + addCommas(raw) + (s.valueSuffix || '');
     }
 
+    // Filled by render(), read by drawBar(): how many stacked segments sit
+    // either side of zero for each category.
+    const segsPerSide = [];
+
+    // One anchor per bar drawn this render, so a callout can name a category
+    // (and optionally a series) instead of guessing at pixels.
+    const barAnchors = [];
+    // Everything a note must not cover: the bars, and the value labels placed
+    // this render.
+    const barRects = [];
+
+    // Room a band of notes needs, in px — the tallest box plus breathing room.
+    function calloutBandPx(cos) {
+      let h = 0;
+      (cos || []).forEach(co => { h = Math.max(h, measureCalloutBox(co.text).h); });
+      return h + 26;
+    }
+
     function render() {
       gGrid.innerHTML = '';
       gBars.innerHTML = '';
       gLabels.innerHTML = '';
+      gAnnot.innerHTML = '';
+      barAnchors.length = 0;
+      barRects.length = 0;
+      labelBoxes.length = 0;   // placement is per render
       gAxes.innerHTML = '';
       computeScales();
       const n = categories.length || (seriesDefs[0] ? seriesDefs[0].points.length : 0);
@@ -1385,17 +2422,17 @@
         const y0 = yScale(Math.max(0, ranges.yMin));
         el('line', { x1: M.l, y1: y0, x2: M.l + IW, y2: y0,
           stroke: LABEL_COL, 'stroke-width': SPINE_W }, gAxes);
-        // Category labels (wrapped) below bars
-        for (let i = 0; i < n; i++) {
-          const x = catCenterX(i, n);
-          const label = categories[i] != null ? String(categories[i]) : String(i);
-          const wrap = wrapText(label, Math.max(6, Math.floor((IW / n) / 7)), 2);
-          wrap.forEach((line, li) => {
-            txt(line, { x, y: M.t + IH + 16 + li * 14,
-              'text-anchor': 'middle', 'font-size': F_LABEL,
-              'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
-          });
+        // Category labels below bars, laid out to fit without dropping any
+        // named category (see layoutCategoryAxis).
+        if (n !== catLayout.count) {
+          catLayout = layoutCategoryAxis(
+            categories.length ? categories : Array.from({ length: n }, (_, i) => i),
+            IW, F_LABEL, M.b);
         }
+        catLayout.ticks.forEach((tk, k) => {
+          drawCategoryLabel(gAxes, catLayout, tk, k, catCenterX(tk.i, n),
+            M.t + IH + 16, CAT_COL, CAT_FW);
+        });
       } else {
         // Horizontal bar: vertical gridlines, top spine, x-axis labels on TOP
         ranges.yTicks.forEach(v => {
@@ -1410,16 +2447,42 @@
         // Top spine
         el('line', { x1: M.l, y1: M.t, x2: M.l + IW, y2: M.t,
           stroke: LABEL_COL, 'stroke-width': SPINE_W }, gAxes);
-        // Category labels aligned to titleX, vertically centered on bar
-        for (let i = 0; i < n; i++) {
-          const y = catCenterY(i, n);
-          const label = categories[i] != null ? String(categories[i]) : String(i);
-          txt(label, { x: titleX, y: y + 4, 'text-anchor': 'start',
-            'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
+        // Category labels aligned to titleX, vertically centered on bar. Never
+        // thinned: each category owns a row, so labels stack instead of
+        // colliding and a dropped one would leave a bar unidentified. They are
+        // wrapped (and only then clipped) to the gutter so they never run into
+        // the bars.
+        if (rowLabels.lines.length !== n) {
+          rowLabels = layoutRowLabels(
+            categories.length ? categories : Array.from({ length: n }, (_, i) => i),
+            M.l - titleX - 10, IH / Math.max(1, n), F_LABEL);
         }
+        rowLabels.lines.forEach((lns, i) => {
+          const y = catCenterY(i, n) + 4 - (lns.length - 1) * rowLabels.lh / 2;
+          lns.forEach((ln, li) => {
+            txt(ln, { x: titleX, y: y + li * rowLabels.lh, 'text-anchor': 'start',
+              'font-size': rowLabels.font, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
+          });
+        });
       }
 
       // --- bars ---
+      // How many stacked segments sit either side of zero, per category. One
+      // segment per side means the label can go at the bar's end (the pyramid
+      // case); more than one and it has to stay inside its own segment.
+      segsPerSide.length = 0;
+      if (stacking === 'normal' || stacking === 'percent') {
+        for (let i = 0; i < n; i++) {
+          let pos = 0, neg = 0;
+          visibleSeries.forEach(sv => {
+            const pt = sv.points[i];
+            if (!pt || pt.y == null) return;
+            if (pt.y >= 0) pos++; else neg++;
+          });
+          segsPerSide.push({ pos: pos, neg: neg });
+        }
+      }
+
       if (stacking === 'normal' || stacking === 'percent') {
         for (let i = 0; i < n; i++) {
           let posOffset = 0, negOffset = 0;
@@ -1484,6 +2547,34 @@
       }
 
       drawValueAxisMarks();
+      layoutCallouts();
+    }
+
+    // `callouts: [{ category, series, text, color }]` — `category` names an
+    // xAxis category (or gives its index); `series` picks one bar out of a
+    // group or stack, defaulting to the first series that has that category.
+    function layoutCallouts() {
+      const cos = opts.callouts || [];
+      if (!cos.length || !barAnchors.length) return;
+      const items = cos.map(co => {
+        const key = calloutKey(co);
+        const idx = (co.x != null && key == null) ? Number(co.x) : null;
+        const matches = barAnchors.filter(a =>
+          (key != null ? a.name === key : a.catIdx === idx) &&
+          (co.series == null || a.series === co.series));
+        const a = matches[0];
+        return a ? { x: a.x, y: a.y, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      // Columns grow upward, so their free room is the band across the top and
+      // the leader drops straight down onto the bar. Horizontal bars grow
+      // rightward, so the band is the gutter past their ends.
+      const obstacles = barRects.concat(labelBoxes.map(b =>
+        ({ x: b.x1, y: b.y1, w: b.x2 - b.x1, h: b.y2 - b.y1 })));
+      drawCallouts(gAnnot, items, { x: M.l, y: M.t, w: IW, h: IH }, {
+        mode: inverted ? 'right' : 'above',
+        obstacles: obstacles,
+        gutter: 8
+      });
     }
 
     // ── Target / threshold marks on the value axis ──────────────────────
@@ -1558,6 +2649,19 @@
     function drawBar(s, p, x, y, w, h, isBar, catIdx, seriesIdx, valueForLabel, isStacked) {
       if (w <= 0) w = 0.5;
       if (h <= 0) h = 0.5;
+      // The bar's outer end — the tip the reader's eye already goes to.
+      barRects.push({ x: x, y: y, w: w, h: h });
+      barAnchors.push({
+        catIdx: catIdx, series: s.name,
+        name: categories[catIdx] != null ? String(categories[catIdx]) : String(catIdx),
+        // Column: just inside the top of the bar, since the value label sits
+        // above it. Horizontal bar: just outside the end, since there the label
+        // sits inside the bar.
+        x: isBar ? (valueForLabel >= 0 ? x + w + 7 : x - 7) : x + w / 2,
+        y: isBar
+          ? y + h / 2
+          : (valueForLabel >= 0 ? y + Math.min(7, h / 2) : y + h - Math.min(7, h / 2))
+      });
       const barColor = pickColor(s, p);
       const scenario = p.scenario || s.scenario;
       const paint = scenarioFill(scenario, barColor);
@@ -1582,19 +2686,63 @@
           class: 'bar', 'data-cat': catIdx, 'data-series': seriesIdx }, paint), gBars);
       }
 
-      // Data labels — clean-charts style
+      // Data labels â€” clean-charts style
       if (s.dataLabels && s.dataLabels.enabled) {
-        const val = (p.y != null) ? p.y : (p.high != null ? `${p.low}–${p.high}` : '');
+        const val = (p.y != null) ? p.y : (p.high != null ? `${p.low}â€“${p.high}` : '');
         const label = s.dataLabels.format
           ? String(s.dataLabels.format).replace('{y}', Math.abs(val))
           : (typeof val === 'number' ? fmtY(Math.abs(val)) : val);
 
+        // Estimated label width â€” the engines size text without measuring it.
+        const labelW = String(label).length * F_VALUE * 0.60;
+
         if (!isBar) {
-          // Value ABOVE bar
-          const lx = x + w/2;
-          const ly = y - 6;
-          txt(label, { x: lx, y: ly, 'text-anchor': 'middle',
-            'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gLabels);
+          const side = segsPerSide[catIdx] || { pos: 0, neg: 0 };
+          const stackedNeighbour = isStacked &&
+            (valueForLabel >= 0 ? side.pos : side.neg) > 1;
+          if (stackedNeighbour) {
+            // Inside the segment: above it is where the NEXT segment sits, so
+            // an above-bar label would land on its neighbour. Segments too
+            // short to hold the number simply go unlabelled.
+            if (h >= F_VALUE + 6) {
+              txt(label, { x: x + w / 2, y: y + h / 2 + F_VALUE * 0.36, 'text-anchor': 'middle',
+                'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor),
+                'font-family': FONT }, gLabels);
+            }
+          } else if (placeLabel(x + w / 2, y - 6, label, 'middle')) {
+            // Value ABOVE bar
+            txt(label, { x: x + w / 2, y: y - 6, 'text-anchor': 'middle',
+              'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gLabels);
+          }
+        } else if (isStacked) {
+          const side = segsPerSide[catIdx] || { pos: 0, neg: 0 };
+          const alone = (valueForLabel >= 0 ? side.pos : side.neg) <= 1;
+          const ly = y + h / 2 + 4;
+          if (alone) {
+            // Population-pyramid shape: the label sits at the bar's outer end â€”
+            // the right tip for a positive value, the left tip for a negative
+            // one â€” inside the bar when it fits, just outside when it does not.
+            const outward = valueForLabel < 0;
+            if (w >= labelW + 12) {
+              txt(label, { x: outward ? x + 6 : x + w - 6, y: ly,
+                'text-anchor': outward ? 'start' : 'end',
+                'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor),
+                'font-family': FONT }, gLabels);
+            } else {
+              const lx = outward ? x - 6 : x + w + 6;
+              if (placeLabel(lx, ly, label, outward ? 'end' : 'start')) {
+                txt(label, { x: lx, y: ly, 'text-anchor': outward ? 'end' : 'start',
+                  'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL,
+                  'font-family': FONT }, gLabels);
+              }
+            }
+          } else if (w >= labelW + 12) {
+            // Several segments on this side: the only honest place for the
+            // number is inside the segment it belongs to.
+            txt(label, { x: x + w / 2, y: ly, 'text-anchor': 'middle',
+              'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor),
+              'font-family': FONT }, gLabels);
+          }
         } else {
           // Value at right end of bar; inside-white if long enough, else outside-dark
           const total = xScaleVal(ranges.yMax) - xScaleVal(ranges.yMin);
@@ -1604,16 +2752,11 @@
           if (w >= threshold && paint.fill !== BG) {
             txt(label, { x: x + w - 6, y: y + h/2 + 4, 'text-anchor': 'end',
               'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor), 'font-family': FONT }, gLabels);
-          } else {
+          } else if (placeLabel(x + w + 6, y + h/2 + 4, label, 'start')) {
             txt(label, { x: x + w + 6, y: y + h/2 + 4, 'text-anchor': 'start',
               'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gLabels);
           }
         }
-      }
-
-      // Stacked segment label if series has bar_labels & isStacked
-      if (isStacked && s.dataLabels && s.dataLabels.enabled && !isBar && p.y != null) {
-        // already handled above for column stack? no — above draws ONE label per bar segment (fine)
       }
     }
 
@@ -1623,7 +2766,7 @@
       return s.color;
     }
 
-    // Interaction — shared tooltip
+    // Interaction â€” shared tooltip
     const tooltip = document.createElement('div');
     tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
@@ -1657,7 +2800,7 @@
         if (!s.visible) return;
         const p = s.points[idx]; if (!p) return;
         let val;
-        if (p.low != null && p.high != null) val = `${formatValue(p.low, s)} – ${formatValue(p.high, s)}`;
+        if (p.low != null && p.high != null) val = `${formatValue(p.low, s)} â€“ ${formatValue(p.high, s)}`;
         else if (p.y != null) val = formatValue(Math.abs(p.y), s);
         else return;
         html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${s.color};border-radius:2px"></span><span style="color:${LABEL_COL}">${esc(s.name)}: </span><b style="color:${TITLE_COL}">${esc(val)}</b></div>`;
@@ -1679,7 +2822,7 @@
     svg.addEventListener('mousemove', onMove);
     svg.addEventListener('mouseleave', hideTooltip);
 
-    // ── Top legend (below subtitle) ─────────────────────────────────────
+    // â”€â”€ Top legend (below subtitle) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     function renderLegend() {
       gLegend.innerHTML = '';
       if (!legendEnabled) return;
@@ -1827,8 +2970,8 @@ Charts.bar = function (container, opts) {
   const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
-    // 0.30000000000000004 → 0.3. Values like these arrive whenever a chart is
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
     // fed a computed share or a summed column, and String() renders every
     // artefact digit. 12 significant figures sits well inside double
     // precision, so genuine values are untouched while accumulated ~1e-15
@@ -1904,6 +3047,232 @@ Charts.bar = function (container, opts) {
   }
 
   // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
   function Chart(container, opts) {
     applyTheme();
     opts = opts || {};
@@ -2202,6 +3571,9 @@ Charts.bar = function (container, opts) {
     const gLabels = el('g', {}, svg);
     const gCenter = el('g', {}, svg);
     const gLegend = el('g', {}, svg);
+    const gAnnot = el('g', {}, svg);    // callouts draw above wedges and labels
+    // Where the connector labels landed this render — obstacles for callouts.
+    const labelRects = [];
 
     // (Radial gradient wedge fills removed by library policy.)
 
@@ -2306,6 +3678,8 @@ Charts.bar = function (container, opts) {
         d._node = slice;
       });
 
+      labelRects.length = 0;
+
       // Pass 3: label stacking with iterative relaxation (clean-charts style)
       if (showLabels) {
         // Fixed label columns at outer chart edges
@@ -2390,6 +3764,16 @@ Charts.bar = function (container, opts) {
 
           // clean-charts insets the text a few px from the end of the rule.
           const lx = colX + (isRight ? -4 : 4);
+          // Remember the whole label block *including* its connector run —
+          // the horizontal rule is as much a thing to avoid as the text.
+          const blockW = Math.max(d.name.length, 6) * fLabel * 0.62 + 10;
+          // The run starts at the wedge stub, kinks at the elbow and ends in
+          // the label column — cover all of it, not just the text.
+          const runL = Math.min(d._p2[0], elbowX, colX, isRight ? lx - blockW : lx);
+          const runR = Math.max(d._p2[0], elbowX, colX, isRight ? lx : lx + blockW);
+          const runT = Math.min(d._p2[1], it.y) - fLabel - 4;
+          const runB = Math.max(d._p2[1], it.y) + fValue + 4;
+          labelRects.push({ x: runL, y: runT, w: runR - runL, h: runB - runT });
 
           if (valueOnly) {
             txt(valueStr, {
@@ -2426,6 +3810,40 @@ Charts.bar = function (container, opts) {
           }
         });
       }
+
+      // `callouts: [{ name, text, color }]` — `name` is the slice's own name.
+      // The anchor sits mid-ring on the wedge's bisector; the box is pushed
+      // straight out along that bisector so the leader reads as one more spoke
+      // and the note clears both the ring and the connector labels, which are
+      // already queued up in the two side columns.
+      (function () {
+        const cos = opts.callouts || [];
+        if (!cos.length) return;
+        gAnnot.innerHTML = '';
+        const byName = {};
+        items.forEach(({ d }) => { byName[String(d.name)] = d; });
+        const list = cos.map(co => {
+          const key = calloutKey(co);
+          const d = key != null ? byName[key] : items[0] && items[0].d;
+          if (!d) return null;
+          const r = (innerR + d._rOut) / 2 + d._off;
+          return { x: cx + Math.cos(d._midA) * r, y: cy + Math.sin(d._midA) * r,
+            text: co.text, color: co.color };
+        }).filter(Boolean);
+        drawCallouts(gAnnot, list, { x: 4, y: chartTop, w: W - 8, h: chartBottom - chartTop }, {
+          mode: 'radial',
+          center: { x: cx, y: cy },
+          obstacles: labelRects.concat([
+            // The ring as a cross of two rects: together they cover the disc
+            // including its top, bottom and sides, while leaving the diagonal
+            // corners free — which is exactly where a note fits beside a donut.
+            { x: cx - outerR, y: cy - outerR * 0.707,
+              w: outerR * 2, h: outerR * 1.414 },
+            { x: cx - outerR * 0.707, y: cy - outerR,
+              w: outerR * 1.414, h: outerR * 2 }
+          ])
+        });
+      })();
 
       // Center label
       if (plotOpts.centerText) {
@@ -2651,8 +4069,8 @@ Charts.pie = function (container, opts) {
   const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
-    // 0.30000000000000004 → 0.3. Values like these arrive whenever a chart is
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
     // fed a computed share or a summed column, and String() renders every
     // artefact digit. 12 significant figures sits well inside double
     // precision, so genuine values are untouched while accumulated ~1e-15
@@ -2764,6 +4182,232 @@ Charts.pie = function (container, opts) {
   }
 
   // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
   function Chart(container, opts) {
     applyTheme();
     opts = opts || {};
@@ -2874,6 +4518,10 @@ Charts.pie = function (container, opts) {
         if (d === null || d === undefined) return null;
         if (Array.isArray(d)) {
           if (d.length === 3) return { x: d[0], y: d[1], z: d[2] };
+          // [name, value] — the documented packed-bubble shape. A string first
+          // element is a label, not a coordinate, so it becomes the point name
+          // and the index stands in for x.
+          if (typeof d[0] === 'string') return { x: j, y: d[1], name: d[0] };
           return { x: d[0], y: d[1] };
         }
         if (typeof d === 'object') return Object.assign({}, d);
@@ -2886,7 +4534,7 @@ Charts.pie = function (container, opts) {
         type, points, marker,
         visible: true,
         regression: !!s.regression,
-        showLabels: !!s.showLabels,
+        showLabels: s.showLabels !== false,   // labels draw only for named points
         valueSuffix: s.valueSuffix || (opts.tooltip && opts.tooltip.valueSuffix) || '',
         xSuffix: xSuffix, ySuffix: ySuffix
       };
@@ -2930,6 +4578,12 @@ Charts.pie = function (container, opts) {
     const gLines = el('g', {}, svg);
     const gPoints = el('g', {}, svg);
     const gLabels = el('g', {}, svg);
+    const gAnnot = el('g', {}, svg);   // callouts draw above points and labels
+    // Where every point landed this render, so a callout can name a point
+    // (or give x/y) instead of pixels.
+    const pointAnchors = [];
+    // The marks themselves, so a note lands in empty plot rather than on a point.
+    const markRects = [];
     const gInteract = el('g', {}, svg);
     const gLegend = el('g', {}, svg);
 
@@ -2939,6 +4593,9 @@ Charts.pie = function (container, opts) {
       gAxes.innerHTML = '';
       gLines.innerHTML = '';
       gPoints.innerHTML = '';
+      gAnnot.innerHTML = '';
+      pointAnchors.length = 0;
+      markRects.length = 0;
       gLabels.innerHTML = '';
 
       if (isPacked) return renderPacked();
@@ -3003,6 +4660,9 @@ Charts.pie = function (container, opts) {
             if (bubbleGrad) fillColor = bubbleGrad[Math.min(99, Math.floor(norm * 99))];
           }
           drawPoint(gPoints, s, p, cx, cy, radius, si, pi, false, fillColor);
+          pointAnchors.push({ series: s.name, name: p.name != null ? String(p.name) : null,
+            px: p.x, py: p.y, x: cx, y: cy });
+          markRects.push({ x: cx - radius, y: cy - radius, w: radius * 2, h: radius * 2 });
 
           // Point labels
           if (s.showLabels && p.name) {
@@ -3026,6 +4686,8 @@ Charts.pie = function (container, opts) {
           }
         }
       });
+
+      layoutCallouts();
     }
 
     function renderPacked() {
@@ -3069,6 +4731,9 @@ Charts.pie = function (container, opts) {
       });
       flat.forEach((b, i) => {
         drawPoint(gPoints, b.s, b.p, b.x, b.y, b.r, seriesDefs.indexOf(b.s), i, false, b._fillColor);
+        pointAnchors.push({ series: b.s.name, name: b.p.name != null ? String(b.p.name) : null,
+          px: b.p.x, py: b.p.y, x: b.x, y: b.y });
+        markRects.push({ x: b.x - b.r, y: b.y - b.r, w: b.r * 2, h: b.r * 2 });
         if (b.r > 16 && b.p.name) {
           // Use white text on dark fill, dark on light
           const [rr,gg,bb] = hex2rgb(b._fillColor);
@@ -3079,6 +4744,8 @@ Charts.pie = function (container, opts) {
             fill: col, 'font-family': FONT, style: 'pointer-events:none' }, gLabels);
         }
       });
+
+      layoutCallouts();
     }
 
     function drawPoint(g, s, p, cx, cy, radius, si, pi, hover, colorOverride) {
@@ -3103,6 +4770,39 @@ Charts.pie = function (container, opts) {
     }
 
     // Legend — top row(s), left-aligned, below subtitle, wraps as needed
+    // `callouts: [{ point | name, x, y, series, text, color }]` — name a point
+    // (packed bubbles and labelled scatters have names), or give `x`/`y` and
+    // the nearest point in data space wins.
+    function layoutCallouts() {
+      const cos = opts.callouts || [];
+      if (!cos.length || !pointAnchors.length) return;
+      const items = cos.map(co => {
+        const key = calloutKey(co);
+        const pool = co.series != null
+          ? pointAnchors.filter(a => a.series === co.series) : pointAnchors;
+        if (!pool.length) return null;
+        let a = null;
+        if (key != null) {
+          a = pool.filter(q => q.name === key)[0];
+        } else if (co.x != null) {
+          let bd = Infinity;
+          pool.forEach(q => {
+            const dx = q.px - co.x;
+            const dy = co.y != null ? q.py - co.y : 0;
+            const d = dx * dx + dy * dy;
+            if (d < bd) { bd = d; a = q; }
+          });
+        }
+        return a ? { x: a.x, y: a.y, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      // A cloud of points has no single free direction, so the box goes to the
+      // emptiest spot near its own point. Packed bubbles do have one: straight
+      // out of the cluster.
+      drawCallouts(gAnnot, items, { x: M.l, y: M.t, w: IW, h: IH }, isPacked
+        ? { mode: 'radial', center: { x: M.l + IW / 2, y: M.t + IH / 2 }, obstacles: markRects }
+        : { mode: 'auto', obstacles: markRects });
+    }
+
     function renderLegend() {
       gLegend.innerHTML = '';
       if (!hasLegend) return;
@@ -3269,6 +4969,16 @@ Charts.packedBubble = function (container, opts) {
     F_VALUE = t.valueSize != null ? t.valueSize : 11;
   }
 
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
+
   function el(tag, attrs, parent) {
     const e = document.createElementNS(NS, tag);
     if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -3316,8 +5026,8 @@ Charts.packedBubble = function (container, opts) {
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 → 26,
-    // 0.30000000000000004 → 0.3. Values like these arrive whenever a chart is
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
     // fed a computed share or a summed column, and String() renders every
     // artefact digit. 12 significant figures sits well inside double
     // precision, so genuine values are untouched while accumulated ~1e-15
@@ -3344,6 +5054,232 @@ Charts.packedBubble = function (container, opts) {
   }
 
   // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
   function Chart(container, opts) {
     applyTheme();
     opts = opts || {};
@@ -3359,6 +5295,9 @@ Charts.packedBubble = function (container, opts) {
     const yAxis = opts.yAxis || {};
     const valueSuffix = plot.valueSuffix != null ? plot.valueSuffix
                       : (yAxis.suffix != null ? yAxis.suffix : '');
+    // Value labels are on by default here as in every other engine; with them
+    // off the bars give up no room to them and run the full track.
+    const showValues = dlEnabled(plot.dataLabels, true);
 
     // ── Data ────────────────────────────────────────────────────────────
     // Accepts the same shapes as the other engines: [{name,y}], [name, y]
@@ -3448,7 +5387,9 @@ Charts.packedBubble = function (container, opts) {
     const fmt = v => (plot.format ? String(plot.format).replace('{y}', addCommas(v))
                                   : addCommas(v) + valueSuffix);
     let widestValue = 0;
-    points.forEach(p => { widestValue = Math.max(widestValue, textW(fmt(p.y), F_VALUE, true)); });
+    if (showValues) {
+      points.forEach(p => { widestValue = Math.max(widestValue, textW(fmt(p.y), F_VALUE, true)); });
+    }
 
     const valuePad = 8;
     const contentL = titleX;
@@ -3478,6 +5419,11 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Rows ────────────────────────────────────────────────────────────
     let y = titleBlockH;
+    // One anchor per bar, so `callouts: [{ name, text }]` can name a row.
+    const barAnchors = [];
+    // Bar + its label above it: the block a note must not cover.
+    const barRects = [];
+
     points.forEach(p => {
       const w = Math.max(1, scale(p.y));
       const barX = p.y < 0 ? zeroX - w : zeroX;
@@ -3492,6 +5438,14 @@ Charts.packedBubble = function (container, opts) {
         'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
       }, gLabels);
 
+      // Anchor past the value label rather than on the bar end: the value is
+      // already sitting there, and a leader through it reads as a strikethrough.
+      const valW = textW(fmt(p.y), F_VALUE, true) + valuePad * 2;
+      barAnchors.push({ name: String(p.name),
+        x: p.y < 0 ? barX - valW : barX + w + valW,
+        y: barY + barH / 2 });
+      barRects.push({ x: barX, y: y, w: w, h: labelH + labelGap + barH });
+
       const rect = el('rect', {
         x: barX, y: barY, width: w, height: barH, fill: p.color,
         class: 'blist-bar', 'data-idx': p.idx,
@@ -3503,7 +5457,7 @@ Charts.packedBubble = function (container, opts) {
       // against, the end of the bar is the only place the number can sit
       // without the reader having to guess where the bar stops.
       const vx = p.y < 0 ? barX - valuePad : barX + w + valuePad;
-      txt(fmt(p.y), {
+      if (showValues) txt(fmt(p.y), {
         x: vx, y: barY + barH / 2 + F_VALUE * 0.36,
         'text-anchor': p.y < 0 ? 'end' : 'start',
         'font-size': F_VALUE, 'font-weight': VAL_FW,
@@ -3513,6 +5467,23 @@ Charts.packedBubble = function (container, opts) {
 
       y += labelH + labelGap + barH + rowGap;
     });
+
+
+    // `callouts: [{ name, text, color }]` — `name` is the bar's own category name.
+    (function () {
+      const cos = opts.callouts || [];
+      if (!cos.length) return;
+      const gAnnot = el('g', {}, svg);
+      const items = cos.map(co => {
+        const key = calloutKey(co);
+        const a = key != null ? barAnchors.filter(q => q.name === key)[0] : barAnchors[0];
+        return a ? { x: a.x, y: a.y, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      // Rows run the full width, so the free room is past the end of the bar:
+      // the note sits in the right gutter, level with its own row.
+      drawCallouts(gAnnot, items, { x: 4, y: titleBlockH, w: W - 8, h: H - titleBlockH - 4 },
+        { mode: 'right', obstacles: barRects, gutter: 6 });
+    })();
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
@@ -3616,6 +5587,16 @@ Charts.packedBubble = function (container, opts) {
     F_VALUE = t.valueSize != null ? t.valueSize : 11;
   }
 
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
+
   function el(tag, attrs, parent) {
     const e = document.createElementNS(NS, tag);
     if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
@@ -3663,6 +5644,13 @@ Charts.packedBubble = function (container, opts) {
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
     const s = String(n);
     const neg = s.startsWith('-') ? '-' : '';
     const abs = neg ? s.slice(1) : s;
@@ -3682,6 +5670,232 @@ Charts.packedBubble = function (container, opts) {
   }
 
   // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
   function Chart(container, opts) {
     applyTheme();
     opts = opts || {};
@@ -3694,6 +5908,8 @@ Charts.packedBubble = function (container, opts) {
     const W = container.clientWidth || 900;
     const plot = (opts.plotOptions && opts.plotOptions.barInsightTable) ||
                  (opts.plotOptions && opts.plotOptions.series) || {};
+    // Bar-end values are on by default, like the other bar engines.
+    const showValues = dlEnabled(plot.dataLabels, true);
     const yAxis = opts.yAxis || {};
     const valueSuffix = plot.valueSuffix != null ? plot.valueSuffix
                       : (yAxis.suffix != null ? yAxis.suffix : '');
@@ -3884,7 +6100,16 @@ Charts.packedBubble = function (container, opts) {
         const insightH = r.insightLines.length * IN_LH + r.descLines.length * DESC_LH;
         const statH = r.stat != null && r.stat !== ''
           ? F_STAT * 1.1 + (r.statNote ? DESC_LH : 0) : 0;
-        r.h = Math.max(barsH, labelH, insightH, statH) + rowPad * 2;
+        // A note on this row lives under its bars, so the row has to carry it.
+        r.calloutBox = null;
+        (opts.callouts || []).forEach(co => {
+          const key = calloutKey(co);
+          if (key != null && key !== String(r.name != null ? r.name : r.label)) return;
+          if (r.calloutBox) return;
+          r.calloutBox = Object.assign(measureCalloutBox(co.text), { text: co.text, color: co.color });
+        });
+        r.noteH = r.calloutBox ? r.calloutBox.h + 8 : 0;
+        r.h = Math.max(barsH, labelH, insightH, statH) + rowPad * 2 + r.noteH;
       });
 
       const bodyH = rows.reduce((a, r) => a + r.h, 0);
@@ -3944,7 +6169,7 @@ Charts.packedBubble = function (container, opts) {
       // runs into the insight column.
       const LBL_PAD = 8;
       let labelRoom = 0;
-      if (plot.dataLabels) {
+      if (showValues) {
         values.forEach(v => { labelRoom = Math.max(labelRoom, textW(fmt(v), F_VALUE, true)); });
         labelRoom += LBL_PAD;
       }
@@ -3955,10 +6180,17 @@ Charts.packedBubble = function (container, opts) {
 
       const gBars = el('g', {}, svg);
       const gText = el('g', {}, svg);
+      const gAnnot = el('g', {}, svg);
+      // One anchor per drawn bar, so `callouts: [{ row, series, text }]` can
+      // name a row of the table.
+      const rowAnchors = [];
+      // The bars themselves. The label, insight and stat columns are ruled out
+      // by the bounds below instead — they are whole columns, not stray marks.
+      const barRects = [];
 
       let y = titleBlockH + legendZone;
       rows.forEach((r, ri) => {
-        const mid = y + r.h / 2;
+        const mid = y + (r.h - (r.noteH || 0)) / 2;
 
         // Row label — the category role, vertically centered against the whole
         // row rather than the bars, so it stays put when the insight text is
@@ -3984,7 +6216,14 @@ Charts.packedBubble = function (container, opts) {
             class: 'bit-bar', style: 'cursor:default;transition:opacity .15s'
           }, gBars);
           bars.push({ node: rect, row: r, series: seriesDefs[si], value: p.y, color });
-          if (plot.dataLabels) {
+          // Past the value label, for the same reason as barList.
+          const valW = showValues ? textW(fmt(p.y), F_VALUE, true) + LBL_PAD * 2 : 6;
+          rowAnchors.push({ name: String(r.name != null ? r.name : r.label),
+            series: seriesDefs[si].name,
+            x: p.y < 0 ? bx - valW : bx + w + valW,
+            y: by + barH / 2 });
+          barRects.push({ x: Math.min(bx, zeroX), y: by, w: Math.abs(w), h: barH });
+          if (showValues) {
             // Value role, outside the bar end — as in barList.
             txt(fmt(p.y), {
               x: p.y < 0 ? bx - LBL_PAD : bx + w + LBL_PAD, y: by + barH / 2 + F_VALUE * 0.36,
@@ -4029,12 +6268,41 @@ Charts.packedBubble = function (container, opts) {
           }
         }
 
+        // `callouts: [{ row, series, text, color }]` — the note sits in the
+        // strip its row reserved, left-aligned with the bars, with a short
+        // elbow from the annotated bar's end. Nothing else in the row moves.
+        if (r.calloutBox) {
+          const anchor = rowAnchors.filter(q =>
+            q.name === String(r.name != null ? r.name : r.label))[0];
+          // Sit the box under the bar it annotates — centred on the anchor and
+          // clamped to the track — so the leader is a short drop rather than a
+          // diagonal across the row.
+          // Hug the end of the track the anchor is nearest. Centring the box
+          // on the anchor puts it over the value labels of the row's other
+          // series; against the track edge it clears them.
+          const rightHalf = anchor && anchor.x > trackL + trackW / 2;
+          const bx = anchor
+            ? (rightHalf ? trackL + trackW - r.calloutBox.w : trackL)
+            : trackL;
+          const box = { x: bx, y: y + r.h - r.calloutBox.h - rowPad,
+            w: r.calloutBox.w, h: r.calloutBox.h };
+          const color = r.calloutBox.color || calloutTheme().accent;
+          if (anchor) {
+            drawCalloutLeader(gAnnot, anchor.x, anchor.y, box, color, 'below');
+            el('circle', { cx: anchor.x, cy: anchor.y, r: 4.5, fill: color,
+              stroke: calloutTheme().inverse, 'stroke-width': 1 }, gAnnot);
+          }
+          drawCalloutBox(gAnnot, box.x, box.y, r.calloutBox.text, color);
+        }
+
         y += r.h;
         if (dividers && ri < rows.length - 1) {
           el('line', { x1: contentL, y1: y, x2: contentR, y2: y,
             stroke: GRID, 'stroke-width': 1 }, gBars);
         }
       });
+
+
     }
 
     render();
@@ -4074,6 +6342,619 @@ Charts.packedBubble = function (container, opts) {
   }
 
     Charts.barInsightTable = Chart;
+})();
+
+// ─── waffle ────────────────────────────────────────────────────────
+
+/*
+ * Clean-charts-styled WAFFLE engine (Charts.waffle).
+ *
+ * A row of part-of-whole panels. Each panel is one statistic: a large
+ * percentage headline, a grid of dots underneath where the filled dots are
+ * the share, then a bold label and a wrapped description. Thin vertical
+ * rules separate the panels.
+ *
+ *   29%              30%              15%
+ *   ●●●●●●●●●●   │   ●●●●●●●●●●   │   ●●●●●●●●●●
+ *   ●●●●●●●●●●   │   ●●●●●●●●●●   │   ●●●●●●●●●●
+ *   Growth Focus │   Resource…    │   Customer…
+ *   Organizations…│  Companies…   │   Firms…
+ *
+ * Reach for it when the reader has to feel a proportion rather than compare
+ * magnitudes: survey shares, adoption rates, "x in 100" facts. A bar chart
+ * compares lengths; a waffle counts units, and 100 dots make "29%" concrete.
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the
+ *    other engines, title x-position aligned to the shared titleX = 20
+ *  - Theme tokens only (Charts.theme) — no literal colors in the draw code
+ *  - Same data shapes as barList: [{name,y}], [name,y] pairs, or bare
+ *    numbers paired with xAxis.categories
+ *  - Hover highlight + shared tooltip
+ *
+ * Values are read as percentages of the grid by default (y = 29 fills 29 of
+ * 100 dots). Set plotOptions.waffle.total to count against something else.
+ * Negative values are not representable in a part-of-whole grid, so they are
+ * clamped to zero — the same honesty rule the donut engine applies.
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    BG = t.bg || '#f4f3f0';
+    GRID = t.grid || '#dcdbd7';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    LABEL_COL = t.labelColor || '#333333';
+    SEC_COL = t.secondaryColor || '#666666';
+    DEFAULT_COL = t.defaultColor || '#000000';
+    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Text estimation / wrapping (same approach as the other engines:
+  // widths are estimated, not measured, so layout is settled before
+  // anything reaches the DOM) ──────────────────────────────────────────
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+
+  // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
+  function Chart(container, opts) {
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 800;
+    const plot = (opts.plotOptions && opts.plotOptions.waffle) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+    const yAxis = opts.yAxis || {};
+    const valueSuffix = plot.valueSuffix != null ? plot.valueSuffix
+                      : (yAxis.suffix != null ? yAxis.suffix : '%');
+
+    // ── Data ────────────────────────────────────────────────────────────
+    const cats = (opts.xAxis && opts.xAxis.categories) || [];
+    const rows = opts.rows || [];
+    const series = (opts.series && opts.series[0]) || { data: [] };
+    const seriesName = series.name || 'Series 1';
+    const points = (series.data || []).map((d, i) => {
+      let name, y, color, description;
+      if (Array.isArray(d)) { name = d[0]; y = +d[1]; }
+      else if (d && typeof d === 'object') {
+        name = d.name; y = +d.y; color = d.color; description = d.description;
+      } else { y = +d; }
+      if (name == null) name = cats[i] != null ? cats[i] : 'Item ' + (i + 1);
+      if (description == null && rows[i]) description = rows[i].description;
+      // A part-of-whole grid cannot show a negative share honestly.
+      y = Number.isFinite(y) ? Math.max(0, y) : 0;
+      return { name, y, color, description, idx: i };
+    });
+
+    const gridRows = plot.rows != null ? plot.rows : 10;
+    const gridCols = plot.cols != null ? plot.cols : 10;
+    const cells = gridRows * gridCols;
+    const total = plot.total != null ? plot.total : 100;
+    // Fill bottom-up by default: the block of filled dots sits on the floor
+    // of the grid, which reads as a level the way a bar does.
+    const fromTop = plot.fillDirection === 'top';
+    const dividers = plot.dividers !== false;
+
+    points.forEach((p, i) => {
+      if (!p.color) p.color = plot.colorByPoint === false
+        ? (series.color || COLORS[1] || DEFAULT_COL)
+        : (series.color || COLORS[(i + 1) % COLORS.length]);
+      p.filled = Math.max(0, Math.min(cells, Math.round(p.y / total * cells)));
+    });
+
+    const emptyColor = plot.emptyColor || '#a7adc4';
+    const emptyOpacity = plot.emptyOpacity != null ? plot.emptyOpacity : 1;
+
+    // ── Headings ────────────────────────────────────────────────────────
+    const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
+    const titleX = 20;
+    const titleLines = hasTitle ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+    const subLines = hasSub ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
+    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
+    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 26;
+
+    // ── Panel geometry ──────────────────────────────────────────────────
+    // Panels split the content width evenly; the dot grid is sized to
+    // whatever is left inside a panel once its own gutter is taken, and
+    // capped so a two-panel chart doesn't blow the dots up to blobs.
+    const n = points.length;
+    if (!n) {
+      const svg0 = el('svg', { xmlns: NS, width: W, height: titleBlockH,
+        viewBox: `0 0 ${W} ${titleBlockH}` });
+      svg0.style.background = BG; svg0.style.display = 'block';
+      container.appendChild(svg0);
+      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH,
+        'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg0));
+      subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH,
+        'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg0));
+      return { getData: () => points };
+    }
+
+    const marginR = 20, marginB = 18;
+    const contentL = titleX, contentR = W - marginR;
+    const panelW = (contentR - contentL) / n;
+    const panelPad = plot.panelPadding != null ? plot.panelPadding : 22;
+    const innerW = Math.max(40, panelW - panelPad * 2);
+
+    const gapRatio = plot.dotGap != null ? plot.dotGap : 0.42;  // gap as a share of dot size
+    const maxDot = plot.dotSize != null ? plot.dotSize : 11;
+    let dot = Math.min(maxDot, innerW / (gridCols + (gridCols - 1) * gapRatio));
+    const gap = dot * gapRatio;
+    const gridW = gridCols * dot + (gridCols - 1) * gap;
+    const gridH = gridRows * dot + (gridRows - 1) * gap;
+
+    const F_STAT = plot.statSize != null ? plot.statSize : 34;
+    const F_NAME = plot.nameSize != null ? plot.nameSize : F_LABEL + 1;
+    const F_DESC = plot.descriptionSize != null ? plot.descriptionSize : F_LABEL;
+    const DESC_LH = Math.round(F_DESC * 1.42);
+
+    const statH = F_STAT + 14;
+    const nameH = F_NAME + 16;
+    // Every panel gets the same body height so the dividers and the label
+    // baselines line up across the row, however uneven the copy is.
+    const descLinesPer = points.map(p => p.description
+      ? wrapHeading(p.description, F_DESC, innerW, plot.descriptionLines || 5, false) : []);
+    const maxDescLines = Math.max(0, ...descLinesPer.map(l => l.length));
+    const descH = maxDescLines ? maxDescLines * DESC_LH + 6 : 0;
+
+    const bodyH = statH + gridH + 14 + nameH + descH;
+    // A waffle panel is a solid block — big number, dot grid, name, note — with
+    // no slack anywhere inside it. So the notes get their own band above the
+    // panels, and the chart simply grows to hold it.
+    let calloutBand = 0;
+    (opts.callouts || []).forEach(co => {
+      calloutBand = Math.max(calloutBand, measureCalloutBox(co.text).h);
+    });
+    if (calloutBand) calloutBand += 22;
+    const H = Math.round(titleBlockH + calloutBand + bodyH + marginB);
+    container.style.height = H + 'px';
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
+      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+
+    const fmt = v => (plot.format ? String(plot.format).replace('{y}', addCommas(v))
+                                  : addCommas(v) + valueSuffix);
+
+    const gPanels = el('g', {}, svg);
+    const top = titleBlockH + calloutBand;
+    const gridTop = top + statH;
+
+    // ── Dividers: hairlines between panels, spanning the grid + label
+    // block only, so they read as separators and not as chart furniture.
+    if (dividers && n > 1) {
+      for (let i = 1; i < n; i++) {
+        const x = contentL + panelW * i;
+        el('line', { x1: x, y1: gridTop - 8, x2: x, y2: top + bodyH - 4,
+          stroke: SEC_COL, 'stroke-width': 1, opacity: 0.55 }, gPanels);
+      }
+    }
+
+    // One anchor per panel, so `callouts: [{ name, text }]` can name a stat.
+    const panelAnchors = [];
+
+    points.forEach((p, pi) => {
+      const cx = contentL + panelW * pi + panelW / 2;   // panel center line
+      const g = el('g', {}, gPanels);
+      // Anchor on the headline stat: it is what the note is about, and the
+      // leader then runs up through clear space instead of across the dots.
+      panelAnchors.push({ name: String(p.name), x: cx, y: top + 6 });
+
+      // Headline stat, centered over the grid.
+      txt(fmt(p.y), {
+        x: cx, y: top + F_STAT, 'text-anchor': 'middle',
+        'font-size': F_STAT, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT
+      }, g);
+
+      // Dot grid. Cells are indexed row-major from whichever end the fill
+      // starts, so a partially filled row always sits adjacent to the full
+      // ones instead of floating.
+      const gx = cx - gridW / 2;
+      const dots = [];
+      for (let r = 0; r < gridRows; r++) {
+        for (let c = 0; c < gridCols; c++) {
+          const order = fromTop ? r * gridCols + c
+                                : (gridRows - 1 - r) * gridCols + c;
+          const on = order < p.filled;
+          const node = el('circle', {
+            cx: gx + c * (dot + gap) + dot / 2,
+            cy: gridTop + r * (dot + gap) + dot / 2,
+            r: dot / 2,
+            fill: on ? p.color : emptyColor,
+            opacity: on ? 1 : emptyOpacity,
+            class: 'waffle-dot', 'data-idx': p.idx
+          }, g);
+          dots.push(node);
+        }
+      }
+      p._dots = dots;
+
+      // Label, then the description under it — the same category → detail
+      // hierarchy the other engines use (semibold dark name, quiet body).
+      const nameY = gridTop + gridH + 14 + F_NAME;
+      txt(_clipLine(p.name, F_NAME, panelW - 8, true), {
+        x: cx, y: nameY, 'text-anchor': 'middle',
+        'font-size': F_NAME, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
+      }, g);
+
+      (descLinesPer[pi] || []).forEach((ln, li) => {
+        txt(ln, { x: cx, y: nameY + 16 + li * DESC_LH, 'text-anchor': 'middle',
+          'font-size': F_DESC, fill: SUB_COL, 'font-family': FONT }, g);
+      });
+
+      // Hit area for the whole panel, so hovering anywhere in it works.
+      const hit = el('rect', {
+        x: contentL + panelW * pi, y: top, width: panelW, height: bodyH,
+        fill: 'transparent', class: 'waffle-hit', 'data-idx': p.idx,
+        style: 'cursor:default'
+      }, g);
+      p._hit = hit;
+    });
+
+
+    // `callouts: [{ name, text, color }]` — `name` is the panel's own name.
+    (function () {
+      const cos = opts.callouts || [];
+      if (!cos.length) return;
+      const gAnnot = el('g', {}, svg);
+      const items = cos.map(co => {
+        const key = calloutKey(co);
+        const a = key != null ? panelAnchors.filter(q => q.name === key)[0] : panelAnchors[0];
+        return a ? { x: a.x, y: a.y, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      drawCallouts(gAnnot, items, { x: 4, y: titleBlockH, w: W - 8, h: calloutBand + bodyH },
+        { mode: 'above', gutter: 4, obstacles: panelAnchors.map(a =>
+          ({ x: a.x - panelW / 2, y: top, w: panelW, h: bodyH })) });
+    })();
+
+    // ── Tooltip (same treatment as the other engines) ───────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;max-width:260px;white-space:normal;z-index:10;`;
+    container.appendChild(tooltip);
+
+    function clearHL() {
+      points.forEach(q => q._dots.forEach(d => { d.style.opacity = ''; }));
+    }
+
+    svg.addEventListener('mousemove', ev => {
+      const target = ev.target;
+      const isPanel = target && target.classList &&
+        (target.classList.contains('waffle-hit') || target.classList.contains('waffle-dot'));
+      if (!isPanel) { clearHL(); tooltip.style.display = 'none'; return; }
+      const idx = +target.getAttribute('data-idx');
+      const p = points.find(q => q.idx === idx);
+      if (!p) return;
+      clearHL();
+      points.forEach(q => { if (q !== p) q._dots.forEach(d => { d.style.opacity = '0.45'; }); });
+      tooltip.innerHTML =
+        `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
+        `<div><span style="display:inline-block;width:9px;height:9px;background:${p.color};border-radius:50%;margin-right:6px"></span>${esc(p.name)}: <b style="color:${TITLE_COL}">${esc(fmt(p.y))}</b></div>` +
+        (p.description ? `<div style="margin-top:3px;color:${LABEL_COL}">${esc(p.description)}</div>` : '');
+      tooltip.style.display = 'block';
+      const rect = svg.getBoundingClientRect();
+      const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+      const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+      let tx = px + 14, ty = py - th / 2;
+      if (tx + tw > W - 4) tx = px - tw - 14;
+      if (tx < 4) tx = 4;
+      if (ty < 4) ty = 4;
+      if (ty + th > H - 4) ty = H - th - 4;
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top = ty + 'px';
+    });
+    svg.addEventListener('mouseleave', () => { clearHL(); tooltip.style.display = 'none'; });
+
+    return { getData: () => points };
+  }
+
+    Charts.waffle = Chart;
 })();
 
 // ─── geofacet ──────────────────────────────────────────────────────
@@ -4218,6 +7099,232 @@ Charts.packedBubble = function (container, opts) {
   })();
 
   // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#e3120b',
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const lines = String(text).split('\n');
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
+    const h = lines.length * 13 + 16;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = 13, pad = 8;
+    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
   function Chart(container, opts) {
     applyTheme();
     opts = opts || {};
@@ -4258,12 +7365,16 @@ Charts.packedBubble = function (container, opts) {
     const span = (dataMax - scaleMin) || 1;
     const frac = v => Math.max(0, Math.min(1, (v - scaleMin) / span));
 
-    // Default formatter strips binary-float noise (25.999999999999996 → 26);
+    // Default formatter strips binary-float noise (25.999999999999996 -> 26);
     // see the note in addCommas. A caller-supplied `format` owns its own output.
     const fmt = plotOpts.format ||
       (v => String(typeof v === 'number' && isFinite(v) ? +v.toPrecision(12) : v));
     const suffix = plotOpts.valueSuffix || '';
     const showEmpty = plotOpts.showEmpty !== false;
+    // Tile values are on by default; dataLabels:false leaves the region codes
+    // and the marks, which is the "shape of the pattern" reading.
+    const showValues = plotOpts.dataLabels === false ||
+      (plotOpts.dataLabels && plotOpts.dataLabels.enabled === false) ? false : true;
 
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
@@ -4288,8 +7399,13 @@ Charts.packedBubble = function (container, opts) {
       'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // ── Tile geometry ───────────────────────────────────────────────────
-    const nCols = Math.max(...grid.map(g => g.col));
-    const nRows = Math.max(...grid.map(g => g.row));
+    // Grids are normalised to their own origin rather than assumed 1-based,
+    // so a hand-written grid may index its rows and columns from 0, from 1,
+    // or from anywhere else, and still lands inside the plot area.
+    const colMin = Math.min(...grid.map(g => g.col));
+    const rowMin = Math.min(...grid.map(g => g.row));
+    const nCols = Math.max(...grid.map(g => g.col)) - colMin + 1;
+    const nRows = Math.max(...grid.map(g => g.row)) - rowMin + 1;
     const gridTop = titleBlockH + 8;
     const availW = W - marginPx * 2;
     const availH = H - gridTop - marginPx;
@@ -4297,7 +7413,11 @@ Charts.packedBubble = function (container, opts) {
     // aspect ratio, and the space between tiles is identical horizontally and
     // vertically. The gap is derived from the cell — it is not configurable,
     // because an author-set gap is what makes a tile map read as disjoint.
-    const cell = Math.max(12, Math.min(availW / nCols, availH / nRows));
+    // A small grid (a handful of hand-placed regions) would otherwise inflate
+    // its tiles to fill the box, which reads as a few big buttons rather than
+    // a map. Cap the cell and let the leftover become margin.
+    const maxTile = plotOpts.maxTileSize != null ? plotOpts.maxTileSize : 110;
+    const cell = Math.max(12, Math.min(availW / nCols, availH / nRows, maxTile));
     const gap = Math.max(2, Math.min(8, cell * 0.1));
     const tileW = cell - gap, tileH = cell - gap;
 
@@ -4309,11 +7429,11 @@ Charts.packedBubble = function (container, opts) {
 
     // Small-tile behaviour: shrink the type with the tile, and drop labels once
     // even the shrunken type would not fit. Below `minText` a tile is mark-only.
-    const k = Math.max(0.62, Math.min(1, tileW / 64));
+    const k = Math.max(0.62, Math.min(1.25, tileW / 64));
     const fCode = Math.round(F_CODE * k * 10) / 10;
     const fValue = Math.round(F_VALUE * k * 10) / 10;
     const roomForCode = tileW >= 34 && tileH >= 22;
-    const roomForValue = tileW >= 26;
+    const roomForValue = showValues && tileW >= 26;
 
     const radius = plotOpts.borderRadius != null ? plotOpts.borderRadius : 6;
     const emptyFill = lighten(SEC_COL, 0.88);
@@ -4350,9 +7470,16 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Render tiles ────────────────────────────────────────────────────
     const cells = [];
+    // One anchor per tile, so `callouts: [{ code, text }]` can name a region.
+    const tileAnchors = [];
+    // Every tile in the grid — a tile map is mostly empty, and the note belongs
+    // in that empty space rather than over a neighbouring region.
+    const tileRects = [];
     grid.forEach(g => {
-      const x = originX + (g.col - 1) * cell + gap / 2;
-      const y = originY + (g.row - 1) * cell + gap / 2;
+      const x = originX + (g.col - colMin) * cell + gap / 2;
+      const y = originY + (g.row - rowMin) * cell + gap / 2;
+      tileAnchors.push({ name: String(g.code), x: x + tileW / 2, y: y + tileH / 2 });
+      tileRects.push({ x: x, y: y, w: tileW, h: tileH });
       const rec = byCode[g.code];
       const label = g.code;
       const grp = el('g', { class: 'geo-tile' }, svg);
@@ -4381,7 +7508,7 @@ Charts.packedBubble = function (container, opts) {
             'text-anchor': 'middle', 'font-size': fCode, 'font-weight': 700, fill: ink,
             'font-family': FONT }, grp);
         }
-        if (stacked || (!roomForCode && roomForValue)) {
+        if (showValues && (stacked || (!roomForCode && roomForValue))) {
           txt(valueText, { x: x + tileW / 2,
             y: y + tileH / 2 + (stacked ? fValue + 2 : fValue / 3), 'text-anchor': 'middle',
             'font-size': fValue + (stacked ? 2 : 0), 'font-weight': 700, fill: ink,
@@ -4404,7 +7531,7 @@ Charts.packedBubble = function (container, opts) {
           txt(label, { x: cx, y: cy - 3, 'text-anchor': 'middle', 'font-size': fCode - 1,
             'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, grp);
         }
-        if (tileW >= 34) {
+        if (showValues && tileW >= 34) {
           txt(valueText, { x: cx, y: cy + (ringRoom ? 11 : fValue / 3), 'text-anchor': 'middle',
             'font-size': fValue, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, grp);
         }
@@ -4425,7 +7552,7 @@ Charts.packedBubble = function (container, opts) {
           const rowY = y + fCode + 7;
           txt(label, { x: x + padX, y: rowY, 'text-anchor': 'start', 'font-size': fCode,
             'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, grp);
-          txt(valueText, { x: x + tileW - padX, y: rowY, 'text-anchor': 'end',
+          if (showValues) txt(valueText, { x: x + tileW - padX, y: rowY, 'text-anchor': 'end',
             'font-size': fValue, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, grp);
         }
         el('rect', { x: x + padX, y: barY, width: barW, height: barH, rx: 2,
@@ -4460,10 +7587,245 @@ Charts.packedBubble = function (container, opts) {
       hitRect.addEventListener('mouseleave', () => { mark.style.opacity = '1'; hideTip(); });
     });
 
+    // `callouts: [{ code, text, color }]` — `code` is the region code, the
+    // same key the data uses.
+    (function () {
+      const cos = opts.callouts || [];
+      if (!cos.length) return;
+      const gAnnot = el('g', {}, svg);
+      const items = cos.map(co => {
+        const key = calloutKey(co);
+        const a = key != null ? tileAnchors.filter(q => q.name === key)[0] : tileAnchors[0];
+        return a ? { x: a.x, y: a.y, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      drawCallouts(gAnnot, items, { x: 4, y: gridTop, w: W - 8, h: H - gridTop - 4 },
+        { mode: 'auto', obstacles: tileRects });
+    })();
+
     return { getData: () => cells, redraw: () => Chart(container, opts) };
   }
 
   Chart.grids = { us: US_GRID };
 
     Charts.geofacet = Chart;
+})();
+
+// ─── panels ─────────────────────────────────────────
+
+/*
+ * Charts.panels — side-by-side composition of any other charts-lib charts.
+ *
+ * Not an engine: it draws no data itself. It lays out a shared title/subtitle
+ * block, splits the width into up to four panels per line, and hands each
+ * panel to whichever factory the caller names — so a bar next to a donut, or
+ * four bars each filtered to one segment, read as ONE exhibit with one
+ * headline instead of four charts that happen to sit near each other.
+ *
+ *   Regional performance                              ← group title
+ *   Q3 bookings by segment and channel                ← group subtitle
+ *
+ *    [ bar chart ]   │   [ donut ]   │   [ bar list ]
+ *      panel title       panel title     panel title
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left group title/subtitle at the same titleX = 20
+ *    as every engine; the group heading is deliberately a size up from a
+ *    panel's own title so the hierarchy is unambiguous
+ *  - Theme tokens only (Charts.theme) — no literal colors in the layout code
+ *  - Hairline separators between panels by default, `separators: false` off
+ *  - Each panel keeps its own title, subtitle, legend, tooltip and hover
+ *    behaviour: the panels are real charts, not pictures of charts
+ *
+ * More than `columns` charts wrap onto further lines, so a 2x2 of four bars
+ * is just `columns: 2`. Panels that size themselves to their content
+ * (barList, barInsightTable, waffle) are left to do so; everything else is
+ * given the row's panel height.
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, SEC_COL;
+  let FONT, F_TITLE, F_SUB;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    BG = t.bg || '#f4f3f0';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    SEC_COL = t.secondaryColor || '#666666';
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping — the same estimate-don't-measure approach the
+  // engines use, so the layout is settled before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3;
+
+  // Panels that grow their own container to fit their content. Forcing a
+  // height on these either clips a long list or leaves a gap under a short
+  // one, so they are left alone.
+  const AUTO_HEIGHT = { barList: 1, barInsightTable: 1, waffle: 1 };
+
+  const MAX_COLUMNS = 4;   // past four, panels are too narrow to read
+
+  // ---------------- main ----------------
+  function Chart(container, opts) {
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+    // The composition owns its own height: the heading plus whatever the
+    // rows come to. A height set on the outer container would fight that.
+    container.style.height = 'auto';
+
+    const plot = (opts.plotOptions && opts.plotOptions.panels) || {};
+    const W = container.clientWidth || 800;
+
+    // ── Panels ──────────────────────────────────────────────────────────
+    // Accepts `charts:` (preferred) or `panels:`. Each entry is an ordinary
+    // chart config plus a `type` naming any factory on the Charts namespace.
+    const specs = (opts.charts || opts.panels || []).filter(Boolean);
+
+    const titleX = 20, marginR = 20, marginB = 4;
+    const F_GTITLE = plot.titleSize != null ? plot.titleSize : F_TITLE + 5;
+    const F_GSUB = plot.subtitleSize != null ? plot.subtitleSize : F_SUB + 1;
+    const GT_LH = Math.round(F_GTITLE * 1.25), GS_LH = Math.round(F_GSUB * 1.35);
+
+    const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_GTITLE, W - titleX - marginR, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_GSUB, W - titleX - marginR, SUB_LINES, false) : [];
+
+    // ── Group heading ───────────────────────────────────────────────────
+    // Drawn as SVG text, not HTML, so it renders with exactly the same
+    // metrics and hinting as every panel's own title underneath it.
+    if (hasTitle || hasSub) {
+      const y0 = Math.round(F_GTITLE * 1.35) + 14;
+      const subY0 = y0 + (titleLines.length ? (titleLines.length - 1) * GT_LH + 22 : 0);
+      const headH = (hasTitle ? y0 + 8 + (titleLines.length - 1) * GT_LH : 14)
+                  + (hasSub ? 14 + subLines.length * GS_LH : 0) + 10;
+      const head = el('svg', { xmlns: NS, width: W, height: headH, viewBox: `0 0 ${W} ${headH}` });
+      head.style.background = BG;
+      head.style.display = 'block';
+      container.appendChild(head);
+
+      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: y0 + i * GT_LH, 'text-anchor': 'start',
+        'font-size': F_GTITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, head));
+      subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * GS_LH, 'text-anchor': 'start',
+        'font-size': F_GSUB, fill: SUB_COL, 'font-family': FONT }, head));
+    }
+
+    if (!specs.length) return { charts: [], panels: [] };
+
+    // ── Row layout ──────────────────────────────────────────────────────
+    let columns = plot.columns != null ? plot.columns : Math.min(specs.length, MAX_COLUMNS);
+    columns = Math.max(1, Math.min(MAX_COLUMNS, Math.round(columns)));
+    const gap = plot.gap != null ? plot.gap : 24;
+    const separators = plot.separators !== false;
+    const panelH = plot.panelHeight != null ? plot.panelHeight : 320;
+    const rowGap = plot.rowGap != null ? plot.rowGap : 26;
+
+    const made = [];
+    const panelEls = [];
+
+    for (let start = 0; start < specs.length; start += columns) {
+      const rowSpecs = specs.slice(start, start + columns);
+      const row = document.createElement('div');
+      row.className = 'panels-row';
+      row.style.cssText = 'display:flex;align-items:stretch;width:100%;box-sizing:border-box;' +
+        `padding:0 ${marginR}px 0 ${titleX}px;` +
+        (start + columns < specs.length ? `margin-bottom:${rowGap}px;` : '');
+      container.appendChild(row);
+
+      // Two passes. Every cell and separator for the row is created FIRST,
+      // because a flex child's width only settles once its siblings exist —
+      // rendering as we go would hand the first panel the whole row's width.
+      const cells = rowSpecs.map((spec, i) => {
+        if (i > 0) {
+          // The separator sits between the panels it divides and stretches to
+          // the row height rather than a fixed length, which is what keeps an
+          // auto-height panel next to a fixed one looking deliberate.
+          const sep = document.createElement('div');
+          sep.style.cssText = `flex:0 0 ${separators ? 1 : 0}px;align-self:stretch;` +
+            `margin:0 ${gap / 2}px;background:${separators ? SEC_COL : 'transparent'};` +
+            (separators ? 'opacity:0.5;' : '');
+          row.appendChild(sep);
+        }
+        const cell = document.createElement('div');
+        const auto = AUTO_HEIGHT[spec.type];
+        const h = spec.height != null ? spec.height : panelH;
+        cell.style.cssText = 'flex:1 1 0;min-width:0;position:relative;' +
+          (auto ? '' : `height:${h}px;`);
+        row.appendChild(cell);
+        panelEls.push(cell);
+        return cell;
+      });
+
+      rowSpecs.forEach((spec, i) => {
+        const cell = cells[i];
+        const type = spec.type || 'column';
+        const factory = window.Charts && window.Charts[type];
+        if (typeof factory !== 'function') {
+          cell.innerHTML =
+            `<div style="font:12px ${FONT};color:${SUB_COL};padding:8px">Unknown chart type “${
+              String(type).replace(/[<&>]/g, '')}”</div>`;
+          made.push(null);
+          return;
+        }
+
+        // Everything except our own layout keys is the panel's own config,
+        // so a panel is configured exactly as it would be standalone.
+        const cfg = {};
+        for (const k in spec) if (k !== 'type' && k !== 'height') cfg[k] = spec[k];
+        made.push(factory(cell, cfg));
+      });
+    }
+
+    return { charts: made, panels: panelEls };
+  }
+
+    Charts.panels = Chart;
 })();
