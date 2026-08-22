@@ -68,6 +68,15 @@ HTML page of SVG charts rendered with `charts-lib`.
    their accent, and reports contrast failures. Paste its `Charts.theme` block in
    once, before the first chart call. Fix anything it marks FAIL rather than
    shipping it.
+
+   **If all you have is one brand color** — a single hex, no CSS to harvest —
+   generate the whole palette from it instead:
+   ```bash
+   node <skill-dir>/scripts/generate-theme.js '#2323FF'
+   ```
+   It derives paper, ink, a seven-step series ramp and three utility accents from
+   that one color in OKLCH, solving each step to its contrast target. Same output
+   shape, same rule: paste once, fix any FAIL.
 6. **Verify before reporting done.** Use the strongest check your environment
    supports:
    - *Browser tooling available* — open the file, read the console for errors,

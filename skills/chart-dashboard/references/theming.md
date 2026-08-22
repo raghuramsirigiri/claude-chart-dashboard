@@ -20,6 +20,11 @@ charts-lib's color roles, check they still contrast, apply them once.
 | A screenshot only | You cannot sample pixels reliably; ask for the CSS or a hex list, and say why |
 | A few hex codes in chat | Use them as-is; skip to step 3 |
 
+If the user has **one brand color and nothing else** — a single hex, no site to
+read — skip the harvest and generate the palette instead (see
+[Generating a palette from one reference color](#generating-a-palette-from-one-reference-color)
+at the end of this file).
+
 ## 2. Harvest the candidates
 
 Run the bundled extractor, which does the parsing and the contrast maths:
@@ -162,3 +167,66 @@ actually available as a local/system font — a `font-family` naming a webfont y
 cannot load silently falls back and looks worse than the default. Never change
 the type *scale* (`titleSize`, `tickSize`, …), the weights, stroke widths, legend
 position, or chart geometry. Those are load-bearing.
+
+
+## Generating a palette from one reference color
+
+When there is no CSS to harvest — the user gave you a brand hex, or picked a
+color they like — don't hand-pick six more shades around it. Run the generator:
+
+```bash
+node <skill-dir>/scripts/generate-theme.js '#2323FF'
+```
+
+It prints the full `n*`/`s*` palette, a ready-to-paste `Charts.theme` block, and
+the same contrast report the extractor gives you. `--json` emits just the hexes
+if you want to build the block yourself.
+
+### The math it runs, and why
+
+Everything happens in **OKLCH**, not RGB or HSL. OKLCH lightness is perceptually
+uniform, so evenly spaced L values produce steps that actually *look* evenly
+spaced; the same arithmetic in RGB bunches up the dark end and washes out the
+light one. Anywhere a step has to hit a specific contrast ratio, the generator
+bisects on lightness — holding hue and chroma — rather than guessing a shade.
+
+**1. The paper (`n0` … `n3`).** `n0` takes the reference's hue at ~4% saturation
+and 96% lightness, so a cool brand gets a cool grey and a warm brand a warm one —
+the greys agree with the brand instead of sitting next to it. `n3` is solved to
+land on exactly **3.0:1 against `n0`**: de-emphasised fills are graphical objects
+under WCAG 1.4.11, and below that floor the context bars stop reading as data.
+`n1`, `n2a`, `n2` divide the lightness between `n0` and `n3` evenly.
+
+**2. The ink (`n9` … `n4`).** Pure greyscale, no hue at all. Text stays crisp
+without chroma, and tinted ink fights the tinted paper. `n9` is black, `n8`→`n4`
+step L 10/20/30/40/50%, `nInverse` is white.
+
+**3. The series ramp (`s1` … `s7`).** `s1` is a near-black shade of the reference
+rather than flat black, so the anchor belongs to the same family. `s2` is the
+reference itself, darkened if needed to clear **4.5:1 on `n0`** — series colors
+carry meaning and a pastel brand color can't. `s3`–`s6` hold the hue, ease the
+chroma off, and step lightness toward ~0.85. `s7` goes one step further with the
+hue nudged ~12°, which keeps the lightest pastel alive instead of grey-dead.
+
+The whole tail is capped so no tint drops below **1.5:1** on the canvas — the
+spec's "~85–90% lightness" is a target, not a license to fade a series into the
+paper. On a light brand the cap binds first, and that's correct.
+
+**4. The utility accents.** Three, each with a different job:
+
+| Token | How it's derived | What it's for |
+|:--|:--|:--|
+| `accent` → `highlight` | Reference, ~20% darker and ~30% duller | Selection and emphasis — a muted sibling of the brand color, not a rival to it |
+| `annotation` → `callout` | Hue rotated 165° (complement), lightness solved to 4.5:1 on `n0` | The ink layer that sits *over* the data — reference lines, callouts, notes |
+| `counter` → `negative` | Hue rotated 75°, in whichever direction lands furthest from `annotation` | The opposite side of diverging data. A distinct hue that doesn't trigger "error" psychology the way red does |
+
+`counter` is a token the hand-built default palette doesn't carry; set it when you
+use the generator, and pair it with `positive: s2` for diverging series.
+
+### Before you paste it
+
+Read the contrast report. Every row should say `ok` — the generator solves for
+its targets, so a `FAIL` means the reference color is pathological (near-white,
+or so vivid the sRGB gamut clipped it) and the offending token needs a hand
+adjustment. And look at the rendered page: a palette that passes every ratio can
+still be wrong for the story the charts are telling.
