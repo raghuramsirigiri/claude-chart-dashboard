@@ -11,6 +11,11 @@
  *   2. a Charts.theme override block ready to paste
  *   3. a contrast report flagging anything unreadable
  *
+ * The colours it finds are fed through the same OKLCH recipe generate-theme.js
+ * runs from a single hex — see that file for the maths. Roles the design can
+ * fill (accent, annotation, counter) are taken from the design; roles it cannot
+ * are derived from the harvested series hue.
+ *
  * It proposes; you decide. Reading the report matters more than pasting the
  * block — an extractor cannot know that a brand's "--accent-2" is reserved for
  * error states, and a palette that passes every ratio can still be wrong.
@@ -169,28 +174,65 @@ const pageBg = bgs.find(c => c.hex !== surface.hex && contrast(c.rgb, surface.rg
 const danger = validate(pickVar('bad', 'danger', 'error', 'negative'), c => saturation(c.rgb) > 0.25);
 const warn = validate(pickVar('warn', 'warning', 'alert', 'attention'), c => saturation(c.rgb) > 0.25);
 
-// ── series ramp ──────────────────────────────────────────────────────
-// Keep the default palette's shape: an anchor stepping into the accent, then the
-// accent fading toward the canvas. Seven ordered, distinguishable steps.
-const anchor = dark ? textPrimary.rgb : mix(textPrimary.rgb, accent.rgb, 0.15);
-let ramp = dark
-  ? [accent.rgb, mix(accent.rgb, anchor, 0.28), mix(accent.rgb, anchor, 0.5),
-     mix(accent.rgb, surface.rgb, 0.55), mix(accent.rgb, surface.rgb, 0.7),
-     mix(textMuted.rgb, surface.rgb, 0.45), mix(textMuted.rgb, surface.rgb, 0.65)]
-  : [anchor, accent.rgb, mix(accent.rgb, surface.rgb, 0.22), mix(accent.rgb, surface.rgb, 0.4),
-     mix(accent.rgb, surface.rgb, 0.56), mix(accent.rgb, surface.rgb, 0.7), mix(accent.rgb, surface.rgb, 0.82)];
+// ── hand the harvest to the generator ────────────────────────────────
+// From here the maths is identical to the single-colour path in
+// generate-theme.js: paper ramp solved to 3.0:1, greyscale ink ladder,
+// one-hue series ramp, three utility accents. The only difference is that the
+// roles that path *invents* are filled from what the design actually uses,
+// wherever the design has a colour that can do the job. Anything the site
+// cannot supply falls back to the derivation.
+const G = require('./generate-theme.js');
 
-// The tail of the ramp fades toward the canvas, and on a light brand the last
-// step can fade past the point of being visible. Pull any step that drops below
-// the readability floor back toward its source colour until it clears.
-const SERIES_MIN = 1.7;
-ramp = ramp.map(c => {
-  let out = c, guard = 0;
-  while (contrast(out, surface.rgb) < SERIES_MIN && guard++ < 12) {
-    out = mix(out, dark ? textPrimary.rgb : anchor, 0.18);
+const refH = G.rgbToOklch(accent.rgb).h;
+const hueOf = c => G.rgbToOklch(c.rgb).h;
+const hueDist = (a, b) => { const d = Math.abs(((a - b) % 360 + 360) % 360); return d > 180 ? 360 - d : d; };
+const bySat = (a, b) => saturation(b.rgb) - saturation(a.rgb);
+
+// Only colours with real chroma are candidates for a role — a grey picked as
+// an "accent" is just the structure colour under another name. The canvas, the
+// body text and the series hue itself are already spoken for.
+const spoken = new Set([surface.hex, textPrimary.hex, textMuted.hex, line.hex, accent.hex]);
+const candidates = pool.filter(c => c && c.rgb && !spoken.has(c.hex) && saturation(c.rgb) > 0.28);
+
+// annotation is the ink layer drawn *over* the data, so it only works if it is
+// a long way round the wheel from the series hue — a near-neighbour would read
+// as one more series. A named danger/warn variable is the strongest signal a
+// design gives about which colour it reserves for "look here".
+const annotationPick =
+  [danger, warn].find(c => c && hueDist(hueOf(c), refH) >= 90) ||
+  candidates.filter(c => hueDist(hueOf(c), refH) >= 100).sort(bySat)[0] || null;
+
+// counter is the opposite pole of diverging data: distinct from the series hue
+// but not the complement, and far enough from annotation that a legend cannot
+// confuse the two.
+const annH = annotationPick ? hueOf(annotationPick) : null;
+const counterPick = candidates.filter(c => {
+  const h = hueOf(c);
+  return c !== annotationPick && hueDist(h, refH) >= 40 && hueDist(h, refH) <= 130 &&
+    (annH === null || hueDist(h, annH) >= 45);
+}).sort(bySat)[0] || null;
+
+// accent (highlight) is a muted sibling of the series hue, so a second brand
+// colour only qualifies if it is in the same family — otherwise the emphasis
+// colour reads as a different category.
+//    A colour the design named as danger or warning is excluded even when its
+//    hue fits: emphasis borrowed from the error palette makes every highlighted
+//    bar look like a problem.
+const semantic = new Set([danger, warn].filter(Boolean).map(c => c.hex));
+const accentPick = candidates.filter(c => c !== annotationPick && c !== counterPick &&
+  !semantic.has(c.hex) && hueDist(hueOf(c), refH) <= 40)
+  .sort((a, b) => saturation(a.rgb) - saturation(b.rgb))[0] || null;
+
+const p = G.generatePalette(accent.hex, {
+  canvas: surface.hex,
+  dark,
+  observed: {
+    accent: accentPick && accentPick.hex,
+    annotation: annotationPick && annotationPick.hex,
+    counter: counterPick && counterPick.hex
   }
-  return out;
 });
+const c = p.hexes;
 
 // ── report ───────────────────────────────────────────────────────────
 const pad = s => String(s).padEnd(15);
@@ -198,82 +240,29 @@ console.log(`\nRead ${files.length} file(s): ${files.map(f => path.basename(f)).
 console.log(`Custom properties with colours: ${vars.size} | distinct declared colours: ${bgs.length + texts.length + borders.length}`);
 console.log(`Design reads as: ${dark ? 'DARK' : 'LIGHT'} (canvas luminance ${luminance(surface.rgb).toFixed(3)})\n`);
 
-console.log('Role mapping');
+console.log('What the design supplied');
 console.log('  ' + pad('canvas') + surface.hex);
-console.log('  ' + pad('page ground') + pageBg.hex);
-console.log('  ' + pad('ink') + textPrimary.hex);
-console.log('  ' + pad('quiet text') + textMuted.hex);
-console.log('  ' + pad('structure') + line.hex);
-console.log('  ' + pad('accent') + accent.hex);
-if (danger) console.log('  ' + pad('negative') + danger.hex);
-if (warn) console.log('  ' + pad('callout') + warn.hex);
+console.log('  ' + pad('page ground') + pageBg.hex + '   (set --page-bg by hand; it has no chart equivalent)');
+console.log('  ' + pad('series hue') + accent.hex + '   → s2, the reference the whole ramp is built from');
+console.log('  ' + pad('accent') + (accentPick ? accentPick.hex : '—  derived from the series hue'));
+console.log('  ' + pad('annotation') + (annotationPick ? annotationPick.hex : '—  derived: complement of the series hue'));
+console.log('  ' + pad('counter') + (counterPick ? counterPick.hex : '—  derived: 75° off the series hue'));
+console.log('  ' + pad('observed ink') + textPrimary.hex + ' / ' + textMuted.hex +
+  '   (not used — the recipe inks text in pure greyscale so it stays crisp on the tinted paper)');
 
-const inverse = dark ? pageBg.hex : '#FFFFFF';
-
-// De-emphasis ramp. `muted` fills carry data (the bars that are context), so
-// they are graphical objects under WCAG 1.4.11 and need 3:1 against the canvas
-// — a wash that merely "looks quiet" disappears on a light brand. Walk the ink
-// toward the canvas and stop at the lightest step that still clears 3:1.
-const mutedBase = (() => {
-  for (let t = 0.70; t >= 0; t -= 0.02) {
-    const c = mix(textPrimary.rgb, surface.rgb, t);
-    if (contrast(c, surface.rgb) >= 3) return c;
-  }
-  return textPrimary.rgb;
-})();
-// Two lighter steps for ramps; these are ordering hints, not primary fills, so
-// they are allowed below 3:1 — never use step 2 or 3 as a chart's only context.
-const mutedRamp = [mutedBase,
-  mix(mutedBase, surface.rgb, 0.30),
-  mix(mutedBase, surface.rgb, 0.55)];
-
-const block = `Object.assign(Charts.theme, {
-  bg:             '${surface.hex}',
-  grid:           '${line.hex}',
-  axis:           '${hex(mix(textPrimary.rgb, surface.rgb, dark ? 0.45 : 0.1))}',
-  titleColor:     '${textPrimary.hex}',
-  categoryColor:  '${textPrimary.hex}',
-  valueColor:     '${textPrimary.hex}',
-  subtitleColor:  '${textMuted.hex}',
-  labelColor:     '${textMuted.hex}',
-  tickColor:      '${textMuted.hex}',
-  secondaryColor: '${textMuted.hex}',
-  connectorLabel: '${textMuted.hex}',
-  connectorLine:  '${hex(mix(textPrimary.rgb, surface.rgb, 0.35))}',
-  inverseText:    '${inverse}',
-  colors:         [${ramp.map(c => `'${hex(c)}'`).join(', ')}],
-  defaultColor:   '${accent.hex}',
-  gradientStart:  '${accent.hex}',
-  gradientEnd:    '${hex(mix(accent.rgb, surface.rgb, 0.75))}',
-  muted:          '${hex(mutedRamp[0])}',
-  mutedScale:     [${mutedRamp.map(c => `'${hex(c)}'`).join(', ')}],
-  positive:       '${accent.hex}',
-  negative:       '${danger ? danger.hex : '#D1107A'}',
-  callout:        '${warn ? warn.hex : '#e3120b'}',
-  highlight:      '${accent.hex}',
-  trend:          '${accent.hex}'
-});`;
+console.log('\nGenerated palette');
+for (const k of ['n0', 'n1', 'n2a', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9', 'nInverse',
+                 's1', 's2', 's3', 's4', 's5', 's6', 's7', 'accent', 'annotation', 'counter']) {
+  const src = p.sources[k] === 'site' ? '   (from the design)' : '';
+  console.log('  ' + pad(k) + c[k] + src);
+}
 
 console.log('\nPaste this after theme.js loads and before the first chart call:\n');
-console.log(block);
+console.log(G.themeBlock(p));
 
+const r = G.report(p);
 console.log('\nContrast report (against the canvas)');
-const check = (label, c, min, max) => {
-  const r = contrast(c, surface.rgb);
-  const ok = r >= min && (max === undefined || r <= max);
-  const want = max === undefined ? `>= ${min}` : `${min}–${max}`;
-  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${pad(label)} ${r.toFixed(2)}:1  (want ${want})`);
-  return ok;
-};
-let allOk = true;
-allOk &= check('title/value', textPrimary.rgb, 4.5);
-allOk &= check('tick/subtitle', textMuted.rgb, 3);
-allOk &= check('gridline', line.rgb, 1.1, 1.6);
-allOk &= check('muted fill', mutedBase, 3);
-ramp.forEach((c, i) => { if (contrast(c, surface.rgb) < 1.6) { console.log(`  FAIL series[${i}] ${hex(c)} is too close to the canvas (${contrast(c, surface.rgb).toFixed(2)}:1)`); allOk = false; } });
-const darkest = ramp.reduce((a, b) => luminance(a) < luminance(b) ? a : b);
-console.log(`  ${contrast(darkest, toRgb(inverse)) >= 3 ? 'ok  ' : 'warn'} ${pad('label-on-bar')} darkest series vs inverseText ${contrast(darkest, toRgb(inverse)).toFixed(2)}:1`);
-
-console.log(allOk
+console.log(r.rows.join('\n'));
+console.log(r.allOk
   ? '\nAll required ratios pass. Still look at the rendered page before shipping.'
   : '\nFix the FAIL rows above before using this palette - adjust the offending token by hand.');

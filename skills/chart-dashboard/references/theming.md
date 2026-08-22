@@ -20,10 +20,13 @@ charts-lib's color roles, check they still contrast, apply them once.
 | A screenshot only | You cannot sample pixels reliably; ask for the CSS or a hex list, and say why |
 | A few hex codes in chat | Use them as-is; skip to step 3 |
 
-If the user has **one brand color and nothing else** — a single hex, no site to
-read — skip the harvest and generate the palette instead (see
-[Generating a palette from one reference color](#generating-a-palette-from-one-reference-color)
-at the end of this file).
+Either way you end up in the same place. Both scripts run **one recipe** — the
+OKLCH derivation described in
+[The recipe](#the-recipe-both-scripts-run) at the end of this file. The
+extractor does not map a site's colors onto the roles one-for-one; it harvests
+what the design has, hands that to the recipe as observations, and lets the
+recipe derive everything the design could not supply. If all you have is a
+single hex, skip to the generator — it is the same code with nothing observed.
 
 ## 2. Harvest the candidates
 
@@ -33,10 +36,13 @@ Run the bundled extractor, which does the parsing and the contrast maths:
 node <skill-dir>/scripts/extract-theme.js <file-or-dir> [more files…]
 ```
 
-It prints a ready-to-paste `Charts.theme` override block plus a contrast report.
-Read its output before pasting — it proposes, you decide.
+It prints what it found in the design, the palette the recipe built from it, a
+ready-to-paste `Charts.theme` override block, and a contrast report. Read its
+output before pasting — it proposes, you decide.
 
-What it looks for, in priority order, and why:
+Its first job is to find the **canvas**, the **series hue**, and any color the
+design already reserves for a utility role. What it looks for, in priority
+order, and why:
 
 1. **CSS custom properties** (`--ink: #0B1220`). These are the jackpot: the brand
    has already done the role-naming for you. A variable called `--surface` or
@@ -49,9 +55,47 @@ What it looks for, in priority order, and why:
 3. **Whether the design is light or dark**, decided by the luminance of the most
    common background. This flips the whole mapping, so get it right.
 
-## 3. Map onto the color roles
+## 3. What comes from the design, and what gets derived
 
-charts-lib has six color jobs. Fill each one:
+Three things are taken from the site as-is, because the design already decided
+them and the recipe has no better answer:
+
+- **the canvas** — whatever surface the charts will sit on. Its own hue and
+  chroma then drive the paper ramp, so the greys stay in the brand's tint.
+- **light or dark** — which flips the entire recipe: the paper goes dark, the
+  ink ladder climbs instead of descending, the series ramp fades *down* toward
+  the paper, and every contrast solve looks for a lighter color instead of a
+  darker one.
+- **the series hue** — the brand accent, which becomes `s2` and the reference
+  the whole ramp is built from.
+
+The three utility accents are taken from the design **when the design has a
+color that can actually do the job**, and derived by hue rotation when it does
+not. The test is geometric, because these roles are defined by their angular
+distance from the series hue, not by their name:
+
+| Role | Taken from the design when… | Otherwise |
+|:--|:--|:--|
+| `accent` → `highlight` | A second brand color sits within 40° of the series hue, and was *not* named as a danger/warning color — emphasis borrowed from the error palette makes every highlighted bar look like a problem | Series hue, 20% darker and 30% duller |
+| `annotation` → `callout` | A color sits at least 90–100° round the wheel (a named `--danger`/`--warn` is the strongest signal a design gives about what it reserves for "look here") | The complement, 165° off |
+| `counter` → `negative` | A color sits 40–130° from the series hue and at least 45° from whatever annotation ended up being | 75° off, on whichever side lands furthest from annotation |
+
+Whatever the source, **the lightness is checked here**: an observed color that
+already reads well against the canvas is used untouched, and one that falls
+short is walked along its own hue until it clears its target. That is what makes
+a harvested color safe to paste — the site picks the hue, the math keeps it
+readable. It also means the extractor never dims a brand color that had contrast
+to spare.
+
+Everything else — the paper ramp, the greyscale ink ladder, the seven-step
+series ramp — is generated, not harvested, including on a site whose own text
+colors were readable. Text is inked in pure greyscale on purpose; the extractor
+prints the design's observed ink alongside so you can override it by hand if the
+brand's text color is genuinely load-bearing.
+
+### The role table, if you are doing it manually
+
+charts-lib has six color jobs:
 
 | Role | Theme tokens | Take it from |
 |:--|:--|:--|
@@ -64,11 +108,9 @@ charts-lib has six color jobs. Fill each one:
 
 **Building the series ramp from one accent.** Most brands have a single accent,
 and charts-lib wants seven ordered colors. Don't invent six more hues — that
-produces the fruit-salad look the default palette deliberately avoids. Instead
-keep the default's *structure*: one dark anchor stepping toward the accent, then
-the accent fading toward the canvas. On a dark UI the anchor is the lightest
-text color; on a light UI it's the darkest ink. The extractor generates this ramp
-for you and you can adjust the endpoints.
+produces the fruit-salad look the default palette deliberately avoids. Keep one
+hue and step it, which is exactly what the recipe does; the extractor builds
+this ramp for you and you can adjust the endpoints.
 
 Two accents (say mint and amber) are better spent as accent-plus-semantic —
 mint for series, amber for `callout` — than as the first two series colors,
@@ -169,7 +211,7 @@ the type *scale* (`titleSize`, `tickSize`, …), the weights, stroke widths, leg
 position, or chart geometry. Those are load-bearing.
 
 
-## Generating a palette from one reference color
+## The recipe (both scripts run it)
 
 When there is no CSS to harvest — the user gave you a brand hex, or picked a
 color they like — don't hand-pick six more shades around it. Run the generator:
@@ -181,6 +223,12 @@ node <skill-dir>/scripts/generate-theme.js '#2323FF'
 It prints the full `n*`/`s*` palette, a ready-to-paste `Charts.theme` block, and
 the same contrast report the extractor gives you. `--json` emits just the hexes
 if you want to build the block yourself.
+
+It also takes what the extractor feeds it, so you can drive any part of the
+recipe by hand: `--canvas '#131C2E'` and `--dark` for an observed surface, and
+`--accent` / `--annotation` / `--counter` to pin a utility role to a color you
+already have. Each pinned color keeps its hue and chroma; only its lightness is
+adjusted, and only if it needs it.
 
 ### The math it runs, and why
 
@@ -212,16 +260,23 @@ The whole tail is capped so no tint drops below **1.5:1** on the canvas — the
 spec's "~85–90% lightness" is a target, not a license to fade a series into the
 paper. On a light brand the cap binds first, and that's correct.
 
-**4. The utility accents.** Three, each with a different job:
+**4. The utility accents.** Three, each with a different job. When a color was
+observed in a design, the observation supplies the hue and chroma and only the
+rotation is skipped — the contrast solve still runs:
 
 | Token | How it's derived | What it's for |
 |:--|:--|:--|
-| `accent` → `highlight` | Reference, ~20% darker and ~30% duller | Selection and emphasis — a muted sibling of the brand color, not a rival to it |
+| `accent` → `highlight` | Reference, ~20% darker (lighter on a dark design) and ~30% duller | Selection and emphasis — a muted sibling of the brand color, not a rival to it |
 | `annotation` → `callout` | Hue rotated 165° (complement), lightness solved to 4.5:1 on `n0` | The ink layer that sits *over* the data — reference lines, callouts, notes |
 | `counter` → `negative` | Hue rotated 75°, in whichever direction lands furthest from `annotation` | The opposite side of diverging data. A distinct hue that doesn't trigger "error" psychology the way red does |
 
-`counter` is a token the hand-built default palette doesn't carry; set it when you
-use the generator, and pair it with `positive: s2` for diverging series.
+`counter` pairs with `positive: s2` for diverging series.
+
+**Dark designs.** The whole recipe mirrors: paper at L 0.18 instead of 0.96, the
+ink ladder running 90/80/70/60/50% instead of 10/20/30/40/50, `s1` a near-white
+tint instead of a near-black shade, the series ramp fading down toward the paper,
+and `nInverse` flipping to black — it is the text drawn on *light* fills, and
+leaving it white is the classic vanishing-bar-label bug.
 
 ### Before you paste it
 

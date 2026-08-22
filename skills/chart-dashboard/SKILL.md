@@ -64,19 +64,19 @@ HTML page of SVG charts rendered with `charts-lib`.
    ```bash
    node <skill-dir>/scripts/extract-theme.js <their-css-or-html>
    ```
-   It maps their palette onto charts-lib's color roles, builds a series ramp from
-   their accent, and reports contrast failures. Paste its `Charts.theme` block in
+   It harvests the design's canvas, series hue, and any color reserved for a
+   utility role, then runs the same OKLCH recipe described in `theming.md`:
+   paper, greyscale ink, a seven-step series ramp, and `accent`/`annotation`/
+   `counter` — taken from the design where it has a color that fits the role,
+   derived by hue rotation where it doesn't. Paste its `Charts.theme` block in
    once, before the first chart call. Fix anything it marks FAIL rather than
    shipping it.
 
    **If all you have is one brand color** — a single hex, no CSS to harvest —
-   generate the whole palette from it instead:
+   run the same recipe with nothing observed:
    ```bash
    node <skill-dir>/scripts/generate-theme.js '#2323FF'
    ```
-   It derives paper, ink, a seven-step series ramp and three utility accents from
-   that one color in OKLCH, solving each step to its contrast target. Same output
-   shape, same rule: paste once, fix any FAIL.
 6. **Verify before reporting done.** Use the strongest check your environment
    supports:
    - *Browser tooling available* — open the file, read the console for errors,
