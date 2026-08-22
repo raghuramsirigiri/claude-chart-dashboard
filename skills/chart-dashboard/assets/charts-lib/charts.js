@@ -1845,13 +1845,21 @@
     return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
   }
   function lighten(hex, amt) { return darken(hex, -amt); }
-  // Rough luminance to pick contrast text
-  function contrastText(hex) {
-    const c = hex.replace('#','');
+  // Rough luminance to pick contrast text. The two candidates are the theme's
+  // ink and its inverse, and which of them is the light one depends on the
+  // theme: on a dark palette INV_TEXT is black and TITLE_COL is near-white, the
+  // opposite way round from a light one. So compare both against the fill and
+  // take the wider gap rather than assuming the ink is dark — that assumption
+  // is what puts pale text on a pale bar the moment a page is reskinned.
+  function inkLum(hex) {
+    const c = String(hex).replace('#','');
     const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
-    const r=(n>>16)&255, g=(n>>8)&255, b=n&255;
-    const L = 0.299*r + 0.587*g + 0.114*b;
-    return L < 140 ? INV_TEXT : TITLE_COL;
+    if (!isFinite(n)) return 255;
+    return 0.299*((n>>16)&255) + 0.587*((n>>8)&255) + 0.114*(n&255);
+  }
+  function contrastText(hex) {
+    const L = inkLum(hex);
+    return Math.abs(inkLum(INV_TEXT) - L) >= Math.abs(inkLum(TITLE_COL) - L) ? INV_TEXT : TITLE_COL;
   }
 
   // Word-wrap into up to N lines of a target character width (rough px based)
@@ -4751,10 +4759,13 @@ Charts.pie = function (container, opts) {
           px: b.p.x, py: b.p.y, x: b.x, y: b.y });
         markRects.push({ x: b.x - b.r, y: b.y - b.r, w: b.r * 2, h: b.r * 2 });
         if (b.r > 16 && b.p.name) {
-          // Use white text on dark fill, dark on light
+          // Whichever of the ink and its inverse sits further from the fill —
+          // see the note on contrastText; a dark theme swaps which is which.
           const [rr,gg,bb] = hex2rgb(b._fillColor);
           const L = 0.299*rr + 0.587*gg + 0.114*bb;
-          const col = L < 140 ? INV_TEXT : TITLE_COL;
+          const lum = h => { const c = String(h).replace('#',''); const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
+            return isFinite(n) ? 0.299*((n>>16)&255) + 0.587*((n>>8)&255) + 0.114*(n&255) : 255; };
+          const col = Math.abs(lum(INV_TEXT) - L) >= Math.abs(lum(TITLE_COL) - L) ? INV_TEXT : TITLE_COL;
           txt(b.p.name, { x: b.x, y: b.y + 4, 'text-anchor': 'middle',
             'font-size': Math.min(12, b.r * 0.42), 'font-weight': 700,
             fill: col, 'font-family': FONT, style: 'pointer-events:none' }, gLabels);
