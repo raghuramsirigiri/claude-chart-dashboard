@@ -24,6 +24,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const G = require('./generate-theme.js');
 
 // ── colour parsing ───────────────────────────────────────────────────
 const NAMED = { white: '#ffffff', black: '#000000' };
@@ -134,6 +135,20 @@ const all = [...vars.values(), ...bgs, ...texts, ...borders].filter(c => c && c.
 const uniq = new Map(all.map(c => [c.hex, c]));
 const pool = [...uniq.values()];
 
+// How hard the design leans on each colour. The per-context counts are about to
+// be deduped into `pool`, which keeps one entry per hex and therefore one
+// context's count, so the totals are tallied here first. Two numbers matter:
+// how often a colour is declared, and how many *kinds* of declaration it turns
+// up in — a colour used as a button fill, as text and as a rule is carrying the
+// brand, while one that only ever paints a single panel is decoration.
+const usage = new Map();
+const noteUse = (list, kind) => list.forEach(c => {
+  const u = usage.get(c.hex) || { total: 0, kinds: new Set() };
+  u.total += c.n; u.kinds.add(kind); usage.set(c.hex, u);
+});
+noteUse(bgs, 'bg'); noteUse(texts, 'text'); noteUse(borders, 'border');
+const useOf = h => usage.get(h) || { total: 0, kinds: new Set() };
+
 // Canvas: what charts sit on. Trust the most-declared background before any name.
 const surface = bgs[0] || pickVar('surface', 'card', 'panel') || { hex: '#f4f3f0', rgb: toRgb('#f4f3f0') };
 const dark = luminance(surface.rgb) < 0.35;
@@ -159,11 +174,35 @@ const line = validate(pickVar('line', 'border', 'divider', 'hairline'),
          .sort((a, b) => saturation(a.rgb) - saturation(b.rgb))[0]
   || { hex: hex(lineFallback), rgb: lineFallback };
 
-// Accent: the most saturated colour that is neither canvas nor body text.
+// Accent: the colour the design actually leans on, which becomes the series hue
+// and the reference the whole palette is built from. Getting this one wrong
+// mis-colours everything downstream, so it is decided by evidence rather than
+// by a single metric.
+//
+// Chroma, not HSV saturation, decides whether a colour is chromatic at all.
+// Saturation is (max-min)/max, which runs to 1.0 for *any* dark pure hue: a
+// near-black navy like #01222d scores 0.98 while carrying an OKLCH chroma of
+// 0.04, which is very nearly grey. Ranking on it hands the brand slot to
+// whichever colour happens to be darkest — Wells Fargo's teal #017994 (sat
+// 0.99, chroma 0.10) beat its red #d71e28 (sat 0.86, chroma 0.22) that way,
+// even though the red is declared 25 times to the teal's 4.
+const chromaOf = c => G.rgbToOklch(c).C;
 const taken = new Set([surface.hex, textPrimary.hex, textMuted.hex, line.hex]);
-const accentPool = pool.filter(c => !taken.has(c.hex) && saturation(c.rgb) > 0.3 && contrast(c.rgb, surface.rgb) > 1.6);
-const accent = validate(pickVar('accent', 'signal', 'primary', 'brand'), c => saturation(c.rgb) > 0.25)
-  || accentPool.sort((a, b) => saturation(b.rgb) - saturation(a.rgb))[0]
+// Colours the design named as an error or warning state can still win, but only
+// if nothing else qualifies — a danger red is a real brand colour on some sites
+// and strictly a semantic one on others, and the name is the only evidence.
+const namedSemantic = new Set();
+const brandPool = pool.filter(c => !taken.has(c.hex) && chromaOf(c.rgb) >= 0.06 &&
+  contrast(c.rgb, surface.rgb) > 1.6);
+const rankBrand = (a, b) => {
+  const ua = useOf(a.hex), ub = useOf(b.hex);
+  return (namedSemantic.has(a.hex) ? 1 : 0) - (namedSemantic.has(b.hex) ? 1 : 0) ||
+    ub.kinds.size - ua.kinds.size ||
+    ub.total - ua.total ||
+    chromaOf(b.rgb) - chromaOf(a.rgb);
+};
+const accent = validate(pickVar('accent', 'signal', 'primary', 'brand'), c => chromaOf(c.rgb) >= 0.05)
+  || brandPool.sort(rankBrand)[0]
   || { hex: '#2323FF', rgb: toRgb('#2323FF') };
 
 // Page ground: a background near the canvas, not the ink that happens to be dark.
@@ -171,8 +210,9 @@ const groundFallback = mix(surface.rgb, toRgb(dark ? '#000000' : '#000000'), dar
 const pageBg = bgs.find(c => c.hex !== surface.hex && contrast(c.rgb, surface.rgb) < 2)
   || { hex: hex(groundFallback), rgb: groundFallback };
 
-const danger = validate(pickVar('bad', 'danger', 'error', 'negative'), c => saturation(c.rgb) > 0.25);
-const warn = validate(pickVar('warn', 'warning', 'alert', 'attention'), c => saturation(c.rgb) > 0.25);
+const danger = validate(pickVar('bad', 'danger', 'error', 'negative'), c => chromaOf(c.rgb) >= 0.05);
+const warn = validate(pickVar('warn', 'warning', 'alert', 'attention'), c => chromaOf(c.rgb) >= 0.05);
+[danger, warn].forEach(c => c && namedSemantic.add(c.hex));
 
 // ── hand the harvest to the generator ────────────────────────────────
 // From here the maths is identical to the single-colour path in
@@ -181,18 +221,22 @@ const warn = validate(pickVar('warn', 'warning', 'alert', 'attention'), c => sat
 // roles that path *invents* are filled from what the design actually uses,
 // wherever the design has a colour that can do the job. Anything the site
 // cannot supply falls back to the derivation.
-const G = require('./generate-theme.js');
 
 const refH = G.rgbToOklch(accent.rgb).h;
 const hueOf = c => G.rgbToOklch(c.rgb).h;
 const hueDist = (a, b) => { const d = Math.abs(((a - b) % 360 + 360) % 360); return d > 180 ? 360 - d : d; };
-const bySat = (a, b) => saturation(b.rgb) - saturation(a.rgb);
+// Same evidence, same order: a colour the design uses in several places beats
+// one it uses once, and chroma breaks the tie. See the note on rankBrand.
+const byPresence = (a, b) => {
+  const ua = useOf(a.hex), ub = useOf(b.hex);
+  return ub.kinds.size - ua.kinds.size || ub.total - ua.total || chromaOf(b.rgb) - chromaOf(a.rgb);
+};
 
 // Only colours with real chroma are candidates for a role — a grey picked as
 // an "accent" is just the structure colour under another name. The canvas, the
 // body text and the series hue itself are already spoken for.
 const spoken = new Set([surface.hex, textPrimary.hex, textMuted.hex, line.hex, accent.hex]);
-const candidates = pool.filter(c => c && c.rgb && !spoken.has(c.hex) && saturation(c.rgb) > 0.28);
+const candidates = pool.filter(c => c && c.rgb && !spoken.has(c.hex) && chromaOf(c.rgb) >= 0.06);
 
 // annotation is the ink layer drawn *over* the data, so it only works if it is
 // a long way round the wheel from the series hue — a near-neighbour would read
@@ -200,7 +244,7 @@ const candidates = pool.filter(c => c && c.rgb && !spoken.has(c.hex) && saturati
 // design gives about which colour it reserves for "look here".
 const annotationPick =
   [danger, warn].find(c => c && hueDist(hueOf(c), refH) >= 90) ||
-  candidates.filter(c => hueDist(hueOf(c), refH) >= 100).sort(bySat)[0] || null;
+  candidates.filter(c => hueDist(hueOf(c), refH) >= 100).sort(byPresence)[0] || null;
 
 // counter is the opposite pole of diverging data: distinct from the series hue
 // but not the complement, and far enough from annotation that a legend cannot
@@ -210,7 +254,7 @@ const counterPick = candidates.filter(c => {
   const h = hueOf(c);
   return c !== annotationPick && hueDist(h, refH) >= 40 && hueDist(h, refH) <= 130 &&
     (annH === null || hueDist(h, annH) >= 45);
-}).sort(bySat)[0] || null;
+}).sort(byPresence)[0] || null;
 
 // accent (highlight) is a muted sibling of the series hue, so a second brand
 // colour only qualifies if it is in the same family — otherwise the emphasis

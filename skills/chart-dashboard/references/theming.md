@@ -51,7 +51,18 @@ order, and why:
 2. **Declared colors by frequency and context** — `background`/`background-color`
    values are canvas candidates, `color` values are text candidates, `border`
    values are hairline candidates. Frequency matters: the color used 40 times is
-   structural, the one used once is an accident.
+   structural, the one used once is an accident. The **series hue** in particular
+   is decided by evidence, not by which color looks most vivid — first how many
+   kinds of declaration it appears in (a color used as a fill *and* as text *and*
+   as a rule is carrying the brand), then how often, and only then chroma.
+
+   Chroma, not HSV saturation, is what decides whether a color is chromatic at
+   all. Saturation is `(max-min)/max`, which runs to 1.0 for *any* dark pure hue:
+   a near-black navy scores 0.98 while being very nearly grey. Ranking on it
+   hands the brand slot to whichever color happens to be darkest — that is how
+   Wells Fargo's teal `#017994` (saturation 0.99, chroma 0.10) once beat its red
+   `#d71e28` (saturation 0.86, chroma 0.22), despite the red being declared 25
+   times to the teal's 4.
 3. **Whether the design is light or dark**, decided by the luminance of the most
    common background. This flips the whole mapping, so get it right.
 
