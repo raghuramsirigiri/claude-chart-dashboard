@@ -39,8 +39,12 @@
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
   let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     GRID = t.grid || '#dcdbd7';
     AXIS = t.axis || '#000000';
@@ -1316,7 +1320,7 @@
 
     // ---- interaction ----
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     const crosshair = el('line', { x1: 0, x2: 0, y1: M.t, y2: M.t + IH, stroke: AXIS,
@@ -1455,10 +1459,10 @@
           const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, gLegend);
           el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
           el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
-            fill: s.visible ? s.color : '#ccc' }, gr);
+            fill: s.visible ? s.color : DIM_COL }, gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
             'font-size': F_LEG, 'font-weight': 600,
-            fill: s.visible ? (s.legendColor || TITLE_COL) : '#ccc',
+            fill: s.visible ? (s.legendColor || TITLE_COL) : DIM_COL,
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {
@@ -1511,8 +1515,12 @@
   let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, INV_TEXT, HIGHLIGHT, POS_COL, NEG_COL, DEFAULT_COL, COLORS;
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, SPINE_W, GRID_W;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     GRID = t.grid || '#dcdbd7';
     AXIS = t.axis || '#000000';
@@ -1522,8 +1530,8 @@
     SEC_COL = t.secondaryColor || '#666666';
     INV_TEXT = t.inverseText || '#FFFFFF';
     HIGHLIGHT = t.highlight || '#1f77b4';
-    POS_COL = t.positive || '#2323FF';
-    NEG_COL = t.negative || '#D1107A';
+    POS_COL = t.aboveThreshold || t.positive || '#2323FF';
+    NEG_COL = t.belowThreshold || t.negative || '#D1107A';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
     // Shared text roles â€” see the hierarchy comment in theme.js.
@@ -2768,11 +2776,11 @@
 
     // Interaction â€” shared tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     const crosshair = el('rect', { x: 0, y: 0, width: 0, height: 0,
-      fill: '#000', 'fill-opacity': 0.04, style: 'display:none;pointer-events:none' }, gInteract);
+      fill: HOVER_INK, 'fill-opacity': 0.04, style: 'display:none;pointer-events:none' }, gInteract);
 
     function onMove(evt) {
       const rect = svg.getBoundingClientRect();
@@ -2841,10 +2849,10 @@
           // The swatch carries the scenario notation too — a legend showing a
           // solid block for a hatched forecast series misreports the data.
           el('rect', Object.assign({ x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2 },
-            s.visible ? scenarioFill(s.scenario, s.color) : { fill: '#ccc' }), gr);
+            s.visible ? scenarioFill(s.scenario, s.color) : { fill: DIM_COL }), gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
             'font-size': F_LEG, 'font-weight': 600,
-            fill: s.visible ? (s.legendColor || TITLE_COL) : '#ccc',
+            fill: s.visible ? (s.legendColor || TITLE_COL) : DIM_COL,
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {
@@ -2895,8 +2903,12 @@ Charts.bar = function (container, opts) {
   let BG, AXIS, TITLE_COL, SUB_COL, LABEL_COL, CALLOUT_COL, CONNECT_COL, CONNECT_W, START_COL, END_COL;
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE, F_CENTER;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     AXIS = t.axis || '#000000';
     TITLE_COL = t.titleColor || '#111111';
@@ -3882,9 +3894,9 @@ Charts.bar = function (container, opts) {
           const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, gLegend);
           el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
           el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
-            fill: d.visible ? d.color : '#ccc' }, gr);
+            fill: d.visible ? d.color : DIM_COL }, gr);
           txt(d.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12, 'font-size': F_LEG, 'font-weight': CAT_FW,
-            fill: d.visible ? CAT_COL : '#ccc',
+            fill: d.visible ? CAT_COL : DIM_COL,
             'text-decoration': d.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {
@@ -3897,7 +3909,7 @@ Charts.bar = function (container, opts) {
 
     // Tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     function showTooltip(d, ev) {
@@ -3986,8 +3998,12 @@ Charts.pie = function (container, opts) {
 
   // clean_charts tokens
   let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, INV_TEXT, START_COL, END_COL, TREND_COL, DEFAULT_COL;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyThemeColors() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     GRID = t.grid || '#dcdbd7';
     AXIS = t.labelColor || '#333333';
@@ -4817,10 +4833,10 @@ Charts.pie = function (container, opts) {
           const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, gLegend);
           el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
           el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
-            fill: s.visible ? s.color : '#ccc' }, gr);
+            fill: s.visible ? s.color : DIM_COL }, gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
             'font-size': F_LEG, 'font-weight': 600,
-            fill: s.visible ? (s.legendColor || TITLE_COL) : '#ccc',
+            fill: s.visible ? (s.legendColor || TITLE_COL) : DIM_COL,
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
           gr.addEventListener('click', () => {
@@ -4833,7 +4849,7 @@ Charts.pie = function (container, opts) {
 
     // Tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     function showTip(s, p, ev) {
@@ -4944,15 +4960,19 @@ Charts.packedBubble = function (container, opts) {
   let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     GRID = t.grid || '#dcdbd7';
     TITLE_COL = t.titleColor || '#111111';
     SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
     SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.negative || '#D1107A';
+    NEG_COL = t.belowThreshold || t.negative || '#D1107A';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
     // Shared text roles — see the hierarchy comment in theme.js.
@@ -5487,7 +5507,7 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     svg.addEventListener('mousemove', ev => {
@@ -5562,14 +5582,18 @@ Charts.packedBubble = function (container, opts) {
   let BG, TITLE_COL, SUB_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     GRID = t.grid || '#dcdbd7';
     TITLE_COL = t.titleColor || '#111111';
     SUB_COL = t.subtitleColor || '#666666';
     SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.negative || '#D1107A';
+    NEG_COL = t.belowThreshold || t.negative || '#D1107A';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
     // Shared text roles — see the hierarchy comment in theme.js.
@@ -6081,7 +6105,7 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container_.appendChild(tooltip);
 
     let bars = [], H = 0;
@@ -6137,10 +6161,10 @@ Charts.packedBubble = function (container, opts) {
             const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, svg);
             el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
             el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
-              fill: s.visible ? s.color : '#ccc' }, gr);
+              fill: s.visible ? s.color : DIM_COL }, gr);
             txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
               'font-size': F_LEG, 'font-weight': CAT_FW,
-              fill: s.visible ? CAT_COL : '#ccc',
+              fill: s.visible ? CAT_COL : DIM_COL,
               'text-decoration': s.visible ? 'none' : 'line-through',
               'font-family': FONT }, gr);
             gr.addEventListener('click', () => {
@@ -6383,8 +6407,12 @@ Charts.packedBubble = function (container, opts) {
   let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, DEFAULT_COL, COLORS, GRID;
   let CAT_COL, CAT_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     GRID = t.grid || '#dcdbd7';
     TITLE_COL = t.titleColor || '#111111';
@@ -6916,7 +6944,7 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;max-width:260px;white-space:normal;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;max-width:260px;white-space:normal;z-index:10;`;
     container.appendChild(tooltip);
 
     function clearHL() {
@@ -6987,8 +7015,12 @@ Charts.packedBubble = function (container, opts) {
   let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, START_COL, END_COL, INV_COL;
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_CODE, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     TITLE_COL = t.titleColor || '#111111';
     SUB_COL = t.subtitleColor || '#666666';
@@ -7444,12 +7476,12 @@ Charts.packedBubble = function (container, opts) {
     // the hovered mark (column/bar), the mark itself easing to 0.85 opacity
     // (donut), and the shared cursor-following tooltip.
     const highlight = el('rect', { x: 0, y: 0, width: 0, height: 0, rx: radius,
-      fill: '#000', 'fill-opacity': 0.04,
+      fill: HOVER_INK, 'fill-opacity': 0.04,
       style: 'display:none;pointer-events:none' }, svg);
 
     const tip = document.createElement('div');
     tip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
-      ';border:1px solid #bbb;border-radius:4px;padding:6px 8px;font:12px ' + FONT +
+      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:12px ' + FONT +
       ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
     container.appendChild(tip);
 
