@@ -57,7 +57,25 @@ HTML page of SVG charts rendered with `charts-lib`.
    ```
    Keep the template's `<script src="charts-lib/theme.js">` before
    `charts-lib/charts.js` — theme must load first.
-4. **Choose a chart per panel** using `references/chart-selection.md`, then write
+4. **Derive the grid from the findings, not from the template.** The dashboard
+   template deliberately ships with a placeholder two-cell grid, because any
+   arrangement shipped there would end up on every page this skill produces.
+   Before writing markup, answer: what is the dominant shape of this analysis
+   (one trend / a head-to-head comparison / a ranking / a funnel / a
+   distribution / parallel equal measures / geography)? Is there genuinely one
+   panel that is the reason the page exists? The answers pick the opening row —
+   worked derivations for each shape are in `references/layout.md` § Compose the
+   grid from the findings.
+
+   Two checks before you move on. **A hero must be earned**: `w8 h2` goes to a
+   panel only when one finding dominates; co-equal measures get equal cells, and
+   promoting one is a claim the data doesn't make. And **if your top row came out
+   as a wide line chart plus a donut plus a small panel, verify that it came from
+   the data** — that is the shape this skill falls into by reflex, and it is
+   right only when a single trend really does lead and composition really is the
+   second thing the reader needs.
+
+5. **Choose a chart per panel** using `references/chart-selection.md`, then write
    the config against `references/chart-api.md` (the full charts-lib API: every
    factory, option, and theme token). Read that file before writing chart code —
    don't guess option names.
@@ -74,7 +92,7 @@ HTML page of SVG charts rendered with `charts-lib`.
    target, a labelled anomaly — read `references/annotation.md` for the cue and
    its mechanics. Colour and stroke are per-series on a line, so actual-vs-
    forecast is two series, not one styled midway.
-5. **If the user pointed at a brand** — their site, a stylesheet, a screenshot, a
+6. **If the user pointed at a brand** — their site, a stylesheet, a screenshot, a
    set of hex codes — recolor to match, and change nothing else. Read
    `references/theming.md` and run the bundled extractor:
    ```bash
@@ -93,7 +111,7 @@ HTML page of SVG charts rendered with `charts-lib`.
    ```bash
    node <skill-dir>/scripts/generate-theme.js '#2323FF'
    ```
-6. **Verify before reporting done.** Use the strongest check your environment
+7. **Verify before reporting done.** Use the strongest check your environment
    supports:
    - *Browser tooling available* — open the file, read the console for errors,
      and screenshot it to confirm layout. (In Claude Code: `preview_start`, then
@@ -146,7 +164,9 @@ HTML page of SVG charts rendered with `charts-lib`.
 - Lead with the finding that matters most: if one trend is the reason the page
   exists, give it the wide top-left cell (`w8 h2`). If nothing dominates — three
   equally important measures, say — don't manufacture a hero; equal panels are
-  the honest layout.
+  the honest layout. The rest of the grid follows the same logic: the shape of
+  the analysis picks the rows, and a layout reused from the last page is a layout
+  that describes the last page's data (`references/layout.md`).
 - Every panel gets a `title` and a `subtitle` that states units and scope
   ("USD thousands · Q4 2025"). Put units in `yAxis.suffix` and
   `tooltip.valueSuffix` too.

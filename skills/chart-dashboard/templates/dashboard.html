@@ -103,16 +103,23 @@
     </label>
   </div>
 
-  <!-- One .cell per panel. Adjust spans; keep ids in sync with the script below. -->
+  <!-- THE GRID IS NOT A TEMPLATE — BUILD IT FROM YOUR PANEL PLAN.
+       There is deliberately no starter arrangement here, because whatever
+       arrangement shipped in this file would end up on every page this skill
+       produces regardless of the data. Derive the rows instead:
+         · one trend dominates  → w8 h2 hero + w4 / w4 beside it
+         · two things compared  → w6 + w6
+         · a ranking leads      → w12 across the top
+         · a funnel / sequence  → w12 first
+         · nothing dominates    → w4 · w4 · w4 of equal weight
+         · geography leads      → w8 geofacet + w4 h2 ranked list
+       Full derivation, and the rule that a hero must be earned, in
+       references/layout.md § Compose the grid from the findings.
+       Spans: w4 w6 w8 w12 (columns), h2 (double height). One chart div per
+       cell, ids in sync with the script below. Replace this whole block. -->
   <div class="bento">
-    <div class="cell w8 h2"><div class="chart" id="c1"></div></div>
-    <div class="cell w4"><div class="chart" id="c2"></div></div>
-    <div class="cell w4"><div class="chart" id="c3"></div></div>
-
-    <div class="cell w6"><div class="chart" id="c4"></div></div>
-    <div class="cell w6"><div class="chart" id="c5"></div></div>
-
-    <div class="cell w12"><div class="chart" id="c6"></div></div>
+    <div class="cell w6"><div class="chart" id="c1"></div></div>
+    <div class="cell w6"><div class="chart" id="c2"></div></div>
   </div>
 
   <footer class="notes">
@@ -148,76 +155,15 @@ Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
 })();
 </script>
 <script>
-/* 1 · Hero trend */
-Charts.line('c1', {
-  title: 'Hero metric over time',
-  subtitle: 'Units · scope',
-  /* A line needs an ordered x. Category labels must parse as dates:
-     'Jan 2025' works, bare 'Jan' does not. Names belong on a column chart. */
-  xAxis: { categories: ['Jan 2025','Feb 2025','Mar 2025','Apr 2025','May 2025','Jun 2025'] },
-  yAxis: { suffix: 'k' },
-  tooltip: { valueSuffix: 'k' },
-  series: [
-    { name: 'Actual',   data: [412,438,451,469,502,548] },
-    { name: 'Forecast', data: [420,445,462,478,510,555] }
-  ],
-  callouts: [{ x: 4, text: 'What happened here' }]
-});
-
-/* 2 · Composition */
-Charts.donut('c2', {
-  title: 'Mix by segment',
-  subtitle: 'Share of total',
-  plotOptions: { pie: { centerText: { value: '8.9k', label: 'Total' } } },
-  series: [{ name: 'Segment', data: [
-    { name: 'A', y: 3820 }, { name: 'B', y: 2410 },
-    { name: 'C', y: 1980 }, { name: 'Other', y: 690 }
-  ]}]
-});
-
-/* 4 · Grouped comparison — data labels off here on purpose: grouped columns
-   with two series and four categories would collide. The axis carries it. */
-Charts.column('c4', {
-  title: 'Comparison by period',
-  subtitle: 'Grouped columns · units',
-  xAxis: { categories: ['Q1','Q2','Q3','Q4'] },
-  series: [
-    { name: 'This year', data: [980, 1240, 1810, 2100] },
-    { name: 'Last year', data: [820, 1010, 1390, 1620] }
-  ]
-});
-
-/* 5 · Relationship */
-Charts.scatter('c5', {
-  title: 'X versus Y',
-  subtitle: 'One point per unit · dashed line is least-squares fit',
-  xAxis: { title: 'X' }, yAxis: { title: 'Y' },
-  series: [{ name: 'Units', regression: true,
-    data: [[1,2.1],[2,2.9],[3,4.4],[4,4.9],[5,6.3],[6,6.8]] }]
-});
-
-/* 6 · Full-width composition over time */
-Charts.column('c6', {
-  title: 'Share of total over time',
-  subtitle: '100% stacked',
-  xAxis: { categories: ['Jan','Feb','Mar','Apr','May','Jun'] },
-  plotOptions: { column: { stacking: 'percent' } },
-  series: [
-    { name: 'A', data: [40,42,45,47,49,52] },
-    { name: 'B', data: [35,34,32,31,30,28] },
-    { name: 'C', data: [25,24,23,22,21,20] }
-  ]
-});
-
-/* ── 3 · Ranking — the filter-driven panel ────────────────────────────────
-   Three things happen together here, and all three are required:
-     · the rows are FILTERED from one full dataset, not relabelled
-     · the top two bars are EMPHASISED with a per-point colour, so the picture
-       agrees with the sentence in the title
-     · the ACTION TITLE is recomputed from the filtered rows — a frozen title
-       over filtered data asserts something false
-   Delete the filter bar and the listener below if the page is static; keep the
-   emphasis and the data labels either way. */
+/* Two example panels only — one per grid cell above. They exist to show the
+   mechanics that are easy to get wrong, NOT to suggest an opening row:
+   replace both, and build as many panels as the findings need.
+     · a filtered dataset with one render() path (first paint included)
+     · per-point emphasis so the picture agrees with the title
+     · an action title recomputed from the filtered rows
+   Delete the filter bar above and the listener below if the page is static;
+   keep the emphasis and the data labels either way. Chart options for every
+   type are in references/chart-api.md — don't guess option names. */
 const DATA = [
   { name: 'Cat A', region: 'North', value: 980 },
   { name: 'Cat B', region: 'South', value: 740 },
@@ -243,7 +189,7 @@ function render(state) {
   // Every dependent readout updates, KPI tiles included.
   document.getElementById('k1').textContent = total.toLocaleString();
 
-  Charts.bar('c3', {
+  Charts.bar('c1', {
     // Descriptive fallback when the slice is too small to support the claim.
     title: rows.length > 2
       ? `Top two categories drive ${share}% of volume`
@@ -259,6 +205,14 @@ function render(state) {
       y: r.value,
       color: (rows.length <= 2 || i < 2) ? T.colors[1] : T.muted
     })) }]
+  });
+
+  Charts.column('c2', {
+    title: 'Volume by category and region',
+    subtitle: `Units · ${scope}`,
+    xAxis: { categories: rows.map(r => r.name) },
+    legend: { enabled: false },
+    series: [{ name: 'Units', data: rows.map(r => r.value) }]
   });
 }
 
