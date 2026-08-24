@@ -64,7 +64,7 @@
       "name": "What are the dependencies?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "None. The generated page loads three local files — charts.js, theme.js, and charts.css, 130 KB total — copied next to your HTML. There is no npm install, no CDN script tag, no build step, and no framework. Open the file in any browser from the last decade and it renders."
+        "text": "None. The generated page loads three local files — charts.js, theme.js, and charts.css, 380 KB total unminified (about 100 KB gzipped) — copied next to your HTML. There is no npm install, no CDN script tag, no build step, and no framework. Open the file in any browser from the last decade and it renders."
       }
     },
     {
@@ -136,7 +136,7 @@
       "name": "Which chart types are supported?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Line, spline and step charts; grouped, stacked, 100% stacked, range, pyramid and 3D columns and bars; axis-free ranked bar lists; bar insight tables that pair each row's bars with an insight line and a headline stat; donut and pie including semi-circle and variable radius; scatter with linear regression; bubble and packed bubble; and geofacet tile grids with bar, heat or gauge tiles per region. True geographic maps, Sankey diagrams, treemaps and heatmaps are not supported yet."
+        "text": "Line, spline and step charts; grouped, stacked, 100% stacked, range, pyramid and 3D columns and bars; axis-free ranked bar lists; bar insight tables that pair each row's bars with an insight line and a headline stat; waffle dot grids for part-of-whole shares; donut and pie including semi-circle and variable radius; scatter with linear regression; bubble and packed bubble; geofacet tile grids with bar, heat or gauge tiles per region; and a panels compositor that groups several charts under one shared title. True geographic maps, Sankey diagrams, treemaps and heatmaps are not supported yet."
       }
     }
   ]
@@ -222,9 +222,11 @@
   <h2>Why it exists</h2>
   <p>Chart libraries render what you tell them to render. This skill decides
     <em>what to render</em> — which is the part that takes design judgment. It
-    carries a chart-selection table mapping data shapes to chart types, layout
-    rules for grid composition, and a bundled 130 KB SVG renderer, so output stays
-    consistent from the first dashboard to the fiftieth.</p>
+    carries a chart-selection table mapping data shapes to chart types, rules for
+    deriving the grid from the findings, and a bundled 380 KB SVG renderer, so output
+    stays consistent from the first dashboard to the fiftieth. Titles state the
+    finding rather than labelling the axes, the chart emphasises whatever the title
+    names, and projections are never drawn in the same stroke as measurements.</p>
 
   <table>
     <thead><tr><th></th><th>chart-dashboard</th><th>Chart.js / Plotly</th><th>BI tool screenshot</th></tr></thead>
@@ -265,7 +267,7 @@ cp -r claude-chart-dashboard/skills/chart-dashboard ~/.claude/skills/</code></pr
   <details open>
     <summary>What are the dependencies?</summary>
     <p>None. The generated page loads three local files — <code>charts.js</code>,
-      <code>theme.js</code>, and <code>charts.css</code>, 130 KB total — copied next
+      <code>theme.js</code>, and <code>charts.css</code>, 380 KB total unminified (about 100 KB gzipped) — copied next
       to your HTML. There is no npm install, no CDN script tag, no build step, and no
       framework. Open the file in any browser from the last decade and it renders.</p>
   </details>
@@ -337,10 +339,38 @@ cp -r claude-chart-dashboard/skills/chart-dashboard ~/.claude/skills/</code></pr
     <summary>Which chart types are supported?</summary>
     <p>Line, spline and step; grouped, stacked, 100% stacked, range, pyramid and 3D
       columns and bars; axis-free ranked bar lists; bar insight tables pairing each
-      row's bars with an insight line and a headline stat; donut and pie including semi-circle
+      row's bars with an insight line and a headline stat; waffle dot grids for
+      part-of-whole shares; donut and pie including semi-circle
       and variable radius; scatter with linear regression; bubble and packed bubble;
-      and geofacet tile grids (bar, heat or gauge tiles per region, US states built in).
+      geofacet tile grids (bar, heat or gauge tiles per region, US states built in);
+      and a <code>panels</code> compositor that groups several charts under one shared title.
       True geographic maps, Sankey diagrams, treemaps and heatmaps are not supported yet.</p>
+  </details>
+
+  <details>
+    <summary>Do all the dashboards come out looking the same?</summary>
+    <p>They shouldn't. The layout is derived from the shape of the analysis — one
+      dominant trend opens differently from a head-to-head comparison, a ranking, or
+      six co-equal measures — and the templates ship without a starter grid so no
+      single arrangement gets copied onto every page. What stays constant is the
+      design system: type scale, spacing, legend position and stroke weights.</p>
+  </details>
+
+  <details>
+    <summary>Can the page have filters?</summary>
+    <p>Yes, and they're wired end to end: the dataset is filtered rather than the
+      label swapped, every dependent panel and KPI redraws, and any title stating a
+      finding is recomputed from the filtered rows. All or nothing — a half-wired
+      dropdown discredits the numbers that are correct.</p>
+  </details>
+
+  <details>
+    <summary>Can it match our brand colours?</summary>
+    <p>Point it at your stylesheet, a screenshot, or a single hex. Two bundled
+      scripts run the same OKLCH recipe — paper, a greyscale ink ramp, a seven-step
+      series ramp, and separate accent, annotation and counter roles, each contrast
+      checked. Colour is the only thing a brand changes; the type scale and spacing
+      stay fixed so the charts still read as one family.</p>
   </details>
 
   <h2>Built by</h2>

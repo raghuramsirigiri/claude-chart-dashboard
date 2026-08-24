@@ -45,7 +45,7 @@ chart-dashboard is a [Claude Agent Skill](https://docs.claude.com/en/docs/agents
 — a packaged set of instructions and assets that teaches Claude a specific job. This
 one teaches Claude how to design and build data dashboards: which chart type fits
 which data shape, how to lay out a bento grid, and how to render it all with a
-bundled 130 KB SVG chart library.
+bundled 380 KB SVG chart library.
 
 You describe your data in plain language. Claude picks the charts, writes the HTML,
 and hands you a file you can double-click, commit to a repo, email to a client, or
@@ -68,6 +68,22 @@ render* — which is the part that takes design judgment.
 
 It also refuses the common mistakes: pie charts for time series, five lines on one
 axis, dual axes, truncated bar baselines, and donuts with fifteen wedges.
+
+Four judgment calls it makes that a library can't:
+
+- **The layout comes from the analysis.** The grid is derived from the shape of
+  the findings — one dominant trend opens differently from a head-to-head
+  comparison, a ranking, or six co-equal measures — and a wide hero panel is only
+  given to a finding that actually leads.
+- **Titles state the finding.** "Throughput fell 12% the week of the WMS cutover",
+  not "Weekly throughput by site" — with the line held at quantified claims the
+  chart proves, not adjectives and verdicts.
+- **The chart shows the finding.** When a title names specific categories or a
+  specific series, those take the accent and everything else is muted, so the
+  picture agrees with the sentence above it.
+- **Measured, planned, and projected look different.** Forecasts are dashed or
+  hatched rather than spending a palette colour, so a projection is never drawn in
+  the same stroke as a measurement.
 
 ## Installation
 
@@ -194,7 +210,9 @@ Two output formats, chosen from how you phrase the request:
 | Donut & pie | donut, full pie, semi-circle, variable radius, gradient, exploded slices |
 | Scatter | scatter, linear regression trend line, labeled points |
 | Bubble | bubble (area-scaled), packed bubble, clustered packed bubble |
+| Waffle | dot-grid part-of-whole panels — headline stat, grid, label, description |
 | Geofacet | one tile per region on a map-shaped grid — bar, heat, or gauge tiles |
+| Panels | a compositor, not an engine: several charts under one shared title as a single exhibit |
 
 Every chart is inline SVG with native tooltips, hover highlighting, and clickable
 legends. Donut wedges explode on click; line charts zoom by drag. No canvas, no
@@ -217,12 +235,32 @@ yourself — ask for "a dark dashboard" or "use our brand colors, #FF6B35 primar
 and Claude sets the tokens. The full list is in
 [`references/chart-api.md`](skills/chart-dashboard/references/chart-api.md).
 
+Two bundled scripts build that block for you, both running the same OKLCH recipe —
+paper, a greyscale ink ramp, a seven-step series ramp, and separate `accent` /
+`annotation` / `counter` roles, each checked for contrast:
+
+```bash
+# Point it at a brand's stylesheet or a saved page: harvests canvas, series hue,
+# and any colour already reserved for a utility role
+node skills/chart-dashboard/scripts/extract-theme.js their-site.css
+```
+
+```bash
+# Only have one hex? Same recipe, nothing observed
+node skills/chart-dashboard/scripts/generate-theme.js '#2323FF'
+```
+
+Colour is the only thing a brand changes. Type scale, spacing, stroke widths and
+legend position stay fixed, because those proportions are what make ten chart
+types read as one family. Method and rationale in
+[`references/theming.md`](skills/chart-dashboard/references/theming.md).
+
 ## FAQ
 
 ### What are the dependencies?
 
 None. The generated page loads three local files — `charts.js`, `theme.js`, and
-`charts.css`, 130 KB total — copied next to your HTML. There is no npm install, no
+`charts.css`, 380 KB total unminified (~100 KB gzipped) — copied next to your HTML. There is no npm install, no
 CDN script tag, no build step, and no framework. Open the file in any browser from
 the last decade and it renders.
 
@@ -265,6 +303,23 @@ The skill fixes the renderer, carries a chart-selection table so the type matche
 the data shape, and enforces layout rules — so the tenth dashboard looks like the
 first.
 
+### Do all the dashboards come out looking the same?
+
+They shouldn't, and the layout is derived rather than recalled: the skill picks the
+opening row from the dominant shape of the analysis, and the templates deliberately
+ship without a starter grid so no single arrangement gets copied onto every page.
+Panel count follows the findings too. What *is* held constant is the design system —
+type scale, spacing, legend position, stroke weights — so pages look like siblings
+rather than clones.
+
+### Can the page have filters or dropdowns?
+
+Yes, and if you ask for one it gets wired end to end: the underlying dataset is
+filtered rather than the label swapped, every dependent panel and KPI tile redraws,
+and any title that states a finding is recomputed from the filtered rows — a frozen
+headline over filtered data would assert something false. The skill's rule is all or
+nothing; a static page is a perfectly good deliverable, a half-wired dropdown is not.
+
 ### Can I edit the generated dashboard afterwards?
 
 Yes. The output is readable HTML with one `Charts.*()` call per panel. Edit the data
@@ -285,8 +340,13 @@ skills/chart-dashboard/
 ├── assets/charts-lib/              # the chart library (charts.js, theme.js, charts.css)
 ├── references/
 │   ├── chart-api.md                # full library API — every factory and option
-│   ├── chart-selection.md          # data shape → chart type, and anti-patterns
-│   └── layout.md                   # grid spans, breakpoints, panel rhythm
+│   ├── chart-selection.md          # data shape → chart type, emphasis, anti-patterns
+│   ├── layout.md                   # deriving the grid from the analysis; spans, breakpoints
+│   ├── annotation.md               # callouts, plot bands, forecast vs. measured notation
+│   └── theming.md                  # the OKLCH recipe behind a brand recolour
+├── scripts/
+│   ├── extract-theme.js            # brand CSS/HTML → a Charts.theme block
+│   └── generate-theme.js           # one hex → the same, with nothing observed
 └── templates/
     ├── dashboard.html              # bento grid starting point
     └── report.html                 # paper-column starting point
@@ -298,8 +358,9 @@ in a browser; no server needed.
 
 ## Known limitations
 
-- **Chart families.** Line, bar/column, bar list, donut/pie, scatter, bubble, and
-  geofacet. Geofacet covers region-by-region data on a tile grid (US states built
+- **Chart families.** Line, bar/column, bar list, bar insight table, waffle,
+  donut/pie, scatter, bubble, and geofacet, plus a `panels` compositor that groups
+  several of them under one title. Geofacet covers region-by-region data on a tile grid (US states built
   in, custom grids supported), but there are no true geographic maps, and no
   Sankey diagrams, treemaps, heatmaps, or Gantt charts yet.
 - **Static output.** Charts render from data baked into the file. There's no live

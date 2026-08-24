@@ -26,7 +26,9 @@ pasted numbers, metrics, notes, or a topic with figures in it.
 2. Read these before writing chart code — do not guess option names:
    - [`references/chart-api.md`](skills/chart-dashboard/references/chart-api.md) — every factory and option
    - [`references/chart-selection.md`](skills/chart-dashboard/references/chart-selection.md) — data shape → chart type
-   - [`references/layout.md`](skills/chart-dashboard/references/layout.md) — grid spans and page structure
+   - [`references/layout.md`](skills/chart-dashboard/references/layout.md) — deriving the grid from the findings; spans and page structure
+   - [`references/annotation.md`](skills/chart-dashboard/references/annotation.md) — callouts, plot bands, forecast vs. measured notation
+   - [`references/theming.md`](skills/chart-dashboard/references/theming.md) — brand recolour, and the two scripts under `scripts/` that generate it
 3. Start from a template in `skills/chart-dashboard/templates/`.
 4. Copy `skills/chart-dashboard/assets/charts-lib/` next to your output HTML.
 
@@ -40,6 +42,14 @@ pasted numbers, metrics, notes, or a topic with figures in it.
   with no data, say so and label the figures illustrative on the page itself.
 - Do not add a CDN link, npm dependency, or build step. The output must open
   offline by double-click.
+- Derive the grid from the shape of the analysis; the dashboard template ships
+  without a starter arrangement on purpose. A wide hero cell goes to a finding
+  that genuinely leads, not to whatever panel was written first.
+- A line chart needs an ordered x. Named categories — and bare month names like
+  `'Jan'` — render an error panel; write `'Jan 2025'` or use a column chart.
+- If the page has a control, wire it completely: filter the data, redraw every
+  dependent panel and KPI, and recompute any title that states a finding. A
+  static page is fine; a half-wired dropdown is not.
 
 ## Using this skill in a different project
 
@@ -61,7 +71,7 @@ When asked to build a dashboard, analytics page, or data report, follow
 ## Repo layout
 
 ```
-skills/chart-dashboard/   the skill: SKILL.md, references/, templates/, assets/
+skills/chart-dashboard/   the skill: SKILL.md, references/, templates/, assets/, scripts/
 examples/                 two finished outputs, open index.html directly
 docs/                     GitHub Pages landing page
 .claude-plugin/           Claude Code plugin manifests (ignore for other tools)

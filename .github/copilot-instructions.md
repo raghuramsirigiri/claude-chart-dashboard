@@ -12,7 +12,9 @@ Before writing chart code, consult:
 
 - `skills/chart-dashboard/references/chart-api.md` — every factory and option
 - `skills/chart-dashboard/references/chart-selection.md` — data shape → chart type
-- `skills/chart-dashboard/references/layout.md` — grid spans and page structure
+- `skills/chart-dashboard/references/layout.md` — deriving the grid from the findings; spans and page structure
+- `skills/chart-dashboard/references/annotation.md` — callouts, plot bands, forecast notation
+- `skills/chart-dashboard/references/theming.md` — brand recolour and the generator scripts
 
 Non-negotiables:
 
@@ -21,3 +23,7 @@ Non-negotiables:
   `startAngle`/`endAngle`, `showPercentages`) belong under `plotOptions.pie`.
 - Never invent numbers that read as real measurements.
 - No CDN links, npm dependencies, or build steps — output must open offline.
+- Derive the grid from the analysis; a hero cell goes to a finding that leads.
+- A line chart needs an ordered x — `'Jan 2025'`, not bare `'Jan'`.
+- Any control must be fully wired: filtered data, every dependent panel redrawn,
+  action titles recomputed.

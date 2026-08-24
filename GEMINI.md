@@ -12,12 +12,16 @@ Instructions are shared across all AI tools and live in
 that workflow** whenever the user asks for a dashboard, analytics page, KPI
 view, chart deck, or illustrated data report.
 
-Three rules that break the output if missed:
+Five rules that break the output if missed:
 
 1. `theme.js` must load before `charts.js`.
 2. Donut and pie options go under `plotOptions.pie`, never at the top level.
 3. Never invent numbers that read as real measurements — label illustrative
    figures as illustrative, on the page.
+4. A line chart needs an ordered x — `'Jan 2025'` parses, bare `'Jan'` does not,
+   and named categories belong on a column chart.
+5. Build the grid from the shape of the analysis rather than reusing a layout;
+   the dashboard template ships without a starter arrangement on purpose.
 
 ## graphify
 
