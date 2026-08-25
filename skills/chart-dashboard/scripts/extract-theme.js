@@ -295,7 +295,7 @@ console.log('  ' + pad('observed ink') + textPrimary.hex + ' / ' + textMuted.hex
   '   (not used — the recipe inks text in pure greyscale so it stays crisp on the tinted paper)');
 
 console.log('\nGenerated palette');
-for (const k of ['n0', 'n1', 'n2a', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9', 'nInverse',
+for (const k of ['n0', 'n0a', 'n1', 'n2a', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9', 'nInverse',
                  's1', 's2', 's3', 's4', 's5', 's6', 's7', 'accent', 'annotation', 'counter']) {
   const src = p.sources[k] === 'site' ? '   (from the design)' : '';
   console.log('  ' + pad(k) + c[k] + src);

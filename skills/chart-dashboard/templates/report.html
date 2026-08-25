@@ -9,9 +9,9 @@
   /* --paper, --ink, --muted, --soft, --hair and --font are overwritten at load
      from Charts.theme (sync block near the bottom), so recolouring the charts
      recolours the page. --bg is the ground behind the paper. */
-  :root { --bg:#efece6; --paper:#f4f3f0; --ink:#111111; --muted:#555555;
+  :root { --bg:#efece6; --paper:#f4f4f0; --ink:#111111; --muted:#555555;
           --soft:#666666; --hair:#dcdbd7; --rule:#cfcdc6; --radius:4px;
-          --surface-soft:rgba(17,17,17,0.04);
+          --surface-soft:#eae8e4;   /* overwritten from Charts.theme.tileSurface below */
           --font:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
   * { box-sizing:border-box; }
   html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
@@ -30,7 +30,7 @@
   .byline b { color:var(--ink); }
 
   /* Soft surface: a low-contrast fill sets text apart without a rule cutting
-     into the column. --surface-soft is mixed from the ink at ~4% so it follows
+     into the column. --surface-soft is the theme's panel fill, so it follows
      the theme automatically, light or dark. */
   .abstract, .note { background:var(--surface-soft); border-radius:var(--radius);
     padding:18px 22px; margin:0 0 40px; font-size:15px; line-height:1.65; }
@@ -116,11 +116,13 @@
 <script src="charts-lib/theme.js"></script>
 <script src="charts-lib/charts.js"></script>
 <script>
-/* Brand recolour goes HERE, before any chart is drawn — one Object.assign, never
-   per-chart colours. Generate it with scripts/extract-theme.js; see
-   references/theming.md. Delete this block when using the default theme.
+/* Brand recolour goes HERE, before any chart is drawn — one applyPalette call
+   with the neutral and series palette, never per-chart colours and never
+   role-by-role (that is how tiles and tooltips get left on the old palette).
+   Generate the block with scripts/extract-theme.js; see references/theming.md.
+   Delete this block when using the default theme.
 
-Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
+Charts.applyPalette({ n0: '…', n0a: '…', n1: '…', n8: '…', s1: '…', s2: '…' });
 */
 
 /* Page chrome follows the chart theme, so there is one source of colour truth. */
@@ -132,12 +134,10 @@ Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
   s.setProperty('--soft',  t.subtitleColor);
   s.setProperty('--hair',  t.grid);
   s.setProperty('--font',  t.font);
-  // Soft surfaces are a wash of the ink over the canvas. On a dark canvas that
-  // has to invert — a 4% black wash on navy is invisible — so the direction is
-  // chosen from the canvas luminance rather than hard-coded.
-  const c = (t.bg.match(/\w\w/g) || ['ff','ff','ff']).map(h => parseInt(h, 16));
-  const dark = (0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]) / 255 < 0.4;
-  s.setProperty('--surface-soft', dark ? 'rgba(255,255,255,0.055)' : 'rgba(17,17,17,0.04)');
+  // Soft surfaces take the theme's own panel token — the same fill a geofacet
+  // tile uses — so the page and the charts step off the canvas by the same
+  // amount, and a dark palette inverts without any luminance guesswork here.
+  s.setProperty('--surface-soft', t.tileSurface);
 })();
 </script>
 <script>

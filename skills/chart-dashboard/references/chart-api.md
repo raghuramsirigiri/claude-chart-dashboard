@@ -412,32 +412,45 @@ delay events" — fits on one line from `w6` up and wraps to two in a `w4`. Aim
 under ~70 characters and it works in any cell; past ~90 in a narrow cell you
 risk the ellipsis. Nothing needs configuring; there are no wrap options to pass.
 
-All visual tokens (colors, fonts, sizes, weights) are stored in a single
-`Charts.theme` object. Override any property **before** calling a chart
-factory to re-skin every chart type at once:
+All visual tokens (colors, fonts, sizes, weights, spacing) are stored in a single
+`Charts.theme` object, which is **derived** from two source objects:
+`Charts.palette` (the `n*`/`s*` color scale) and `Charts.metrics` (the type
+scale, strokes, spacing). Every role in `Charts.theme` is a function of those
+two, so edit the source and re-derive rather than patching roles one by one:
 
 ```html
+<script src="theme.js"></script>
 <script src="charts.js"></script>
 <script>
-  // Dark theme override
-  Charts.theme.bg         = '#1a1a2e';
-  Charts.theme.grid       = '#2a2a4a';
-  Charts.theme.axis       = '#e0e0e0';
-  Charts.theme.titleColor = '#ffffff';
-  Charts.theme.subtitleColor = '#aaaaaa';
-  Charts.theme.labelColor = '#cccccc';
-  Charts.theme.colors     = ['#e94560','#0f3460','#533483','#16213e','#ff6b6b','#48dbfb'];
+  // Re-derives every colour role — including the ones a hand-written list
+  // forgets: tileSurface, tileTrack, tooltipBorder, dimmed, hoverInk.
+  Charts.applyPalette({
+    n0: '#1a1a2e',  n0a: '#22223c',  n1: '#2a2a4a',
+    n7: '#cccccc',  n8: '#ffffff',   n9: '#e0e0e0',  nInverse: '#1a1a2e',
+    s1: '#e94560',  s2: '#0f3460',   s3: '#533483'
+  });
 
   Charts.line('chart', { ... }); // uses the dark theme
 </script>
 ```
+
+`Charts.applyMetrics({ titleSize: 20 })` is the same contract for the non-colour
+half. The two are separate so a colour edit no longer discards a metric edit —
+but for dashboards built with this skill, **leave the metrics alone**: the type
+scale and spacing are what make eight chart types read as one family.
+
+Assigning a single role directly (`Charts.theme.bg = '#1a1a2e'`) still works and
+is fine for a one-off tweak; it is just not replayed when `applyPalette` next
+runs.
 
 The full list of theme tokens lives in
 [theme.js](theme.js) and includes:
 
 | Token | Default | Purpose |
 |:------|:--------|:--------|
-| `bg` | `#f4f3f0` | Chart background |
+| `bg` | `#f4f4f0` | Chart background (`n0`) |
+| `tileSurface` | `#eae8e4` | Fill of a repeated panel drawn **on** the canvas — geofacet tiles. One soft step off `bg` (`n0a`), so a tile reads as a box, not a hole |
+| `tileTrack` | `#f4f4f0` | Empty part of a bar/ring inside such a tile |
 | `grid` | `#dcdbd7` | Gridline color |
 | `axis` | `#000000` | Primary spine / tick color |
 | `titleColor` | `#111111` | Title text |
@@ -463,13 +476,21 @@ The full list of theme tokens lives in
 | `gradientStart` | `#000000` | Donut/bubble gradient start |
 | `gradientEnd` | `#2323FF` | Donut/bubble gradient end |
 | `font` | `'Inter',…` | Font stack |
-| `titleSize` | `17` | Title font size (px) |
-| `subtitleSize` | `12` | Subtitle font size |
+| `titleSize` / `titleWeight` | `17` / `700` | Title font size (px) and weight |
+| `subtitleSize` / `subtitleWeight` | `12` / `400` | Subtitle font size and weight |
 | `labelSize` | `11.5` | Label font size |
 | `tickSize` | `11` | Tick font size |
 | `lineWidth` | `3` | Default line series width |
 | `axisWidth` | `1.8` | Spine stroke width |
 | `gridWidth` | `0.8` | Gridline stroke width |
+| `titleLineHeight` / `subtitleLineHeight` | `1.24` / `1.34` | Leading, as **ratios** of the matching size — so a bigger title does not collide with itself |
+| `headingPadTop` / `headingSubGap` / `headingGap` / `headingGutter` | `17` / `8` / `18` / `20` | The title-and-subtitle band above every plot. One set of values across all engines, which is why headings line up across a grid |
+| `calloutSize` / `calloutPad` / `calloutMaxWidth` / `calloutLeaderWidth` / `calloutAnchorRadius` | `10` / `8` / `220` / `1.2` / `4.5` | The annotation box and its leader |
+| `legendSize` / `legendWeight` / `legendRowHeight` / `legendGap` | `12` / `600` / `20` / `18` | Legend type and rhythm |
+| `tooltipSize` / `tooltipBorder` | `12` / `#dcdbd7` | Tooltip type and hairline |
+| `noticeSize` | `13` | Headline an engine draws in place of a chart it cannot render |
+| `dimmed` | `#c2c0ba` | Legend key for a series toggled off |
+| `hoverInk` | `#000000` | Ink of the low-opacity hover / crosshair wash |
 
 ## Interactions (all charts)
 

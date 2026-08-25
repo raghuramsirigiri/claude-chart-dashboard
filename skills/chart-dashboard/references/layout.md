@@ -95,11 +95,12 @@ behind it is the one to either cut or go find evidence for.
 
 ## Both
 
-- Colors come from `Charts.theme`. Both templates carry a sync block that copies
-  the theme's canvas, ink, muted and hairline values into the page's CSS
-  variables at load, so charts sit flush with their card and one override
-  reskins everything. Don't hand-edit the color literals in `:root` — change the
-  theme. Method in `references/theming.md`.
+- Colors come from `Charts.theme`, which is derived from `Charts.palette`. Both
+  templates carry a sync block that copies the theme's canvas, ink, muted,
+  hairline and panel-surface values into the page's CSS variables at load, so
+  charts sit flush with their card and one `Charts.applyPalette` call reskins
+  everything. Don't hand-edit the color literals in `:root` — change the
+  palette. Method in `references/theming.md`.
 - `--bg` (the ground behind cards/paper) and `--radius` are the only page-level
   color/shape choices. Keep `--bg` a small step from `Charts.theme.bg`.
 - **Legend position is fixed**: charts-lib draws it at the top under the

@@ -37,7 +37,7 @@ node <skill-dir>/scripts/extract-theme.js <file-or-dir> [more files…]
 ```
 
 It prints what it found in the design, the palette the recipe built from it, a
-ready-to-paste `Charts.theme` override block, and a contrast report. Read its
+ready-to-paste `Charts.applyPalette` block, and a contrast report. Read its
 output before pasting — it proposes, you decide.
 
 Its first job is to find the **canvas**, the **series hue**, and any color the
@@ -147,43 +147,62 @@ anything it flags:
 
 ## 5. Apply it in exactly one place
 
-Override `Charts.theme` once, after `theme.js` loads and **before the first chart
+Apply the palette once, after `theme.js` loads and **before the first chart
 factory call**. Never set colors per chart — that is how a page ends up with six
 slightly different blues.
+
+Hand the **palette** to `Charts.applyPalette`; do not assign theme roles one by
+one. `theme.js` owns the palette → role mapping, and it covers roles a
+hand-written list always forgets — `tileSurface`/`tileTrack` (geofacet panels),
+`tooltipBorder`, `dimmed`, `hoverInk`, `mutedScale`. Assign those by hand and a
+dark dashboard ships with pale cream tiles and a cream tooltip border.
 
 ```html
 <script src="charts-lib/theme.js"></script>
 <script src="charts-lib/charts.js"></script>
 <script>
   // Northwind brand — derived from styles.css custom properties
-  Object.assign(Charts.theme, {
-    bg:            '#131C2E',   // --surface
-    grid:          '#24324D',   // --line
-    axis:          '#63708A',   // --text-dim, softened from pure ink
-    titleColor:    '#E8EDF7',   // --text
-    categoryColor: '#E8EDF7',
-    valueColor:    '#E8EDF7',
-    subtitleColor: '#93A0B8',   // --text-muted
-    labelColor:    '#93A0B8',
-    tickColor:     '#93A0B8',
-    secondaryColor:'#93A0B8',
-    inverseText:   '#0B1220',   // dark text on light fills - flipped for a dark UI
-    colors:        ['#34E5B4','#00B389','#1E9C7F','#93A0B8','#63708A','#4A5878','#2E3A54'],
-    defaultColor:  '#34E5B4',
-    gradientStart: '#34E5B4',
-    gradientEnd:   '#1B2740',
-    positive:      '#34E5B4',
-    negative:      '#FF5D5D',   // --bad
-    callout:       '#FFB020',   // --warn
-    highlight:     '#34E5B4',
-    trend:         '#34E5B4'
+  Charts.applyPalette({
+    n0:  '#131C2E',   // --surface, the canvas
+    n0a: '#1A2438',   // tile / panel surface, one soft step off the canvas
+    n1:  '#24324D',   // --line, hairlines and gridlines
+    n2a: '#39465F',
+    n2:  '#4E5B74',
+    n3:  '#63708A',   // muted fill — must still clear 3:1 on the canvas
+    n4:  '#93A0B8',   // subtitle / secondary text
+    n5:  '#A8B4C9',
+    n6:  '#C0CADB',
+    n7:  '#D4DCEA',   // body / tick text
+    n8:  '#E8EDF7',   // --text: titles, categories, values
+    n9:  '#E8EDF7',   // spines and ticks
+    nInverse: '#0B1220',   // text on light fills — DARK on a dark theme
+    s1:  '#34E5B4',   // series ramp
+    s2:  '#00B389',
+    s3:  '#1E9C7F',
+    s4:  '#93A0B8',
+    s5:  '#63708A',
+    s6:  '#4A5878',
+    s7:  '#2E3A54',
+    accent:     '#34E5B4',
+    annotation: '#FFB020',   // --warn: callout leaders and threshold rules
+    counter:    '#FF5D5D'    // --bad: the against-the-grain direction
   });
 </script>
 ```
 
-Note `inverseText`: on a dark theme it must become *dark*, since it is the text
+Note `nInverse`: on a dark theme it must become *dark*, since it is the text
 drawn on top of light fills. Leaving it white is the classic dark-mode bug that
 makes data labels vanish inside bars.
+
+Two roles are not palette-derived and still get assigned directly when the brand
+demands it — `gradientStart` / `gradientEnd`, the donut and bubble gradient
+endpoints, which default to `s1` → `s2`:
+
+```js
+Object.assign(Charts.theme, { gradientStart: '#34E5B4', gradientEnd: '#1B2740' });
+```
+
+Run that *after* `applyPalette`, since `applyPalette` re-derives them.
 
 ## 6. Keep the page and the charts in one palette
 
@@ -218,8 +237,15 @@ template's `:root`:
 Font stack is a judgment call: keep charts-lib's stack unless the brand's face is
 actually available as a local/system font — a `font-family` naming a webfont you
 cannot load silently falls back and looks worse than the default. Never change
-the type *scale* (`titleSize`, `tickSize`, …), the weights, stroke widths, legend
-position, or chart geometry. Those are load-bearing.
+the type *scale* (`titleSize`, `tickSize`, …), the weights, leading, heading
+band, stroke widths, legend position, or chart geometry. Those are load-bearing.
+
+`theme.js` does expose the whole non-colour half as `Charts.metrics`, editable
+through `Charts.applyMetrics({ titleSize: 20 })` — the same contract as
+`applyPalette`, kept separate so a swatch change no longer discards a type
+change. It exists for the theme-editor page and for a brand that genuinely
+needs it. For a dashboard built with this skill, don't touch it: those
+proportions are what make eight chart types read as one family.
 
 
 ## The recipe (both scripts run it)
@@ -231,7 +257,8 @@ color they like — don't hand-pick six more shades around it. Run the generator
 node <skill-dir>/scripts/generate-theme.js '#2323FF'
 ```
 
-It prints the full `n*`/`s*` palette, a ready-to-paste `Charts.theme` block, and
+It prints the full `n*`/`s*` palette, a ready-to-paste `Charts.applyPalette`
+block, and
 the same contrast report the extractor gives you. `--json` emits just the hexes
 if you want to build the block yourself.
 

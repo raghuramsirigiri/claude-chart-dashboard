@@ -40,6 +40,9 @@
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
   let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
   let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_POINT_LBL, F_NOTICE, F_VALUE;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -52,8 +55,8 @@
     SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
     SEC_COL = t.secondaryColor || '#666666';
-    HIGHLIGHT = t.highlight || '#1f77b4';
-    CALLOUT_C = t.callout || '#e3120b';
+    HIGHLIGHT = t.highlight || '#243E63';
+    CALLOUT_C = t.callout || '#B31B38';
     INV_TEXT = t.inverseText || '#FFFFFF';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
     // Shared text roles â€” see the hierarchy comment in theme.js.
@@ -66,6 +69,24 @@
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
+    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
     F_TICK = t.tickSize != null ? t.tickSize : 11;
     F_INLINE = t.inlineSize != null ? t.inlineSize : 11;
@@ -129,7 +150,10 @@
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function niceTicks(min, max, count) {
@@ -185,6 +209,56 @@
     return isNaN(t) ? null : t;
   }
 
+  // Ordered, evenly-spaced label vocabularies that carry their own sequence:
+  // month and weekday names, quarters, and plain numbers ("2021", "Week 3").
+  // A run of these is a continuous x-axis even though nothing in it parses as
+  // a date, so a line across them is meaningful and must not be refused.
+  const MONTH_SEQ = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const DAY_SEQ = ['mon','tue','wed','thu','fri','sat','sun'];
+  function seqIndex(v) {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    if (typeof v !== 'string') return null;
+    const s = v.trim().toLowerCase();
+    if (!s) return null;
+    const m3 = s.slice(0, 3);
+    let i = MONTH_SEQ.indexOf(m3);
+    if (i >= 0 && /^[a-z]+\.?$/.test(s)) return i;
+    i = DAY_SEQ.indexOf(m3);
+    if (i >= 0 && /^[a-z]+\.?$/.test(s)) return i;
+    return null;
+  }
+
+  // Split a label into its fixed parts and the number between them: "Week 3"
+  // and "Cat 3" are each position 3 of their own series, and "2021" is 2021.
+  // Used to spot a counter axis without keeping a vocabulary of the words
+  // people number things with.
+  function numberedLabel(v) {
+    const s = (typeof v === 'number' ? String(v) : typeof v === 'string' ? v : '').trim();
+    const m = /^(\D*?)(-?\d+(?:\.\d+)?)(\D*)$/.exec(s);
+    return m ? { pre: m[1].toLowerCase(), post: m[3].toLowerCase(), n: +m[2] } : null;
+  }
+
+  // Is this whole category list an ordered sequence? Either a named sequence
+  // (see seqIndex) or one stem numbered upwards ("Q1..Q4", "Cat 1..Cat 100").
+  // Strictly increasing is required, so an unordered set of numbers or a run of
+  // unrelated names is still not a sequence.
+  function isSequentialCats(cats) {
+    if (!cats || cats.length < 2) return false;
+    const rising = vals => vals.every((v, k) => v !== null && (k === 0 || v > vals[k - 1]));
+    if (rising(cats.map(seqIndex))) return true;
+    const nums = cats.map(numberedLabel);
+    if (nums.some(x => x === null)) return false;
+    if (nums.some(x => x.pre !== nums[0].pre || x.post !== nums[0].post)) return false;
+    return rising(nums.map(x => x.n));
+  }
+
+  // A category axis a line may be drawn across: real dates, or an ordered
+  // sequence like Jan..Dec / Q1..Q4 / 1..N.
+  function isContinuousCats(cats) {
+    if (!cats || !cats.length) return false;
+    return cats.every(c => parseAxisDate(c) !== null) || isSequentialCats(cats);
+  }
+
   // Coarsest-last ladder of calendar periods.
   const AXIS_PERIODS = [
     { key: ms => Math.floor(ms / 3600000),
@@ -205,10 +279,23 @@
   // their labels sit side by side and collide, whereas a y-axis (horizontal bar)
   // gives every category its own row and can carry the full-length label, so
   // y-axis labels are never thinned.
-  function labelsFit(items, avail, fontSize) {
+  // Labels are centred on their tick, so the test is pair-wise: every gap
+  // between neighbouring ticks must hold half of each label plus a little air.
+  // Sizing every slot by the single widest label instead rejects axes that do
+  // fit â€” one long lead-in label like "Jan 1 2025" made ten short "Jan 6"s
+  // look nine times wider than they are, so a run of days skipped straight
+  // past weekly labels to months.
+  function labelsFit(items, avail, fontSize, pos) {
     if (items.length <= 1) return true;
-    const per = items.reduce((a, it) => Math.max(a, it.label.length), 0) * fontSize * 0.62 + 12;
-    return items.length * per <= avail;
+    const GAP = 8;                         // minimum air between two labels
+    const w = it => String(it.label).length * fontSize * 0.62;
+    // Where each label sits, in px along the axis. Callers that know the tick
+    // geometry pass it; otherwise assume the labels are spread evenly.
+    const at = pos || items.map((_, k) => (k + 0.5) / items.length * avail);
+    for (let k = 1; k < items.length; k++) {
+      if (at[k] - at[k - 1] < (w(items[k - 1]) + w(items[k])) / 2 + GAP) return false;
+    }
+    return true;
   }
 
   // Plan the x-axis category labels for `avail` px of axis.
@@ -238,21 +325,48 @@
     const slot = avail / n;
     if (widest + 10 <= slot) return upright(one(all), base, 1);
 
+    const atPx = picked => picked.map(p => n > 1 ? p.i / (n - 1) * avail : avail / 2);
+
     // Temporal: step up the calendar ladder instead of crowding.
     const times = cats.map(parseAxisDate);
     if (times.every(t => t !== null)) {
-      for (let p = 0; p < AXIS_PERIODS.length; p++) {
-        const period = AXIS_PERIODS[p];
+      // Label the points that open a calendar period. The very first datapoint
+      // is a special case: when the data starts mid-period it is not a period
+      // start, and labelling it anyway puts e.g. "Jan 1 2025" a few pixels from
+      // "Jan 6" â€” one crowded pair that would push the whole axis up to a
+      // coarser period than it needs. So try the run without that partial head
+      // label first, and only fall back to including it if that does not fit.
+      const pickPeriod = (period, withHead) => {
         const picked = [];
         let prev = null;
         for (let i = 0; i < n; i++) {
           const k = period.key(times[i]);
-          if (prev === null || k !== prev) {
-            picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
-            prev = k;
+          const opens = (prev === null)
+            ? (withHead || k !== period.key(times[i] - 1))
+            : k !== prev;
+          if (opens) picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
+          prev = k;
+        }
+        return picked;
+      };
+      for (let p = 0; p < AXIS_PERIODS.length; p++) {
+        for (const withHead of [false, true]) {
+          const picked = pickPeriod(AXIS_PERIODS[p], withHead);
+          if (picked.length < n && picked.length > 1
+              && labelsFit(picked, avail, base, atPx(picked))) {
+            return upright(one(picked), base, 1);
           }
         }
-        if (picked.length < n && picked.length > 1 && labelsFit(picked, avail, base)) {
+      }
+    }
+
+    // A numbered sequence can be thinned by an even stride: a reader fills in
+    // the gap between "Cat 10" and "Cat 20" without help, which is exactly what
+    // a list of unrelated names does not allow.
+    if (isSequentialCats(cats)) {
+      for (let stride = 2; stride <= Math.ceil(n / 2); stride++) {
+        const picked = all.filter(it => it.i % stride === 0);
+        if (picked.length > 1 && labelsFit(picked, avail, base, atPx(picked))) {
           return upright(one(picked), base, 1);
         }
       }
@@ -448,7 +562,9 @@
     }
     function fits(r) {
       if (r.centers.length < 2) return r.centers.length === 1;
-      return avail ? labelsFit(r.centers, avail, fs, false) : r.centers.length <= 12;
+      if (!avail) return r.centers.length <= 12;
+      return labelsFit(r.centers, avail, fs,
+        r.centers.map(c => (c.ms - minMs) / span * avail));
     }
 
     let start = 0;
@@ -566,8 +682,8 @@
     container.appendChild(svg);
     let y = 34;
     if (opts.title) {
-      wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true).forEach(l => {
-        txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL,
+      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+        txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
           'font-family': FONT }, svg);
         y += TITLE_LH;
       });
@@ -575,12 +691,12 @@
     }
     const cy = Math.max(y + 20, H / 2 - 10);
     wrapHeading(headline, 13, W - 40, 2, true).forEach((l, i) => {
-      txt(l, { x: 20, y: cy + i * 18, 'font-size': 13, 'font-weight': 700,
+      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
         fill: TITLE_COL, 'font-family': FONT }, svg);
     });
     wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
       txt(l, { x: 20, y: cy + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
-        'font-weight': 400, fill: SUB_COL, 'font-family': FONT }, svg);
+        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
     });
     return {
       redraw() {}, addPoint() {}, shift() {}, getSeries() { return []; },
@@ -618,7 +734,14 @@
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -626,9 +749,11 @@
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -652,13 +777,13 @@
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -667,6 +792,7 @@
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -674,7 +800,7 @@
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -684,7 +810,7 @@
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -693,7 +819,7 @@
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -753,6 +879,26 @@
           const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
           consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
         }
+      } else if (mode === 'near') {
+        // Stack the box straight above (or below) the anchor and reach it with
+        // a vertical elbow. On a line chart every direction looks "free" until
+        // the leader is drawn, and a diagonal leader across a trend reads as
+        // another data mark; a vertical stem never does. Lateral nudges are a
+        // last resort, so a note stays over the point it names.
+        const NEAR_MIN = 26, NEAR_MAX = 190;
+        for (let d = NEAR_MIN; d <= NEAR_MAX && bestCost > 0; d += 12) {
+          consider(it.x - box.w / 2, it.y - d - box.h, d * 0.6, 'above');
+          consider(it.x - box.w / 2, it.y + d, d * 0.6 + 30, 'below');
+        }
+        for (let k = 1; k <= 4 && bestCost > 0; k++) {
+          const dx = k * 26;
+          for (let d = NEAR_MIN; d <= 150 && bestCost > 0; d += 16) {
+            consider(it.x - box.w / 2 + dx, it.y - d - box.h, d * 0.6 + dx * 1.4, 'above');
+            consider(it.x - box.w / 2 - dx, it.y - d - box.h, d * 0.6 + dx * 1.4, 'above');
+            consider(it.x - box.w / 2 + dx, it.y + d, d * 0.6 + dx * 1.4 + 30, 'below');
+            consider(it.x - box.w / 2 - dx, it.y + d, d * 0.6 + dx * 1.4 + 30, 'below');
+          }
+        }
       } else if (mode === 'radial' && cfg.center) {
         // Push out from the middle of the ring or cluster, so the leader reads
         // as a spoke. Straight out is preferred, but the fan of angles around
@@ -790,12 +936,12 @@
           y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
           w: box.w, h: box.h
         };
-        leader = 'auto';
+        leader = (mode === 'near') ? 'above' : 'auto';
       }
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -833,12 +979,13 @@
     const hasSub = !!opts.subtitle;
     // Left-aligned title zone; extra top space if title/subtitle present
     const titleLines = hasTitle
-      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
-      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     // Compute right pad based on longest y-tick label + inline series label estimate
     const yAxis = opts.yAxis || {};
@@ -850,7 +997,7 @@
     // a line across an axis whose labels cannot be shown.
     if (xType === 'category') {
       const _cats = xAxis.categories || [];
-      if (!_cats.length || !_cats.every(c => parseAxisDate(c) !== null)) {
+      if (!isContinuousCats(_cats)) {
         return errorChart(container, W, H, opts,
           'Line charts need a continuous or temporal x-axis.',
           'Named categories cannot be plotted as a line. Use a bar chart, or give each category its own series over a date or numeric x-axis.');
@@ -875,7 +1022,6 @@
     const rightPadForNames = showInline ? Math.min(140, 8 + maxNameLen * 6.5) : 0;
 
     // â”€â”€ Legend layout (top rows, wraps as needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
     function _layoutLegend(items, availW) {
       const widths = items.map(it => LEG_ICON + LEG_ICON_GAP + Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
       const rows = [];
@@ -888,7 +1034,7 @@
       if (cur.length) rows.push(cur);
       return { rows, height: rows.length * LEG_ROW };
     }
-    const availLegW = W - 40;
+    const availLegW = W - HEAD_X * 2;
     const _legendLayout = legendEnabled
       ? _layoutLegend(seriesRaw.map((s, i) => ({ name: s.name || 'Series ' + (i + 1) })), availLegW)
       : { rows: [], height: 0 };
@@ -912,7 +1058,7 @@
       const cats = (xAxis.categories || []).slice(0, n);
       const empty = { ticks: [], font: F_TICK, rotate: 0, stagger: false,
         lines: 1, count: n, height: 20 };
-      if (!cats.length || !cats.every(c => parseAxisDate(c) !== null)) return empty;
+      if (!isContinuousCats(cats)) return empty;
       return layoutCategoryAxis(cats, IW, F_TICK,
         band || Math.max(40, Math.min(110, H * 0.3)));
     }
@@ -927,11 +1073,11 @@
     container.appendChild(svg);
 
     // --- title / subtitle (top-left) ---
-    const titleX = 20;
-    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    const titleX = HEAD_X;
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // --- series def ---
     const seriesDefs = seriesRaw.map((s, i) => {
@@ -1085,7 +1231,7 @@
           fill: b.color || HIGHLIGHT, 'fill-opacity': b.alpha != null ? b.alpha : 0.12 }, gBands);
         if (b.label) {
           txt(b.label.text, { x: (x1+x2)/2, y: M.t - 6, 'text-anchor': 'middle',
-            'font-size': 10, 'font-weight': 700, fill: b.color || HIGHLIGHT,
+            'font-size': F_POINT_LBL, 'font-weight': VAL_FW, fill: b.color || HIGHLIGHT,
             'font-family': FONT }, gBands);
         }
         if (b.paragraph) {
@@ -1113,7 +1259,7 @@
           stroke: pl.color || AXIS, 'stroke-width': pl.width || 1.5,
           'stroke-dasharray': dashArray(pl.dashStyle || 'Dash') }, gAnnot);
         if (pl.label) txt(pl.label.text, { x, y: M.t - 6, 'text-anchor': 'middle',
-          'font-size': 10, 'font-weight': 700, fill: pl.color || AXIS,
+          'font-size': F_POINT_LBL, 'font-weight': VAL_FW, fill: pl.color || AXIS,
           'font-family': FONT }, gAnnot);
         if (pl.paragraph) {
           const py = M.t + IH * (1 - (pl.paragraphY != null ? pl.paragraphY : 0.85));
@@ -1126,8 +1272,8 @@
         el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y,
           stroke: pl.color || AXIS, 'stroke-width': pl.width || 1.5,
           'stroke-dasharray': dashArray(pl.dashStyle || 'Dash') }, gAnnot);
-        if (pl.label) txt(pl.label.text, { x: M.l + 4, y: y - 5, 'font-size': 10,
-          'font-weight': 700, fill: pl.color || AXIS, 'font-family': FONT }, gAnnot);
+        if (pl.label) txt(pl.label.text, { x: M.l + 4, y: y - 5, 'font-size': F_POINT_LBL,
+          'font-weight': VAL_FW, fill: pl.color || AXIS, 'font-family': FONT }, gAnnot);
       });
 
       // Series
@@ -1182,8 +1328,8 @@
             if (clash) return;
             labelBoxes.push(box);
             const t = txt(label, { x: lx, y: ly,
-              'text-anchor': 'middle', 'font-size': 11, 'font-weight': 700,
-              fill: TITLE_COL, 'font-family': FONT }, gLabels);
+              'text-anchor': 'middle', 'font-size': F_VALUE, 'font-weight': VAL_FW,
+              fill: VAL_COL, 'font-family': FONT }, gLabels);
             t.setAttribute('stroke', BG);
             t.setAttribute('stroke-width', '3');
             t.setAttribute('paint-order', 'stroke');
@@ -1283,7 +1429,7 @@
         if (inlineMode === 'value') label = formatValue(it.p.y, it.s);
         else if (inlineMode === 'both') label = `${it.s.name}: ${formatValue(it.p.y, it.s)}`;
         txt(label, { x, y: it.y + 4, 'text-anchor': 'start',
-          'font-size': F_INLINE, 'font-weight': 600, fill: it.s.color, 'font-family': FONT }, gLabels);
+          'font-size': F_INLINE, 'font-weight': CAT_FW, fill: it.s.color, 'font-family': FONT }, gLabels);
       });
     }
 
@@ -1303,24 +1449,36 @@
       }).filter(Boolean);
 
       // Sample every visible series into small rects: cheap, and enough to keep
-      // a box off the line without hit-testing the path itself.
+      // a box off the line without hit-testing the path itself. Sampling the
+      // *segments*, not just the vertices, is what matters here — a monthly
+      // series is a handful of points joined by long diagonals, and rects at
+      // the vertices alone leave the whole span between them looking free.
       const obstacles = labelBoxes.map(b =>
         ({ x: b.x1, y: b.y1, w: b.x2 - b.x1, h: b.y2 - b.y1 }));
+      const SEG_STEP = 12;        // px between samples along a segment
+      const mark = (px, py) => obstacles.push({ x: px - 5, y: py - 5, w: 10, h: 10 });
       seriesDefs.forEach(s => {
         if (!s.visible) return;
+        let prev = null;
         s.points.forEach(p => {
-          if (!p || p.x < viewMin || p.x > viewMax) return;
+          if (!p || p.x < viewMin || p.x > viewMax) { prev = null; return; }
           const px = xScale(p.x), py = yScale(p.y);
-          obstacles.push({ x: px - 4, y: py - 4, w: 8, h: 8 });
+          if (prev) {
+            const dx = px - prev.x, dy = py - prev.y;
+            const steps = Math.min(60, Math.ceil(Math.hypot(dx, dy) / SEG_STEP));
+            for (let i = 1; i < steps; i++) mark(prev.x + dx * i / steps, prev.y + dy * i / steps);
+          }
+          mark(px, py);
+          prev = { x: px, y: py };
         });
       });
       drawCallouts(gAnnot, items, { x: M.l, y: M.t, w: IW, h: IH },
-        { mode: 'auto', obstacles: obstacles });
+        { mode: 'near', obstacles: obstacles });
     }
 
     // ---- interaction ----
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     const crosshair = el('line', { x1: 0, x2: 0, y1: M.t, y2: M.t + IH, stroke: AXIS,
@@ -1349,7 +1507,7 @@
       hoverGroup.innerHTML = '';
       rows.forEach(r => drawMarker(hoverGroup, r.s, r.p, xScale(r.p.x), yScale(r.p.y), true));
       const header = formatHeader(nearestX);
-      let html = `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
+      let html = `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
       rows.forEach(r => {
         html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${r.s.color};border-radius:2px"></span><span style="color:${LABEL_COL}">${esc(r.s.name)}: </span><b style="color:${TITLE_COL}">${esc(formatValue(r.p.y, r.s) + valueSuffix)}</b></div>`;
       });
@@ -1447,10 +1605,10 @@
       gLegend.innerHTML = '';
       if (!legendEnabled) return;
       const startY = titleBlockH + 2;
-      const availW = W - 40;
+      const availW = W - HEAD_X * 2;
       _legendLayout.rows.forEach((row, ri) => {
         const rowW = row.reduce((s, c) => s + c.w, 0) - LEG_GAP;
-        const rowStartX = 20;
+        const rowStartX = HEAD_X;
         row.forEach(cell => {
           const s = seriesDefs.find(x => x.name === cell.item.name);
           if (!s) return;
@@ -1461,7 +1619,7 @@
           el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
             fill: s.visible ? s.color : DIM_COL }, gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
-            'font-size': F_LEG, 'font-weight': 600,
+            'font-size': F_LEG, 'font-weight': LEG_FW,
             fill: s.visible ? (s.legendColor || TITLE_COL) : DIM_COL,
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
@@ -1516,6 +1674,9 @@
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, SPINE_W, GRID_W;
   let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_POINT_LBL, F_NOTICE;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -1529,7 +1690,7 @@
     LABEL_COL = t.labelColor || '#333333';
     SEC_COL = t.secondaryColor || '#666666';
     INV_TEXT = t.inverseText || '#FFFFFF';
-    HIGHLIGHT = t.highlight || '#1f77b4';
+    HIGHLIGHT = t.highlight || '#243E63';
     POS_COL = t.aboveThreshold || t.positive || '#2323FF';
     NEG_COL = t.belowThreshold || t.negative || '#D1107A';
     DEFAULT_COL = t.defaultColor || '#000000';
@@ -1544,6 +1705,23 @@
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
+    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
     F_TICK = t.tickSize != null ? t.tickSize : 11;
     F_VALUE = t.valueSize != null ? t.valueSize : 11;
@@ -1604,7 +1782,10 @@
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 
@@ -1627,6 +1808,49 @@
     return isNaN(t) ? null : t;
   }
 
+  // Ordered, evenly-spaced label vocabularies that carry their own sequence:
+  // month and weekday names, quarters, and plain numbers ("2021", "Week 3").
+  // A run of these is a continuous x-axis even though nothing in it parses as
+  // a date, so a line across them is meaningful and must not be refused.
+  const MONTH_SEQ = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+  const DAY_SEQ = ['mon','tue','wed','thu','fri','sat','sun'];
+  function seqIndex(v) {
+    if (typeof v === 'number' && isFinite(v)) return v;
+    if (typeof v !== 'string') return null;
+    const s = v.trim().toLowerCase();
+    if (!s) return null;
+    const m3 = s.slice(0, 3);
+    let i = MONTH_SEQ.indexOf(m3);
+    if (i >= 0 && /^[a-z]+\.?$/.test(s)) return i;
+    i = DAY_SEQ.indexOf(m3);
+    if (i >= 0 && /^[a-z]+\.?$/.test(s)) return i;
+    return null;
+  }
+
+  // Split a label into its fixed parts and the number between them: "Week 3"
+  // and "Cat 3" are each position 3 of their own series, and "2021" is 2021.
+  // Used to spot a counter axis without keeping a vocabulary of the words
+  // people number things with.
+  function numberedLabel(v) {
+    const s = (typeof v === 'number' ? String(v) : typeof v === 'string' ? v : '').trim();
+    const m = /^(\D*?)(-?\d+(?:\.\d+)?)(\D*)$/.exec(s);
+    return m ? { pre: m[1].toLowerCase(), post: m[3].toLowerCase(), n: +m[2] } : null;
+  }
+
+  // Is this whole category list an ordered sequence? Either a named sequence
+  // (see seqIndex) or one stem numbered upwards ("Q1..Q4", "Cat 1..Cat 100").
+  // Strictly increasing is required, so an unordered set of numbers or a run of
+  // unrelated names is still not a sequence.
+  function isSequentialCats(cats) {
+    if (!cats || cats.length < 2) return false;
+    const rising = vals => vals.every((v, k) => v !== null && (k === 0 || v > vals[k - 1]));
+    if (rising(cats.map(seqIndex))) return true;
+    const nums = cats.map(numberedLabel);
+    if (nums.some(x => x === null)) return false;
+    if (nums.some(x => x.pre !== nums[0].pre || x.post !== nums[0].post)) return false;
+    return rising(nums.map(x => x.n));
+  }
+
   // Coarsest-last ladder of calendar periods.
   const AXIS_PERIODS = [
     { key: ms => Math.floor(ms / 3600000),
@@ -1647,10 +1871,23 @@
   // their labels sit side by side and collide, whereas a y-axis (horizontal bar)
   // gives every category its own row and can carry the full-length label, so
   // y-axis labels are never thinned.
-  function labelsFit(items, avail, fontSize) {
+  // Labels are centred on their tick, so the test is pair-wise: every gap
+  // between neighbouring ticks must hold half of each label plus a little air.
+  // Sizing every slot by the single widest label instead rejects axes that do
+  // fit â€” one long lead-in label like "Jan 1 2025" made ten short "Jan 6"s
+  // look nine times wider than they are, so a run of days skipped straight
+  // past weekly labels to months.
+  function labelsFit(items, avail, fontSize, pos) {
     if (items.length <= 1) return true;
-    const per = items.reduce((a, it) => Math.max(a, it.label.length), 0) * fontSize * 0.62 + 12;
-    return items.length * per <= avail;
+    const GAP = 8;                         // minimum air between two labels
+    const w = it => String(it.label).length * fontSize * 0.62;
+    // Where each label sits, in px along the axis. Callers that know the tick
+    // geometry pass it; otherwise assume the labels are spread evenly.
+    const at = pos || items.map((_, k) => (k + 0.5) / items.length * avail);
+    for (let k = 1; k < items.length; k++) {
+      if (at[k] - at[k - 1] < (w(items[k - 1]) + w(items[k])) / 2 + GAP) return false;
+    }
+    return true;
   }
 
   // Plan the x-axis category labels for `avail` px of axis.
@@ -1680,21 +1917,48 @@
     const slot = avail / n;
     if (widest + 10 <= slot) return upright(one(all), base, 1);
 
+    const atPx = picked => picked.map(p => n > 1 ? p.i / (n - 1) * avail : avail / 2);
+
     // Temporal: step up the calendar ladder instead of crowding.
     const times = cats.map(parseAxisDate);
     if (times.every(t => t !== null)) {
-      for (let p = 0; p < AXIS_PERIODS.length; p++) {
-        const period = AXIS_PERIODS[p];
+      // Label the points that open a calendar period. The very first datapoint
+      // is a special case: when the data starts mid-period it is not a period
+      // start, and labelling it anyway puts e.g. "Jan 1 2025" a few pixels from
+      // "Jan 6" â€” one crowded pair that would push the whole axis up to a
+      // coarser period than it needs. So try the run without that partial head
+      // label first, and only fall back to including it if that does not fit.
+      const pickPeriod = (period, withHead) => {
         const picked = [];
         let prev = null;
         for (let i = 0; i < n; i++) {
           const k = period.key(times[i]);
-          if (prev === null || k !== prev) {
-            picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
-            prev = k;
+          const opens = (prev === null)
+            ? (withHead || k !== period.key(times[i] - 1))
+            : k !== prev;
+          if (opens) picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
+          prev = k;
+        }
+        return picked;
+      };
+      for (let p = 0; p < AXIS_PERIODS.length; p++) {
+        for (const withHead of [false, true]) {
+          const picked = pickPeriod(AXIS_PERIODS[p], withHead);
+          if (picked.length < n && picked.length > 1
+              && labelsFit(picked, avail, base, atPx(picked))) {
+            return upright(one(picked), base, 1);
           }
         }
-        if (picked.length < n && picked.length > 1 && labelsFit(picked, avail, base)) {
+      }
+    }
+
+    // A numbered sequence can be thinned by an even stride: a reader fills in
+    // the gap between "Cat 10" and "Cat 20" without help, which is exactly what
+    // a list of unrelated names does not allow.
+    if (isSequentialCats(cats)) {
+      for (let stride = 2; stride <= Math.ceil(n / 2); stride++) {
+        const picked = all.filter(it => it.i % stride === 0);
+        if (picked.length > 1 && labelsFit(picked, avail, base, atPx(picked))) {
           return upright(one(picked), base, 1);
         }
       }
@@ -1845,21 +2109,13 @@
     return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
   }
   function lighten(hex, amt) { return darken(hex, -amt); }
-  // Rough luminance to pick contrast text. The two candidates are the theme's
-  // ink and its inverse, and which of them is the light one depends on the
-  // theme: on a dark palette INV_TEXT is black and TITLE_COL is near-white, the
-  // opposite way round from a light one. So compare both against the fill and
-  // take the wider gap rather than assuming the ink is dark — that assumption
-  // is what puts pale text on a pale bar the moment a page is reskinned.
-  function inkLum(hex) {
-    const c = String(hex).replace('#','');
-    const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
-    if (!isFinite(n)) return 255;
-    return 0.299*((n>>16)&255) + 0.587*((n>>8)&255) + 0.114*(n&255);
-  }
+  // Rough luminance to pick contrast text
   function contrastText(hex) {
-    const L = inkLum(hex);
-    return Math.abs(inkLum(INV_TEXT) - L) >= Math.abs(inkLum(TITLE_COL) - L) ? INV_TEXT : TITLE_COL;
+    const c = hex.replace('#','');
+    const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
+    const r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+    const L = 0.299*r + 0.587*g + 0.114*b;
+    return L < 140 ? INV_TEXT : TITLE_COL;
   }
 
   // Word-wrap into up to N lines of a target character width (rough px based)
@@ -1912,7 +2168,14 @@
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -1920,9 +2183,11 @@
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -1946,13 +2211,13 @@
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -1961,6 +2226,7 @@
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -1968,7 +2234,7 @@
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -1978,7 +2244,7 @@
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -1987,7 +2253,7 @@
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -2089,7 +2355,7 @@
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -2148,21 +2414,21 @@
 
     // Title zone (fig.text style: top-left)
     const titleLines = hasTitle
-      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
-      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     // Determine longest category label for horizontal bar left pad
     const maxCatLen = categories.reduce((a,c) => Math.max(a, String(c).length), 0);
 
     // titleX is the shared left edge for title, subtitle, and (for columns) y-labels
-    const titleX = 20;
+    const titleX = HEAD_X;
 
     // â”€â”€ Legend layout (top row(s), auto-enabled when multi-series) â”€â”€â”€â”€â”€â”€
-    const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
     const seriesCount = (opts.series || []).length;
     const legendEnabled = (opts.legend && opts.legend.enabled != null)
       ? !!opts.legend.enabled : (seriesCount > 1);
@@ -2178,7 +2444,7 @@
       if (cur.length) rows.push(cur);
       return { rows, height: rows.length * LEG_ROW };
     }
-    const availLegW = W - 40;
+    const availLegW = W - HEAD_X * 2;
     const legendLayout = legendEnabled
       ? layoutLegend((opts.series || []).map((s, i) => ({ name: s.name || 'Series ' + (i + 1) })), availLegW)
       : { rows: [], height: 0 };
@@ -2228,10 +2494,10 @@
     container.appendChild(svg);
 
     // Title & subtitle top-left (titleX declared above with M)
-    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // Normalize series (assign gradient colors by default)
     const nSeries = (opts.series || []).length;
@@ -2630,7 +2896,7 @@
           const la = inverted
             ? { x: p + 5, y: M.t + 12, 'text-anchor': 'start' }
             : { x: M.l + IW, y: p - 5, 'text-anchor': 'end' };
-          txt(pl.label.text, Object.assign(la, { 'font-size': 10, 'font-weight': 700,
+          txt(pl.label.text, Object.assign(la, { 'font-size': F_POINT_LBL, 'font-weight': VAL_FW,
             fill: pl.color || AXIS, 'font-family': FONT }), gAxes);
         }
       });
@@ -2722,7 +2988,7 @@
             // short to hold the number simply go unlabelled.
             if (h >= F_VALUE + 6) {
               txt(label, { x: x + w / 2, y: y + h / 2 + F_VALUE * 0.36, 'text-anchor': 'middle',
-                'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor),
+                'font-size': F_VALUE, 'font-weight': VAL_FW, fill: contrastText(barColor),
                 'font-family': FONT }, gLabels);
             }
           } else if (placeLabel(x + w / 2, y - 6, label, 'middle')) {
@@ -2742,7 +3008,7 @@
             if (w >= labelW + 12) {
               txt(label, { x: outward ? x + 6 : x + w - 6, y: ly,
                 'text-anchor': outward ? 'start' : 'end',
-                'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor),
+                'font-size': F_VALUE, 'font-weight': VAL_FW, fill: contrastText(barColor),
                 'font-family': FONT }, gLabels);
             } else {
               const lx = outward ? x - 6 : x + w + 6;
@@ -2756,7 +3022,7 @@
             // Several segments on this side: the only honest place for the
             // number is inside the segment it belongs to.
             txt(label, { x: x + w / 2, y: ly, 'text-anchor': 'middle',
-              'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor),
+              'font-size': F_VALUE, 'font-weight': VAL_FW, fill: contrastText(barColor),
               'font-family': FONT }, gLabels);
           }
         } else {
@@ -2767,7 +3033,7 @@
           // takes the outside placement regardless of length.
           if (w >= threshold && paint.fill !== BG) {
             txt(label, { x: x + w - 6, y: y + h/2 + 4, 'text-anchor': 'end',
-              'font-size': F_VALUE, 'font-weight': 700, fill: contrastText(barColor), 'font-family': FONT }, gLabels);
+              'font-size': F_VALUE, 'font-weight': VAL_FW, fill: contrastText(barColor), 'font-family': FONT }, gLabels);
           } else if (placeLabel(x + w + 6, y + h/2 + 4, label, 'start')) {
             txt(label, { x: x + w + 6, y: y + h/2 + 4, 'text-anchor': 'start',
               'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, gLabels);
@@ -2784,7 +3050,7 @@
 
     // Interaction â€” shared tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     const crosshair = el('rect', { x: 0, y: 0, width: 0, height: 0,
@@ -2811,7 +3077,7 @@
       }
       crosshair.style.display = 'block';
       const header = categories[idx] != null ? String(categories[idx]) : String(idx);
-      let html = `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
+      let html = `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
       seriesDefs.forEach(s => {
         if (!s.visible) return;
         const p = s.points[idx]; if (!p) return;
@@ -2843,10 +3109,10 @@
       gLegend.innerHTML = '';
       if (!legendEnabled) return;
       const startY = titleBlockH + 2;
-      const availW = W - 40;
+      const availW = W - HEAD_X * 2;
       legendLayout.rows.forEach((row, ri) => {
         const rowW = row.reduce((s, c) => s + c.w, 0) - LEG_GAP;
-        const rowStartX = 20;
+        const rowStartX = HEAD_X;
         row.forEach(cell => {
           const s = seriesDefs.find(x => x.name === cell.item.name);
           if (!s) return;
@@ -2859,7 +3125,7 @@
           el('rect', Object.assign({ x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2 },
             s.visible ? scenarioFill(s.scenario, s.color) : { fill: DIM_COL }), gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
-            'font-size': F_LEG, 'font-weight': 600,
+            'font-size': F_LEG, 'font-weight': LEG_FW,
             fill: s.visible ? (s.legendColor || TITLE_COL) : DIM_COL,
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
@@ -2912,6 +3178,8 @@ Charts.bar = function (container, opts) {
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE, F_CENTER;
   let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -2939,6 +3207,21 @@ Charts.bar = function (container, opts) {
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
     F_VALUE = t.valueSize != null ? t.valueSize : 11;
     F_CENTER = t.centerSize != null ? t.centerSize : 14;
@@ -2987,7 +3270,10 @@ Charts.bar = function (container, opts) {
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
     // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
@@ -3097,7 +3383,14 @@ Charts.bar = function (container, opts) {
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -3105,9 +3398,11 @@ Charts.bar = function (container, opts) {
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -3131,13 +3426,13 @@ Charts.bar = function (container, opts) {
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -3146,6 +3441,7 @@ Charts.bar = function (container, opts) {
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -3153,7 +3449,7 @@ Charts.bar = function (container, opts) {
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -3163,7 +3459,7 @@ Charts.bar = function (container, opts) {
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -3172,7 +3468,7 @@ Charts.bar = function (container, opts) {
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -3274,7 +3570,7 @@ Charts.bar = function (container, opts) {
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -3373,12 +3669,13 @@ Charts.bar = function (container, opts) {
     // Uniform outer margin (clean-charts uses ~40px)
     const marginPx = 22;
     const titleLines = hasTitle
-      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
-      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     svg.style.background = BG;
@@ -3386,14 +3683,13 @@ Charts.bar = function (container, opts) {
     container.appendChild(svg);
 
     // Title & subtitle top-left
-    const titleX = 20;
-    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    const titleX = HEAD_X;
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // ── Legend layout (top, below subtitle, wraps to multiple rows) ─────
-    const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
     function layoutLegend(items, availW) {
       const widths = items.map(it => LEG_ICON + LEG_ICON_GAP + Math.ceil(it.name.length * F_LEG * 0.55) + LEG_GAP);
       const rows = [];
@@ -3903,7 +4199,7 @@ Charts.bar = function (container, opts) {
           el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
           el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
             fill: d.visible ? d.color : DIM_COL }, gr);
-          txt(d.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12, 'font-size': F_LEG, 'font-weight': CAT_FW,
+          txt(d.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12, 'font-size': F_LEG, 'font-weight': LEG_FW,
             fill: d.visible ? CAT_COL : DIM_COL,
             'text-decoration': d.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
@@ -3917,14 +4213,14 @@ Charts.bar = function (container, opts) {
 
     // Tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     function showTooltip(d, ev) {
       const total = data.filter(x=>x.visible).reduce((s,x)=>s+x.y, 0);
       const pct = (d.y / total * 100).toFixed(1);
       tooltip.innerHTML =
-        `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(dataName)}</div>` +
+        `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(dataName)}</div>` +
         `<div><span style="display:inline-block;width:9px;height:9px;background:${d.color};border-radius:2px;margin-right:6px"></span>${esc(d.name)}: <b style="color:${TITLE_COL}">${esc(addCommas(d.y))}</b> (${pct}%)</div>`;
       tooltip.style.display = 'block';
       const rect = svg.getBoundingClientRect();
@@ -4014,7 +4310,7 @@ Charts.pie = function (container, opts) {
     HOVER_INK = t.hoverInk || '#000000';
     BG = t.bg || '#f4f3f0';
     GRID = t.grid || '#dcdbd7';
-    AXIS = t.labelColor || '#333333';
+    AXIS = t.axis || '#000000';
     TITLE_COL = t.titleColor || '#111111';
     SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
@@ -4027,6 +4323,8 @@ Charts.pie = function (container, opts) {
 
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_POINT_LBL, SPINE_W, GRID_W;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     applyThemeColors();
     const t = (window.Charts && window.Charts.theme) || {};
@@ -4040,6 +4338,21 @@ Charts.pie = function (container, opts) {
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
     F_TICK = t.tickSize != null ? t.tickSize : 11;
     F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
@@ -4090,7 +4403,10 @@ Charts.pie = function (container, opts) {
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function addCommas(n) {
     // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
@@ -4236,7 +4552,14 @@ Charts.pie = function (container, opts) {
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -4244,9 +4567,11 @@ Charts.pie = function (container, opts) {
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -4270,13 +4595,13 @@ Charts.pie = function (container, opts) {
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -4285,6 +4610,7 @@ Charts.pie = function (container, opts) {
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -4292,7 +4618,7 @@ Charts.pie = function (container, opts) {
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -4302,7 +4628,7 @@ Charts.pie = function (container, opts) {
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -4311,7 +4637,7 @@ Charts.pie = function (container, opts) {
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -4413,7 +4739,7 @@ Charts.pie = function (container, opts) {
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -4460,18 +4786,18 @@ Charts.pie = function (container, opts) {
     // Layout tokens (clean-charts uses ~45px outer margin)
     const marginPx = 22;
     const titleLines = hasTitle
-      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
-      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     // Legend: auto-enable when multi-series; wraps across rows as needed.
     const hasLegend = (opts.legend && opts.legend.enabled != null)
       ? !!opts.legend.enabled
       : ((opts.series || []).length > 1);
-    const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
     function _layoutLegend(items, availW) {
       const widths = items.map(it => LEG_ICON + LEG_ICON_GAP + Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
       const rows = [];
@@ -4485,7 +4811,7 @@ Charts.pie = function (container, opts) {
       return { rows, height: rows.length * LEG_ROW };
     }
     const _legendLayout = hasLegend
-      ? _layoutLegend((opts.series || []).map((s, i) => ({ name: s.name || 'Series ' + (i + 1) })), W - 44)
+      ? _layoutLegend((opts.series || []).map((s, i) => ({ name: s.name || 'Series ' + (i + 1) })), W - HEAD_X * 2)
       : { rows: [], height: 0 };
     const legendZone = _legendLayout.height + (hasLegend ? 18 : 0);
 
@@ -4525,11 +4851,11 @@ Charts.pie = function (container, opts) {
     container.appendChild(svg);
 
     // Title and subtitle top-left, aligned to titleX
-    const titleX = 20;
-    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    const titleX = HEAD_X;
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // Normalize series
     const seriesDefs = (opts.series || []).map((s, i) => {
@@ -4759,15 +5085,12 @@ Charts.pie = function (container, opts) {
           px: b.p.x, py: b.p.y, x: b.x, y: b.y });
         markRects.push({ x: b.x - b.r, y: b.y - b.r, w: b.r * 2, h: b.r * 2 });
         if (b.r > 16 && b.p.name) {
-          // Whichever of the ink and its inverse sits further from the fill —
-          // see the note on contrastText; a dark theme swaps which is which.
+          // Use white text on dark fill, dark on light
           const [rr,gg,bb] = hex2rgb(b._fillColor);
           const L = 0.299*rr + 0.587*gg + 0.114*bb;
-          const lum = h => { const c = String(h).replace('#',''); const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
-            return isFinite(n) ? 0.299*((n>>16)&255) + 0.587*((n>>8)&255) + 0.114*(n&255) : 255; };
-          const col = Math.abs(lum(INV_TEXT) - L) >= Math.abs(lum(TITLE_COL) - L) ? INV_TEXT : TITLE_COL;
+          const col = L < 140 ? INV_TEXT : TITLE_COL;
           txt(b.p.name, { x: b.x, y: b.y + 4, 'text-anchor': 'middle',
-            'font-size': Math.min(12, b.r * 0.42), 'font-weight': 700,
+            'font-size': Math.min(F_TIP, b.r * 0.42), 'font-weight': VAL_FW,
             fill: col, 'font-family': FONT, style: 'pointer-events:none' }, gLabels);
         }
       });
@@ -4835,7 +5158,7 @@ Charts.pie = function (container, opts) {
       if (!hasLegend) return;
       const startY = titleBlockH + 2;
       _legendLayout.rows.forEach((row, ri) => {
-        const rowStartX = 20;
+        const rowStartX = HEAD_X;
         row.forEach(cell => {
           const s = seriesDefs.find(x => x.name === cell.item.name);
           if (!s) return;
@@ -4846,7 +5169,7 @@ Charts.pie = function (container, opts) {
           el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
             fill: s.visible ? s.color : DIM_COL }, gr);
           txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
-            'font-size': F_LEG, 'font-weight': 600,
+            'font-size': F_LEG, 'font-weight': LEG_FW,
             fill: s.visible ? (s.legendColor || TITLE_COL) : DIM_COL,
             'text-decoration': s.visible ? 'none' : 'line-through',
             'font-family': FONT }, gr);
@@ -4860,12 +5183,12 @@ Charts.pie = function (container, opts) {
 
     // Tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     function showTip(s, p, ev) {
       const header = p.name || s.name;
-      let html = `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
+      let html = `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
       html += `<div><span style="display:inline-block;width:9px;height:9px;background:${s.color};border-radius:50%;margin-right:6px"></span>`
         + `x: <b style="color:${TITLE_COL}">${esc(addCommas(String(p.x)))}${xSuffix}</b>, `
         + `y: <b style="color:${TITLE_COL}">${esc(addCommas(p.y))}${ySuffix}</b>`
@@ -4972,6 +5295,8 @@ Charts.packedBubble = function (container, opts) {
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
   let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -4996,6 +5321,21 @@ Charts.packedBubble = function (container, opts) {
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
     F_VALUE = t.valueSize != null ? t.valueSize : 11;
   }
@@ -5053,7 +5393,10 @@ Charts.packedBubble = function (container, opts) {
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addCommas(n) {
@@ -5115,7 +5458,14 @@ Charts.packedBubble = function (container, opts) {
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -5123,9 +5473,11 @@ Charts.packedBubble = function (container, opts) {
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -5149,13 +5501,13 @@ Charts.packedBubble = function (container, opts) {
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -5164,6 +5516,7 @@ Charts.packedBubble = function (container, opts) {
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -5171,7 +5524,7 @@ Charts.packedBubble = function (container, opts) {
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -5181,7 +5534,7 @@ Charts.packedBubble = function (container, opts) {
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -5190,7 +5543,7 @@ Charts.packedBubble = function (container, opts) {
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -5292,7 +5645,7 @@ Charts.packedBubble = function (container, opts) {
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -5358,14 +5711,15 @@ Charts.packedBubble = function (container, opts) {
 
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
-    const titleX = 20;                       // shared left edge, as in bar.js
+    const titleX = HEAD_X;                       // shared left edge, as in bar.js
     const titleLines = hasTitle
-      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
-      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
     const marginR = 20, marginB = 16;
 
     // ── Row metrics ─────────────────────────────────────────────────────
@@ -5403,10 +5757,10 @@ Charts.packedBubble = function (container, opts) {
     svg.style.display = 'block';
     container.appendChild(svg);
 
-    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
     if (!n) return { getData: () => points };
 
@@ -5518,7 +5872,7 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     svg.addEventListener('mousemove', ev => {
@@ -5529,7 +5883,7 @@ Charts.packedBubble = function (container, opts) {
         points.forEach(q => { if (q._node) q._node.style.opacity = '1'; });
         target.style.opacity = '0.85';
         tooltip.innerHTML =
-          `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
+          `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
           `<div><span style="display:inline-block;width:9px;height:9px;background:${p.color};border-radius:2px;margin-right:6px"></span>${esc(p.name)}: <b style="color:${TITLE_COL}">${esc(fmt(p.y))}</b></div>`;
         tooltip.style.display = 'block';
         const rect = svg.getBoundingClientRect();
@@ -5594,6 +5948,8 @@ Charts.packedBubble = function (container, opts) {
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE;
   let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -5617,6 +5973,21 @@ Charts.packedBubble = function (container, opts) {
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
     F_TICK = t.tickSize != null ? t.tickSize : 11;
     F_VALUE = t.valueSize != null ? t.valueSize : 11;
@@ -5675,7 +6046,10 @@ Charts.packedBubble = function (container, opts) {
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addCommas(n) {
@@ -5735,7 +6109,14 @@ Charts.packedBubble = function (container, opts) {
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -5743,9 +6124,11 @@ Charts.packedBubble = function (container, opts) {
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -5769,13 +6152,13 @@ Charts.packedBubble = function (container, opts) {
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -5784,6 +6167,7 @@ Charts.packedBubble = function (container, opts) {
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -5791,7 +6175,7 @@ Charts.packedBubble = function (container, opts) {
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -5801,7 +6185,7 @@ Charts.packedBubble = function (container, opts) {
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -5810,7 +6194,7 @@ Charts.packedBubble = function (container, opts) {
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -5912,7 +6296,7 @@ Charts.packedBubble = function (container, opts) {
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -6022,18 +6406,18 @@ Charts.packedBubble = function (container, opts) {
     // ── Title / subtitle ────────────────────────────────────────────────
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
-    const titleX = 20;
+    const titleX = HEAD_X;
     const titleLines = hasTitle
-      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
-      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 18;
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     // ── Legend layout (top row(s), auto-enabled when multi-series) ──────
     // Metrics, wrap rule and toggle behaviour are the column/bar legend's.
-    const F_LEG = 12, LEG_ROW = 20, LEG_GAP = 18, LEG_ICON = 12, LEG_ICON_GAP = 6;
     const legendEnabled = (opts.legend && opts.legend.enabled != null)
       ? !!opts.legend.enabled : (seriesDefs.length > 1);
     function layoutLegend(items, availW) {
@@ -6050,7 +6434,7 @@ Charts.packedBubble = function (container, opts) {
       return { rows: rowsOut, height: rowsOut.length * LEG_ROW };
     }
     const legendLayout = legendEnabled
-      ? layoutLegend(seriesDefs, W - 40) : { rows: [], height: 0 };
+      ? layoutLegend(seriesDefs, W - HEAD_X * 2) : { rows: [], height: 0 };
     const legendZone = legendLayout.height + (legendEnabled ? 18 : 0);
 
     // ── Column geometry ─────────────────────────────────────────────────
@@ -6116,7 +6500,7 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container_.appendChild(tooltip);
 
     let bars = [], H = 0;
@@ -6156,10 +6540,10 @@ Charts.packedBubble = function (container, opts) {
       svg.setAttribute('height', H);
       svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-        'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+        'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
       subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-        'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+        'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
       // Legend — identical metrics and toggle behaviour to column/bar.
       if (legendEnabled) {
@@ -6174,7 +6558,7 @@ Charts.packedBubble = function (container, opts) {
             el('rect', { x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
               fill: s.visible ? s.color : DIM_COL }, gr);
             txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
-              'font-size': F_LEG, 'font-weight': CAT_FW,
+              'font-size': F_LEG, 'font-weight': LEG_FW,
               fill: s.visible ? CAT_COL : DIM_COL,
               'text-decoration': s.visible ? 'none' : 'line-through',
               'font-family': FONT }, gr);
@@ -6349,7 +6733,7 @@ Charts.packedBubble = function (container, opts) {
         bars.forEach(b => { b.node.style.opacity = '1'; });
         hit.node.style.opacity = '0.85';
         tooltip.innerHTML =
-          `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(hit.row.label)}</div>` +
+          `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(hit.row.label)}</div>` +
           `<div><span style="display:inline-block;width:9px;height:9px;background:${hit.color};border-radius:2px;margin-right:6px"></span>${esc(hit.series.name)}: <b style="color:${TITLE_COL}">${esc(fmt(hit.value))}</b></div>` +
           (hit.row.stat != null && hit.row.stat !== ''
             ? `<div style="color:${SEC_COL};margin-top:2px">${esc(hit.row.insight || 'Change')}: <b style="color:${TITLE_COL}">${esc(hit.row.stat)}</b></div>` : '');
@@ -6419,6 +6803,8 @@ Charts.packedBubble = function (container, opts) {
   let CAT_COL, CAT_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_LABEL;
   let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -6439,6 +6825,21 @@ Charts.packedBubble = function (container, opts) {
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
   }
 
@@ -6484,7 +6885,10 @@ Charts.packedBubble = function (container, opts) {
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   function addCommas(n) {
@@ -6535,7 +6939,14 @@ Charts.packedBubble = function (container, opts) {
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -6543,9 +6954,11 @@ Charts.packedBubble = function (container, opts) {
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -6569,13 +6982,13 @@ Charts.packedBubble = function (container, opts) {
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -6584,6 +6997,7 @@ Charts.packedBubble = function (container, opts) {
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -6591,7 +7005,7 @@ Charts.packedBubble = function (container, opts) {
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -6601,7 +7015,7 @@ Charts.packedBubble = function (container, opts) {
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -6610,7 +7024,7 @@ Charts.packedBubble = function (container, opts) {
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -6712,7 +7126,7 @@ Charts.packedBubble = function (container, opts) {
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -6786,12 +7200,13 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Headings ────────────────────────────────────────────────────────
     const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
-    const titleX = 20;
-    const titleLines = hasTitle ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
-    const subLines = hasSub ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + 26;
+    const titleX = HEAD_X;
+    const titleLines = hasTitle ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = hasSub ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     // ── Panel geometry ──────────────────────────────────────────────────
     // Panels split the content width evenly; the dot grid is sized to
@@ -6803,10 +7218,10 @@ Charts.packedBubble = function (container, opts) {
         viewBox: `0 0 ${W} ${titleBlockH}` });
       svg0.style.background = BG; svg0.style.display = 'block';
       container.appendChild(svg0);
-      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH,
-        'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg0));
+      titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+        'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg0));
       subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH,
-        'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg0));
+        'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg0));
       return { getData: () => points };
     }
 
@@ -6854,10 +7269,10 @@ Charts.packedBubble = function (container, opts) {
     svg.style.display = 'block';
     container.appendChild(svg);
 
-    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
     const fmt = v => (plot.format ? String(plot.format).replace('{y}', addCommas(v))
                                   : addCommas(v) + valueSuffix);
@@ -6955,7 +7370,7 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:12px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;max-width:260px;white-space:normal;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;max-width:260px;white-space:normal;z-index:10;`;
     container.appendChild(tooltip);
 
     function clearHL() {
@@ -6973,7 +7388,7 @@ Charts.packedBubble = function (container, opts) {
       clearHL();
       points.forEach(q => { if (q !== p) q._dots.forEach(d => { d.style.opacity = '0.45'; }); });
       tooltip.innerHTML =
-        `<div style="font-size:12px;font-weight:700;color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
+        `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
         `<div><span style="display:inline-block;width:9px;height:9px;background:${p.color};border-radius:50%;margin-right:6px"></span>${esc(p.name)}: <b style="color:${TITLE_COL}">${esc(fmt(p.y))}</b></div>` +
         (p.description ? `<div style="margin-top:3px;color:${LABEL_COL}">${esc(p.description)}</div>` : '');
       tooltip.style.display = 'block';
@@ -7026,12 +7441,16 @@ Charts.packedBubble = function (container, opts) {
   let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, START_COL, END_COL, INV_COL;
   let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
   let FONT, F_TITLE, F_SUB, F_CODE, F_VALUE;
-  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TT_BORDER, DIM_COL, HOVER_INK, TILE_COL, TILE_TRACK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
     DIM_COL = t.dimmed || '#c2c0ba';
     HOVER_INK = t.hoverInk || '#000000';
+    TILE_COL = t.tileSurface || '#eae8e4';
+    TILE_TRACK = t.tileTrack || '#f4f3f0';
     BG = t.bg || '#f4f3f0';
     TITLE_COL = t.titleColor || '#111111';
     SUB_COL = t.subtitleColor || '#666666';
@@ -7050,6 +7469,21 @@ Charts.packedBubble = function (container, opts) {
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
     F_CODE = t.pointLabelSize != null ? t.pointLabelSize : 10;
     F_VALUE = t.valueSize != null ? t.valueSize : 11;
   }
@@ -7097,7 +7531,10 @@ Charts.packedBubble = function (container, opts) {
     }
     return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3, TITLE_LH = 21, SUB_LH = 16;
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
   function esc(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
@@ -7172,7 +7609,14 @@ Charts.packedBubble = function (container, opts) {
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     return {
-      accent: t.callout || '#e3120b',
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
       bg: t.bg || '#f4f3f0'
@@ -7180,9 +7624,11 @@ Charts.packedBubble = function (container, opts) {
   }
 
   function measureCalloutBox(text) {
+    const th = calloutTheme();
     const lines = String(text).split('\n');
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + 16);
-    const h = lines.length * 13 + 16;
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
     return { w: w, h: h };
   }
 
@@ -7206,13 +7652,13 @@ Charts.packedBubble = function (container, opts) {
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
-    const lh = 13, pad = 8;
-    const w = Math.min(220, Math.max.apply(null, lines.map(l => l.length)) * 6 + pad * 2);
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': 10,
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
         fill: th.text, 'font-family': FONT }, g);
     });
   }
@@ -7221,6 +7667,7 @@ Charts.packedBubble = function (container, opts) {
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
     if (mode === 'above' || mode === 'below') {
       const edgeY = mode === 'above' ? box.y + box.h : box.y;
@@ -7228,7 +7675,7 @@ Charts.packedBubble = function (container, opts) {
       const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
       const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
                 ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -7238,7 +7685,7 @@ Charts.packedBubble = function (container, opts) {
       const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
       const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
                 ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': 1.2,
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
         'stroke-linejoin': 'round' }, g);
       return;
     }
@@ -7247,7 +7694,7 @@ Charts.packedBubble = function (container, opts) {
     else if (ax > box.x + box.w) lx = box.x + box.w;
     if (ay < box.y) ly = box.y;
     else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': 1.2 }, g);
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
   }
 
   function drawCallouts(g, items, bounds, cfg) {
@@ -7349,7 +7796,7 @@ Charts.packedBubble = function (container, opts) {
       placed.push(best);
 
       drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: 4.5, fill: color,
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
         stroke: th.inverse, 'stroke-width': 1 }, g);
       drawCalloutBox(g, best.x, best.y, it.text, color);
     });
@@ -7422,24 +7869,25 @@ Charts.packedBubble = function (container, opts) {
     const hasTitle = !!opts.title;
     const hasSub = !!opts.subtitle;
     const marginPx = 20;
-    const titleX = 20;
+    const titleX = HEAD_X;
     const titleLines = hasTitle
-      ? wrapHeading(opts.title, F_TITLE, W - 40, TITLE_LINES, true) : [];
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
-      ? wrapHeading(opts.subtitle, F_SUB, W - 40, SUB_LINES, false) : [];
-    const subY0 = 34 + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + 20 : 0);
-    const titleBlockH = (hasTitle ? 24 + (titleLines.length - 1) * TITLE_LH : 0)
-                      + (hasSub ? 22 + (subLines.length - 1) * SUB_LH : 0) + (hasTitle || hasSub ? 24 : 0);
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     svg.style.background = BG;
     svg.style.display = 'block';
     container.appendChild(svg);
 
-    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: 34 + i * TITLE_LH, 'text-anchor': 'start',
-      'font-size': F_TITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, svg));
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH, 'text-anchor': 'start',
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
-      'font-size': F_SUB, fill: SUB_COL, 'font-family': FONT }, svg));
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
     // ── Tile geometry ───────────────────────────────────────────────────
     // Grids are normalised to their own origin rather than assumed 1-based,
@@ -7472,15 +7920,21 @@ Charts.packedBubble = function (container, opts) {
 
     // Small-tile behaviour: shrink the type with the tile, and drop labels once
     // even the shrunken type would not fit. Below `minText` a tile is mark-only.
-    const k = Math.max(0.62, Math.min(1.25, tileW / 64));
+    // The old cap of 1.25 meant a 110px tile carried the same ~12px type as a
+    // 64px one, so a big tile was mostly empty. Let type keep growing with the
+    // tile, just sub-linearly, so the content stays in proportion to its box.
+    const k = Math.max(0.62, Math.min(1.55, tileW / 64));
     const fCode = Math.round(F_CODE * k * 10) / 10;
     const fValue = Math.round(F_VALUE * k * 10) / 10;
     const roomForCode = tileW >= 34 && tileH >= 22;
     const roomForValue = showValues && tileW >= 26;
 
     const radius = plotOpts.borderRadius != null ? plotOpts.borderRadius : 6;
-    const emptyFill = lighten(SEC_COL, 0.88);
-    const trackFill = lighten(SEC_COL, 0.82);
+    // A tile with data is a box on the canvas (TILE_COL); a tile with no data
+    // is a hole in it (a shade toward bg), so the map's coverage reads at a
+    // glance. The bar/ring track sits a step lighter than the tile it is on.
+    const emptyFill = mix(TILE_COL, BG, 0.6);
+    const trackFill = TILE_TRACK;
 
     // ── Interaction ─────────────────────────────────────────────────────
     // Same conventions as the other engines: a 4% black slot highlight behind
@@ -7492,7 +7946,7 @@ Charts.packedBubble = function (container, opts) {
 
     const tip = document.createElement('div');
     tip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
-      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:12px ' + FONT +
+      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' + F_TIP + 'px ' + FONT +
       ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
     container.appendChild(tip);
 
@@ -7530,7 +7984,7 @@ Charts.packedBubble = function (container, opts) {
       if (!rec || !isFinite(rec.value)) {
         if (showEmpty && roomForCode) {
           txt(label, { x: x + tileW / 2, y: y + tileH / 2 + fCode / 3, 'text-anchor': 'middle',
-            'font-size': fCode, 'font-weight': 600, fill: lighten(SEC_COL, 0.75),
+            'font-size': fCode, 'font-weight': CAT_FW, fill: lighten(SEC_COL, 0.75),
             'font-family': FONT }, grp);
         }
         return;
@@ -7548,13 +8002,13 @@ Charts.packedBubble = function (container, opts) {
         const stacked = roomForCode && tileH >= fCode + fValue + 10;
         if (roomForCode) {
           txt(label, { x: x + tileW / 2, y: y + tileH / 2 - (stacked ? 4 : -fCode / 3),
-            'text-anchor': 'middle', 'font-size': fCode, 'font-weight': 700, fill: ink,
+            'text-anchor': 'middle', 'font-size': fCode, 'font-weight': VAL_FW, fill: ink,
             'font-family': FONT }, grp);
         }
         if (showValues && (stacked || (!roomForCode && roomForValue))) {
           txt(valueText, { x: x + tileW / 2,
             y: y + tileH / 2 + (stacked ? fValue + 2 : fValue / 3), 'text-anchor': 'middle',
-            'font-size': fValue + (stacked ? 2 : 0), 'font-weight': 700, fill: ink,
+            'font-size': fValue + (stacked ? 2 : 0), 'font-weight': VAL_FW, fill: ink,
             'font-family': FONT }, grp);
         }
 
@@ -7562,7 +8016,7 @@ Charts.packedBubble = function (container, opts) {
         const cx = x + tileW / 2, cy = y + tileH / 2;
         const ring = Math.max(3, tileW * 0.09);
         const r = tileW / 2 - ring / 2 - 4;
-        el('rect', { x, y, width: tileW, height: tileH, rx: radius, fill: lighten(SEC_COL, 0.9) }, grp);
+        el('rect', { x, y, width: tileW, height: tileH, rx: radius, fill: TILE_COL }, grp);
         el('circle', { cx, cy, r, fill: 'none', stroke: trackFill, 'stroke-width': ring }, grp);
         const circ = 2 * Math.PI * r;
         mark = el('circle', { cx, cy, r, fill: 'none', stroke: END_COL, 'stroke-width': ring,
@@ -7582,24 +8036,31 @@ Charts.packedBubble = function (container, opts) {
           fill: 'transparent' }, grp);
 
       } else { // 'bar'
-        el('rect', { x, y, width: tileW, height: tileH, rx: radius, fill: lighten(SEC_COL, 0.9) }, grp);
+        el('rect', { x, y, width: tileW, height: tileH, rx: radius, fill: TILE_COL }, grp);
         const padX = Math.max(3, Math.round(8 * k));
-        const barH = Math.max(5, Math.min(12, tileH * 0.22));
+        const barH = Math.max(5, Math.min(24, tileH * 0.24));
         // Code and value sit on one line above the bar; both are dropped once the
         // tile is too narrow to hold them without colliding.
         const labelW = (label.length * fCode + valueText.length * fValue) * 0.55 + padX * 2 + 4;
         const showRow = roomForCode && tileW >= labelW && tileH >= barH + fCode + 12;
-        const barY = showRow ? y + tileH - barH - 10 : y + (tileH - barH) / 2;
+        // Label row and bar are laid out as ONE block centred in the tile, not
+        // pinned to opposite edges. Pinning looks right at 60px and leaves a
+        // hole down the middle of a 110px tile; a centred block keeps the same
+        // reading order and stays in proportion at any tile size.
+        const rowH = showRow ? fCode + 4 : 0;
+        const rowGap = showRow ? Math.max(5, Math.min(16, tileH * 0.13)) : 0;
+        const blockTop = y + Math.round((tileH - (rowH + rowGap + barH)) / 2);
+        const barY = showRow ? blockTop + rowH + rowGap : y + (tileH - barH) / 2;
         const barW = tileW - padX * 2;
         if (showRow) {
-          const rowY = y + fCode + 7;
+          const rowY = blockTop + fCode;
           txt(label, { x: x + padX, y: rowY, 'text-anchor': 'start', 'font-size': fCode,
             'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, grp);
           if (showValues) txt(valueText, { x: x + tileW - padX, y: rowY, 'text-anchor': 'end',
             'font-size': fValue, 'font-weight': VAL_FW, fill: VAL_COL, 'font-family': FONT }, grp);
         }
         el('rect', { x: x + padX, y: barY, width: barW, height: barH, rx: 2,
-          fill: INV_COL }, grp);
+          fill: trackFill }, grp);
         mark = el('rect', { x: x + padX, y: barY, width: Math.max(1.5, barW * f), height: barH, rx: 2,
           fill: f > 0.5 ? END_COL : START_COL }, grp);
         hitRect = el('rect', { x, y, width: tileW, height: tileH, rx: radius,
@@ -7611,7 +8072,7 @@ Charts.packedBubble = function (container, opts) {
       const entry = { code: g.code, name: rec.name || g.name || g.code, value: v, grp, x, y };
       cells.push(entry);
 
-      const tipHtml = '<div style="font-size:12px;font-weight:700;color:' + TITLE_COL +
+      const tipHtml = '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
         ';margin-bottom:2px">' + esc(entry.name) + '</div>' +
         '<div style="color:' + LABEL_COL + '">' + esc(seriesName) + ': ' +
         '<b style="color:' + TITLE_COL + '">' + esc(valueText) + '</b></div>';
@@ -7689,6 +8150,9 @@ Charts.packedBubble = function (container, opts) {
 
   let BG, TITLE_COL, SUB_COL, SEC_COL;
   let FONT, F_TITLE, F_SUB;
+  let TITLE_LH, SUB_LH;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     BG = t.bg || '#f4f3f0';
@@ -7698,6 +8162,21 @@ Charts.packedBubble = function (container, opts) {
     FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
     F_TITLE = t.titleSize != null ? t.titleSize : 17;
     F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
   }
 
   function el(tag, attrs, parent) {
@@ -7796,7 +8275,7 @@ Charts.packedBubble = function (container, opts) {
       container.appendChild(head);
 
       titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: y0 + i * GT_LH, 'text-anchor': 'start',
-        'font-size': F_GTITLE, 'font-weight': 700, fill: TITLE_COL, 'font-family': FONT }, head));
+        'font-size': F_GTITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, head));
       subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * GS_LH, 'text-anchor': 'start',
         'font-size': F_GSUB, fill: SUB_COL, 'font-family': FONT }, head));
     }
@@ -7853,7 +8332,7 @@ Charts.packedBubble = function (container, opts) {
         const factory = window.Charts && window.Charts[type];
         if (typeof factory !== 'function') {
           cell.innerHTML =
-            `<div style="font:12px ${FONT};color:${SUB_COL};padding:8px">Unknown chart type “${
+            `<div style="font:${F_TIP}px ${FONT};color:${SUB_COL};padding:8px">Unknown chart type “${
               String(type).replace(/[<&>]/g, '')}”</div>`;
           made.push(null);
           return;

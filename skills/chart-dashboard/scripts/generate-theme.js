@@ -216,6 +216,11 @@ function generatePalette(refInput, opts = {}) {
   //    n1 → n2a → n2 → n3, evenly spaced in perceptual lightness.
   const step = (n3.L - n0.L) / 4;
   const n1 = { L: n0.L + step, C: rampC, h: rampH };
+  //    n0a is the panel/tile surface: half a step off the paper, so a geofacet
+  //    tile reads as a box on the canvas rather than a hole in it. It sits
+  //    BELOW the first hairline step on purpose — a tile edged by its own fill
+  //    should be quieter than a gridline.
+  const n0a = { L: n0.L + step * 0.5, C: rampC, h: rampH };
   const n2a = { L: n0.L + step * 2, C: rampC, h: rampH };
   const n2 = { L: n0.L + step * 3, C: rampC, h: rampH };
 
@@ -312,7 +317,7 @@ function generatePalette(refInput, opts = {}) {
             : solveLightness({ C: counterC, h: counterH }, n0Rgb, 4.5, dir) };
 
   const lch = {
-    n0, n1, n2a, n2, n3,
+    n0, n0a, n1, n2a, n2, n3,
     s1, s2, s3: tints[0], s4: tints[1], s5: tints[2], s6: tints[3], s7,
     accent, annotation, counter
   };
@@ -324,34 +329,38 @@ function generatePalette(refInput, opts = {}) {
 }
 
 // ── report ───────────────────────────────────────────────────────────
+// The block hands the PALETTE to Charts.applyPalette, which re-derives every
+// theme role from it — rather than listing the roles one by one. theme.js owns
+// that mapping, and it covers roles a hand-written list keeps forgetting:
+// tileSurface/tileTrack (geofacet panels), tooltipBorder, dimmed, hoverInk.
+// Those stayed on the default cream whenever a reskin only assigned the
+// obvious dozen, which is how a dark dashboard ended up with pale tiles.
 function themeBlock(p) {
   const c = p.hexes;
-  return `Object.assign(Charts.theme, {
-  bg:             '${c.n0}',
-  grid:           '${c.n1}',
-  axis:           '${c.n9}',
-  titleColor:     '${c.n8}',
-  categoryColor:  '${c.n8}',
-  valueColor:     '${c.n8}',
-  subtitleColor:  '${c.n4}',
-  labelColor:     '${c.n7}',
-  tickColor:      '${c.n7}',
-  secondaryColor: '${c.n4}',
-  connectorLabel: '${c.n5}',
-  connectorLine:  '${c.n7}',
-  inverseText:    '${c.nInverse}',
-  colors:         ['${c.s1}', '${c.s2}', '${c.s3}', '${c.s4}', '${c.s5}', '${c.s6}', '${c.s7}'],
-  defaultColor:   '${c.s1}',
-  gradientStart:  '${c.s1}',
-  gradientEnd:    '${c.s2}',
-  muted:          '${c.n3}',
-  mutedScale:     ['${c.n3}', '${c.n2}', '${c.n2a}'],
-  highlight:      '${c.accent}',
-  callout:        '${c.annotation}',
-  counter:        '${c.counter}',
-  positive:       '${c.s2}',
-  negative:       '${c.counter}',
-  trend:          '${c.s2}'
+  return `Charts.applyPalette({
+  n0:  '${c.n0}',   // canvas
+  n0a: '${c.n0a}',   // tile / panel surface
+  n1:  '${c.n1}',   // hairlines, gridlines
+  n2a: '${c.n2a}',   // de-emphasis ramp, lightest
+  n2:  '${c.n2}',
+  n3:  '${c.n3}',   // muted fill — the 3:1 floor
+  n4:  '${c.n4}',   // subtitle / secondary text
+  n5:  '${c.n5}',   // connector labels
+  n6:  '${c.n6}',
+  n7:  '${c.n7}',   // body / tick text
+  n8:  '${c.n8}',   // titles, categories, values
+  n9:  '${c.n9}',   // spines, ticks
+  nInverse: '${c.nInverse}',   // text on dark fills — flips on a dark theme
+  s1:  '${c.s1}',   // series ramp, primary first
+  s2:  '${c.s2}',
+  s3:  '${c.s3}',
+  s4:  '${c.s4}',
+  s5:  '${c.s5}',
+  s6:  '${c.s6}',
+  s7:  '${c.s7}',
+  accent:     '${c.accent}',   // selection / highlight
+  annotation: '${c.annotation}',   // callout leaders, threshold rules
+  counter:    '${c.counter}'    // the against-the-grain direction
 });`;
 }
 
@@ -371,6 +380,10 @@ function report(p) {
   and(check('tick text', c.n7, 4.5));
   and(check('subtitle', c.n4, 3));
   and(check('gridline n1', c.n1, 1.05, 1.7));
+  // A tile has to be visible as a tile. Below ~1.03:1 it vanishes into the
+  // canvas; past the gridline step it stops reading as a surface and starts
+  // reading as a filled block.
+  and(check('tile surface n0a', c.n0a, 1.03, 1.4));
   and(check('muted fill n3', c.n3, 2.9, 3.15));
   and(check('series s2', c.s2, 4.5));
   and(check('annotation', c.annotation, 4.4));
@@ -419,7 +432,7 @@ if (require.main === module) {
   const bySite = Object.entries(p.sources).filter(([, v]) => v === 'site').map(([k]) => k);
   console.log(bySite.length ? `Taken from the design: ${bySite.join(', ')}\n` : '');
   console.log('Palette');
-  for (const k of ['n0', 'n1', 'n2a', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9', 'nInverse',
+  for (const k of ['n0', 'n0a', 'n1', 'n2a', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8', 'n9', 'nInverse',
                    's1', 's2', 's3', 's4', 's5', 's6', 's7', 'accent', 'annotation', 'counter']) {
     console.log('  ' + String(k).padEnd(12) + p.hexes[k]);
   }

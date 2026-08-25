@@ -102,8 +102,10 @@ HTML page of SVG charts rendered with `charts-lib`.
    utility role, then runs the same OKLCH recipe described in `theming.md`:
    paper, greyscale ink, a seven-step series ramp, and `accent`/`annotation`/
    `counter` — taken from the design where it has a color that fits the role,
-   derived by hue rotation where it doesn't. Paste its `Charts.theme` block in
-   once, before the first chart call. Fix anything it marks FAIL rather than
+   derived by hue rotation where it doesn't. Paste its `Charts.applyPalette`
+   block in once, before the first chart call — hand it the palette and let
+   `theme.js` re-derive the roles; assigning roles one by one leaves tiles,
+   tooltips and dimmed legend keys on the old colours. Fix anything it marks FAIL rather than
    shipping it.
 
    **If all you have is one brand color** — a single hex, no CSS to harvest —
@@ -470,8 +472,8 @@ geometry. Those proportions are what make ten different chart types read as one
 family, and the page chrome inherits them so the cards don't look bolted on.
 
 The colors are the exception, and the only exception. When a user supplies a
-brand, recolor via `Charts.theme` — once, before the first factory call, never
-per chart — and let the page chrome pick those same values up from the sync
+brand, recolor via `Charts.applyPalette` — once, before the first factory call,
+never per chart — and let the page chrome pick those same values up from the sync
 block in the template. Corner radius may follow the brand too, since square vs.
 rounded is a brand signature the charts themselves don't express.
 

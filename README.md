@@ -220,15 +220,26 @@ framework.
 
 ## Theming and brand colors
 
-Every visual token lives in a single `Charts.theme` object. Override it once, before
-the first chart call, and every chart on the page re-skins:
+Every visual token lives in a single `Charts.theme` object, derived from two
+sources: `Charts.palette` (the neutral and series colour scale) and
+`Charts.metrics` (type scale, strokes, spacing). Hand a palette to
+`Charts.applyPalette` once, before the first chart call, and every chart on the
+page re-skins — including the roles it is easy to forget by hand, like the
+geofacet tile surface and the tooltip hairline:
 
 ```js
-Charts.theme.bg         = '#1a1a2e';
-Charts.theme.grid       = '#2a2a4a';
-Charts.theme.titleColor = '#ffffff';
-Charts.theme.colors     = ['#e94560','#0f3460','#533483','#16213e'];
+Charts.applyPalette({
+  n0:  '#1a1a2e',   // canvas
+  n0a: '#22223c',   // tile / panel surface
+  n1:  '#2a2a4a',   // gridlines
+  n8:  '#ffffff',   // titles and values
+  nInverse: '#1a1a2e',   // text on light fills — dark, on a dark theme
+  s1:  '#e94560', s2: '#0f3460', s3: '#533483'
+});
 ```
+
+`Charts.applyMetrics({ titleSize: 20 })` is the same contract for the non-colour
+half, though the type scale and spacing are best left alone.
 
 The default is a cream-and-ink print theme. In practice you don't write this
 yourself — ask for "a dark dashboard" or "use our brand colors, #FF6B35 primary"

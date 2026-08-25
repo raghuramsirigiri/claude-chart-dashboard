@@ -11,8 +11,8 @@
      recolours the page. Only these two are page-level choices: --bg is the
      ground behind the cards, --radius is the brand's corner signature. */
   :root { --bg:#efece6; --radius:14px;
-          --card:#f4f3f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7;
-          --surface-soft:rgba(17,17,17,0.04);
+          --card:#f4f4f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7;
+          --surface-soft:#eae8e4;   /* overwritten from Charts.theme.tileSurface below */
           --font:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
@@ -131,11 +131,13 @@
 <script src="charts-lib/theme.js"></script>
 <script src="charts-lib/charts.js"></script>
 <script>
-/* Brand recolour goes HERE, before any chart is drawn — one Object.assign, never
-   per-chart colours. Generate it with scripts/extract-theme.js; see
-   references/theming.md. Delete this block when using the default theme.
+/* Brand recolour goes HERE, before any chart is drawn — one applyPalette call
+   with the neutral and series palette, never per-chart colours and never
+   role-by-role (that is how tiles and tooltips get left on the old palette).
+   Generate the block with scripts/extract-theme.js; see references/theming.md.
+   Delete this block when using the default theme.
 
-Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
+Charts.applyPalette({ n0: '…', n0a: '…', n1: '…', n8: '…', s1: '…', s2: '…' });
 */
 
 /* Page chrome follows the chart theme, so there is one source of colour truth. */
@@ -146,12 +148,10 @@ Object.assign(Charts.theme, { bg: '…', titleColor: '…', colors: [ … ] });
   s.setProperty('--muted', t.secondaryColor);
   s.setProperty('--hair',  t.grid);
   s.setProperty('--font',  t.font);
-  // Soft surfaces are a wash of the ink over the canvas. On a dark canvas that
-  // has to invert — a 4% black wash on navy is invisible — so the direction is
-  // chosen from the canvas luminance rather than hard-coded.
-  const c = (t.bg.match(/\w\w/g) || ['ff','ff','ff']).map(h => parseInt(h, 16));
-  const dark = (0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2]) / 255 < 0.4;
-  s.setProperty('--surface-soft', dark ? 'rgba(255,255,255,0.055)' : 'rgba(17,17,17,0.04)');
+  // Soft surfaces take the theme's own panel token — the same fill a geofacet
+  // tile uses — so the page and the charts step off the canvas by the same
+  // amount, and a dark palette inverts without any luminance guesswork here.
+  s.setProperty('--surface-soft', t.tileSurface);
 })();
 </script>
 <script>
