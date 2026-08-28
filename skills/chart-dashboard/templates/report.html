@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <title>TITLE — Report</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- These three tags are placeholders. Run scripts/inline-lib.js on the
+     finished page and they are replaced by the library's own contents, so
+     the file works standalone. Leave them exactly as written until then. -->
 <link rel="stylesheet" href="charts-lib/charts.css">
 <style>
   /* --paper, --ink, --muted, --soft, --hair and --font are overwritten at load
@@ -112,7 +115,7 @@
   </footer>
 </article>
 
-<!-- theme.js MUST load before charts.js -->
+<!-- theme.js MUST load before charts.js; both are inlined by scripts/inline-lib.js -->
 <script src="charts-lib/theme.js"></script>
 <script src="charts-lib/charts.js"></script>
 <script>

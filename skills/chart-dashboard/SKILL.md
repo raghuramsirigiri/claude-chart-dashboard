@@ -46,17 +46,16 @@ HTML page of SVG charts rendered with `charts-lib`.
    When it's genuinely ambiguous, ask yourself who reads it and whether you will
    be in the room. Nobody presents a bento grid to a board, and nobody watches a
    five-section narrative to see if last night's numbers moved.
-3. **Copy the library** next to the output file, then copy the template. Both
-   live in this skill's own directory — resolve `assets/charts-lib/` and
+3. **Copy the template.** It lives in this skill's own directory — resolve
    `templates/` relative to the directory containing this SKILL.md, never from a
-   hard-coded home path. Use whatever file-copy method your environment provides
-   (`cp -r` on POSIX, `Copy-Item -Recurse` on PowerShell, or a file-write tool):
+   hard-coded home path:
    ```
-   <skill-dir>/assets/charts-lib   →  ./charts-lib
    <skill-dir>/templates/dashboard.html  →  ./index.html
    ```
-   Keep the template's `<script src="charts-lib/theme.js">` before
-   `charts-lib/charts.js` — theme must load first.
+   Do **not** copy `assets/charts-lib/` next to the output. The template's three
+   `charts-lib/…` tags are placeholders; leave them exactly as written while you
+   build the page, and fold the library in as the last step (step 9). Their
+   order matters and the inliner preserves it — theme must load before charts.
 4. **Derive the grid from the findings, not from the template.** The dashboard
    template deliberately ships with a placeholder two-cell grid, because any
    arrangement shipped there would end up on every page this skill produces.
@@ -115,6 +114,12 @@ HTML page of SVG charts rendered with `charts-lib`.
    ```
 7. **Verify before reporting done.** Use the strongest check your environment
    supports:
+   The page still has its `charts-lib/…` placeholders at this point, so to run
+   it you need the library beside it *temporarily*. Copy it, verify, and delete
+   the folder again in step 8:
+   ```
+   <skill-dir>/assets/charts-lib   →  ./charts-lib      (temporary, for verification only)
+   ```
    - *Browser tooling available* — open the file, read the console for errors,
      and screenshot it to confirm layout. (In Claude Code: `preview_start`, then
      `read_console_messages` and a screenshot. Serve over a local HTTP server
@@ -142,13 +147,23 @@ HTML page of SVG charts rendered with `charts-lib`.
        const m=ch.slice(0,ch.indexOf('series:')+1||undefined).match(/categories:\s*\[([^\]]*)\]/);
        if(!m) return;
        const cats=m[1].split(',').map(c=>c.trim().replace(/^['\"]|['\"]$/g,'')).filter(Boolean);
-       const ok=c=>/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(c)&&!isNaN(Date.parse(c));
-       const fails=cats.filter(c=>!ok(c));
-       if(fails.length) bad.push(id+': '+fails.slice(0,4).join(', '));
+       const isDate=c=>/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(c)&&!isNaN(Date.parse(c));
+       const MON=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+       const DAY=['mon','tue','wed','thu','fri','sat','sun'];
+       const rising=v=>v.every((x,k)=>x!==null&&(k===0||x>v[k-1]));
+       const seq=c=>{const t=c.trim().toLowerCase();if(!/^[a-z]+\.?$/.test(t))return null;
+         const i=MON.indexOf(t.slice(0,3));if(i>=0)return i;
+         const j=DAY.indexOf(t.slice(0,3));return j>=0?j:null;};
+       const numbered=c=>{const m=/^(\D*?)(-?\d+(?:\.\d+)?)(\D*)$/.exec(c.trim());
+         return m?{pre:m[1].toLowerCase(),post:m[3].toLowerCase(),n:+m[2]}:null;};
+       const nums=cats.map(numbered);
+       const stem=nums.every(Boolean)&&nums.every(x=>x.pre===nums[0].pre&&x.post===nums[0].post)&&rising(nums.map(x=>x.n));
+       if(cats.every(isDate)||rising(cats.map(seq))||stem) return;
+       bad.push(id+': '+cats.slice(0,4).join(', '));
      });
      console.log(bad.length
-       ? 'BAD LINE X-AXIS -- not parseable as dates. Use a column chart, or full dates like Jan 2025. || '+bad.join(' || ')
-       : 'OK all line x-axes are temporal');"
+       ? 'BAD LINE X-AXIS -- not dates and not a rising sequence. Use a column chart, or full dates like Jan 2025. || '+bad.join(' || ')
+       : 'OK all line x-axes are ordered');"
      ```
    Either way, fix any panel that renders empty or overflows its cell first. A
    panel reading *"Line charts need a continuous or temporal x-axis"* is the
@@ -159,6 +174,43 @@ HTML page of SVG charts rendered with `charts-lib`.
    non-default value and confirm — with a screenshot or by reading the rendered
    text back — that the affected charts redraw *and* that any action title
    recomputed with them. An untested filter is usually a broken filter.
+8. **Fold the library into the page, and ship one file.** A dashboard outlives
+   the folder it was written in — it gets emailed, dropped in Slack, committed
+   to a wiki, opened from Downloads. A page that loads `charts-lib/charts.js`
+   from a sibling folder renders as an empty grid the moment it travels alone,
+   and it fails *silently*: the markup, the headings and the KPI numbers are all
+   there, so it looks like a styling bug rather than a missing dependency. So
+   the last build step replaces the three placeholder tags with the library's
+   own contents:
+   ```bash
+   node <skill-dir>/scripts/inline-lib.js index.html
+   rm -r charts-lib          # the verification copy; nothing references it now
+   ```
+   Then confirm what you are about to hand over is actually standalone:
+   ```bash
+   node -e "const h=require('fs').readFileSync('index.html','utf8');
+   const refs=[...h.matchAll(/(?:src|href)=\"([^\"]*charts-lib[^\"]*)\"/g)].map(m=>m[1]);
+   console.log(refs.length ? 'NOT STANDALONE, still loads: '+refs
+     : 'OK standalone, ' + Math.round(Buffer.byteLength(h)/1024) + ' KB');"
+   ```
+   The result is one ~420 KB HTML file that opens over `file://` with no server,
+   no network, and no sibling folder. Some rules that follow from that:
+   - **Never reintroduce a `<script src>` or `<link href>` to anything.** No CDN
+     for a chart library, a font, an icon set, or a CSS reset — an offline
+     reader, a locked-down laptop, or an air-gapped review gets a broken page.
+     Web fonts are the common slip: name the family in the CSS stack and let it
+     fall back to the system face, which is what the template already does.
+   - **Images go in as `data:` URIs** or not at all.
+   - **The library is inlined verbatim.** Don't minify it, don't strip the parts
+     you think a page doesn't use, and don't hand-edit the inlined copy — a
+     bug fixed in the page instead of in `assets/charts-lib/` is lost on the
+     next build. Rerunning `inline-lib.js` on an already-inlined file is a
+     harmless no-op, so it is safe to re-run after edits.
+   - **If the user explicitly asks for the split form** — they're checking the
+     page into a repo beside other pages that share the library, say — skip
+     this step and copy `assets/charts-lib/` next to the output instead, keeping
+     the placeholder tags as the real references. That is the exception, not
+     the default.
 
 ## Rules that keep output good
 
@@ -504,7 +556,9 @@ would carry the information better. Usually it would.
 
 ## Output
 
-Write the page to the working directory (or where the user asked). Then surface
+One HTML file, standalone — no sibling `charts-lib/` folder, no CDN tags, no
+network at open time (see step 8). Write it to the working directory (or where
+the user asked). Then surface
 it however your environment does that — attach or render the file if you can (in
 Claude Code: `SendUserFile` with `display: "render"`); otherwise print the
 absolute path and tell the user to open it in a browser. Either way, state which
@@ -513,6 +567,9 @@ figures came from the user's data and which, if any, were illustrative.
 ## Environment notes
 
 Nothing in this skill requires a specific agent or vendor. It needs only the
-ability to read files from this directory, write an HTML file, and copy a
-folder. Browser preview, screenshots, and file attachment are used when
-available and degrade gracefully when not.
+ability to read files from this directory, write an HTML file, copy a folder,
+and run Node (for `inline-lib.js` and the static checks). Without Node, inline
+the three library files by hand — paste `charts.css` into a `<style>` and
+`theme.js` then `charts.js` into `<script>` blocks, in that order, replacing the
+placeholder tags. Browser preview, screenshots, and file attachment are used
+when available and degrade gracefully when not.

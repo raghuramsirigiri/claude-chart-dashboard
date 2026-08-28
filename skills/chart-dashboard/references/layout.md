@@ -112,5 +112,5 @@ behind it is the one to either cut or go find evidence for.
   No self-authored summary banner, insight strip, or editorial adjectives; see
   the copy rules in SKILL.md.
 - Footer carries sources, definitions, and a note if any figure is illustrative.
-- Everything stays in one HTML file plus the local `charts-lib/` folder — no CDN,
-  no build step.
+- Everything ships as **one** HTML file with the library inlined — no sibling
+  folder, no CDN, no build step. See SKILL.md step 8.
