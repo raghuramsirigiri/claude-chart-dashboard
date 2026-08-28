@@ -117,59 +117,29 @@ HTML page of SVG charts rendered with `charts-lib`.
    ```bash
    node <skill-dir>/scripts/generate-theme.js '#2323FF'
    ```
-7. **Verify before reporting done.** Use the strongest check your environment
-   supports:
-   The page still has its `charts-lib/…` placeholders at this point, so to run
-   it you need the library beside it *temporarily*. Copy it, verify, and delete
-   the folder again in step 8:
+7. **Verify before reporting done.** The page still has its `charts-lib/…`
+   placeholders at this point, so to *run* it you need the library beside it
+   temporarily — copy it, verify, and delete the folder again in step 8:
    ```
    <skill-dir>/assets/charts-lib   →  ./charts-lib      (temporary, for verification only)
    ```
+   Then use the strongest check your environment supports:
    - *Browser tooling available* — open the file, read the console for errors,
      and screenshot it to confirm layout. (In Claude Code: `preview_start`, then
      `read_console_messages` and a screenshot. Serve over a local HTTP server
      rather than `file://` so the scripts execute.)
-   - *No browser tooling* — run this static check and fix anything it reports:
+   - *No browser tooling* — run the bundled checker and fix what it reports:
      ```bash
-     node -e "const h=require('fs').readFileSync('index.html','utf8');
-     const ids=[...h.matchAll(/id=\"(c\d+|f\d+)\"/g)].map(m=>m[1]);
-     const calls=[...h.matchAll(/Charts\.\w+\(\s*'([^']+)'/g)].map(m=>m[1]);
-     const orphan=ids.filter(i=>!calls.includes(i));
-     const ghost=calls.filter(c=>!ids.includes(c));
-     console.log(orphan.length||ghost.length
-       ? 'MISMATCH panels without charts: '+orphan+' | charts without panels: '+ghost
-       : 'OK '+ids.length+' panels, all wired');"
+     node <skill-dir>/scripts/check-page.js index.html
      ```
-
-     Then check every line chart's x-axis, since an invalid one renders an error
-     panel rather than failing loudly at build time:
-     ```bash
-     node -e "const h=require('fs').readFileSync('index.html','utf8');
-     const bad=[];
-     h.split('Charts.').slice(1).forEach(ch=>{
-       if(!/^line\s*\(/.test(ch)) return;
-       const id=(ch.match(/^line\s*\(\s*'([^']+)'/)||[])[1]||'?';
-       const m=ch.slice(0,ch.indexOf('series:')+1||undefined).match(/categories:\s*\[([^\]]*)\]/);
-       if(!m) return;
-       const cats=m[1].split(',').map(c=>c.trim().replace(/^['\"]|['\"]$/g,'')).filter(Boolean);
-       const isDate=c=>/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(c)&&!isNaN(Date.parse(c));
-       const MON=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-       const DAY=['mon','tue','wed','thu','fri','sat','sun'];
-       const rising=v=>v.every((x,k)=>x!==null&&(k===0||x>v[k-1]));
-       const seq=c=>{const t=c.trim().toLowerCase();if(!/^[a-z]+\.?$/.test(t))return null;
-         const i=MON.indexOf(t.slice(0,3));if(i>=0)return i;
-         const j=DAY.indexOf(t.slice(0,3));return j>=0?j:null;};
-       const numbered=c=>{const m=/^(\D*?)(-?\d+(?:\.\d+)?)(\D*)$/.exec(c.trim());
-         return m?{pre:m[1].toLowerCase(),post:m[3].toLowerCase(),n:+m[2]}:null;};
-       const nums=cats.map(numbered);
-       const stem=nums.every(Boolean)&&nums.every(x=>x.pre===nums[0].pre&&x.post===nums[0].post)&&rising(nums.map(x=>x.n));
-       if(cats.every(isDate)||rising(cats.map(seq))||stem) return;
-       bad.push(id+': '+cats.slice(0,4).join(', '));
-     });
-     console.log(bad.length
-       ? 'BAD LINE X-AXIS -- not dates and not a rising sequence. Use a column chart, or full dates like Jan 2025. || '+bad.join(' || ')
-       : 'OK all line x-axes are ordered');"
-     ```
+     It catches the four failures that do not throw and so survive a
+     confident-looking build: a panel whose chart was never wired (an empty
+     box), a line over unordered categories (an error panel *inside* the
+     chart), a page still pointing at `charts-lib/`, and anything else that
+     reaches the network. Each one reads as a styling bug rather than the
+     missing wiring it is. Exit code is non-zero when something fails, so it
+     also works as a gate. Run it here without `--final` — the page is not
+     inlined yet, and mid-build that is simply where you are.
    Either way, fix any panel that renders empty or overflows its cell first. A
    panel reading *"Line charts need a continuous or temporal x-axis"* is the
    input-contract failure above — change the chart type or the x values, don't
@@ -191,12 +161,11 @@ HTML page of SVG charts rendered with `charts-lib`.
    node <skill-dir>/scripts/inline-lib.js index.html
    rm -r charts-lib          # the verification copy; nothing references it now
    ```
-   Then confirm what you are about to hand over is actually standalone:
+   Then run the checker once more with `--final`, which re-checks the wiring
+   and this time *insists* the page is standalone — the state you are about to
+   hand over:
    ```bash
-   node -e "const h=require('fs').readFileSync('index.html','utf8');
-   const refs=[...h.matchAll(/(?:src|href)=\"([^\"]*charts-lib[^\"]*)\"/g)].map(m=>m[1]);
-   console.log(refs.length ? 'NOT STANDALONE, still loads: '+refs
-     : 'OK standalone, ' + Math.round(Buffer.byteLength(h)/1024) + ' KB');"
+   node <skill-dir>/scripts/check-page.js index.html --final
    ```
    The result is one ~420 KB HTML file that opens over `file://` with no server,
    no network, and no sibling folder. Some rules that follow from that:

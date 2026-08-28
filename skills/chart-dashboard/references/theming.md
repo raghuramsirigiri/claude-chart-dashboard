@@ -1,5 +1,20 @@
 # Matching a reference brand
 
+**Contents**
+
+- [1. Get the source](#1-get-the-source)
+- [2. Harvest the candidates](#2-harvest-the-candidates)
+- [3. What comes from the design, and what gets derived](#3-what-comes-from-the-design-and-what-gets-derived)
+  - [The role table, if you are doing it manually](#the-role-table-if-you-are-doing-it-manually)
+- [4. Check contrast before you commit](#4-check-contrast-before-you-commit)
+- [5. Apply it in exactly one place](#5-apply-it-in-exactly-one-place)
+- [6. Keep the page and the charts in one palette](#6-keep-the-page-and-the-charts-in-one-palette)
+- [What never changes](#what-never-changes)
+- [The recipe (both scripts run it)](#the-recipe-both-scripts-run-it)
+  - [The math it runs, and why](#the-math-it-runs-and-why)
+  - [Before you paste it](#before-you-paste-it)
+
+
 The default charts-lib look — cream canvas, ink text, black→blue series ramp — is
 a complete design system: type scale, weights, spacing, stroke widths, legend
 position, chart geometry. **Only the colors are yours to change.** Everything

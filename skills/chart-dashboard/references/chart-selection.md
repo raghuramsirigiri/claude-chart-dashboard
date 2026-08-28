@@ -1,5 +1,22 @@
 # Choosing a chart
 
+Which chart the data allows, and which one shows the finding.
+
+**Contents**
+
+- [Input contract — check this before the table](#input-contract--check-this-before-the-table)
+- [Choosing between the three bar treatments](#choosing-between-the-three-bar-treatments)
+- [Anti-patterns](#anti-patterns)
+- [Emphasis](#emphasis)
+  - [The three heuristics](#the-three-heuristics)
+  - [Scenario notation: measured, planned, projected](#scenario-notation-measured-planned-projected)
+  - [Grouped columns and bars](#grouped-columns-and-bars)
+  - [Line charts](#line-charts)
+  - [Pie and donut](#pie-and-donut)
+- [Data labels](#data-labels)
+- [Reference marks, intervention, thresholds, annotation](#reference-marks-intervention-thresholds-annotation)
+
+
 ## Input contract — check this before the table
 
 Chart type is not a free choice on top of the data; each engine accepts a
@@ -9,7 +26,7 @@ mismatch. Check the row before you write the config.
 
 | Chart | x / rows accept | y accepts | Violating it gives you |
 |:--|:--|:--|:--|
-| `line` (incl. spline, step) | **Ordered continuous or temporal only** — numbers, epoch-ms with `type:'datetime'`, or category labels that *every one* parse as dates | Numbers; `null` for a gap | An error panel — the engine refuses named categories outright |
+| `line` (incl. spline, step) | **Ordered continuous or temporal only** — numbers, epoch-ms with `type:'datetime'`, or category labels that either all parse as dates or form a rising sequence (`'Jan'…'Dec'`, `'Q1'…'Q4'`, `'Week 1'…`) | Numbers; `null` for a gap | An error panel — the engine refuses unordered named categories outright |
 | `column`, `bar` | Named categories (the normal case), or any ordered labels | Numbers, may be negative; `[low, high]` pairs for `columnrange` | Nothing breaks; this is the permissive engine |
 | `barList` | Named categories | Numbers, one per row | — |
 | `barInsightTable` | Named categories, each with an `insight` and/or `stat` | Numbers, one per row | Collapsed empty columns — a slower `barList` |

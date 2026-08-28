@@ -1,5 +1,23 @@
 # charts-lib
 
+**Contents**
+
+- [API](#api)
+- [Variations catalog](#variations-catalog)
+  - [Line (`Charts.line`)](#line-chartsline)
+  - [Column & bar (`Charts.column`, `Charts.bar`)](#column--bar-chartscolumn-chartsbar)
+  - [Bar list (`Charts.barList`)](#bar-list-chartsbarlist)
+  - [Bar insight table (`Charts.barInsightTable`)](#bar-insight-table-chartsbarinsighttable)
+  - [Waffle (`Charts.waffle`)](#waffle-chartswaffle)
+  - [Panels (`Charts.panels`)](#panels-chartspanels)
+  - [Donut & pie (`Charts.donut`, `Charts.pie`)](#donut--pie-chartsdonut-chartspie)
+  - [Scatter / bubble / packed (`Charts.scatter`, `Charts.bubble`, `Charts.packedBubble`)](#scatter--bubble--packed-chartsscatter-chartsbubble-chartspackedbubble)
+  - [Geofacet (`Charts.geofacet`)](#geofacet-chartsgeofacet)
+- [Titles and subtitles wrap](#titles-and-subtitles-wrap)
+- [Interactions (all charts)](#interactions-all-charts)
+- [Live examples](#live-examples)
+
+
 A tiny, self-contained SVG chart library styled to the clean-charts theme
 (cream background, Inter typography, black + blue gradient palette,
 top-left title, thin dark spines).
