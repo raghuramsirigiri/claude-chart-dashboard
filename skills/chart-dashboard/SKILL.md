@@ -101,11 +101,16 @@ HTML page of SVG charts rendered with `charts-lib`.
    utility role, then runs the same OKLCH recipe described in `theming.md`:
    paper, greyscale ink, a seven-step series ramp, and `accent`/`annotation`/
    `counter` — taken from the design where it has a color that fits the role,
-   derived by hue rotation where it doesn't. Paste its `Charts.applyPalette`
-   block in once, before the first chart call — hand it the palette and let
+   derived by hue rotation where it doesn't. Apply its `Charts.applyPalette`
+   block once, before the first chart call — hand it the palette and let
    `theme.js` re-derive the roles; assigning roles one by one leaves tiles,
    tooltips and dimmed legend keys on the old colours. Fix anything it marks FAIL rather than
-   shipping it.
+   shipping it. **Check the series hue it picked** against what you know the
+   brand's colour to be: the script ranks by how the CSS uses a colour, which
+   usually finds the brand colour and occasionally promotes a heavily-used
+   secondary instead. The report also names the design's typeface — reported,
+   not applied, unless the page can genuinely load the face (see § One design
+   system, only the colors change).
 
    **If all you have is one brand color** — a single hex, no CSS to harvest —
    run the same recipe with nothing observed:
@@ -536,9 +541,15 @@ doesn't already have.
 Type is the one place where copying the brand usually backfires. Most brand faces
 are licensed webfonts you cannot load into a local file, and naming one in
 `font-family` just falls through to a system fallback you didn't choose — worse
-than keeping charts-lib's stack, which was picked to work at 11px in a chart.
-Match the brand's font only when the face is genuinely available (a system font,
-or a file the user supplied). Full method in `references/theming.md`.
+than keeping charts-lib's stack, which was picked to work at 11px in a chart. In
+a chart the cost is not only aesthetic: the engines measure label widths against
+the face they think they have, so a substituted one makes axis labels the engine
+had fitted collide. And a page that reaches for a webfont stops being standalone
+(step 8). Match the brand's font only when the face is genuinely available — a
+system font, or a file the user supplied. `extract-theme.js` reports the
+design's face and says outright whether it is loadable; when it isn't, keep the
+template stack and tell the user which face you couldn't use and why. Full
+method in `references/theming.md`.
 
 The page has exactly five kinds of component, all already in the template:
 **header**, optional **KPI row**, **chart panels**, optional **soft surface

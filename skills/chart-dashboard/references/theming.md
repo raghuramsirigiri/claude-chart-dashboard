@@ -16,7 +16,7 @@ charts-lib's color roles, check they still contrast, apply them once.
 | The user gave you… | Do this |
 |:--|:--|
 | Local files (`site/index.html`, `styles.css`) | Read them directly |
-| A URL | Fetch the page, then fetch every same-origin `<link rel=stylesheet>` it references — the colors are almost never in the HTML |
+| A URL | Hand it straight to the extractor — `extract-theme.js https://their.site` fetches the page and its stylesheets for you (see below) |
 | A screenshot only | You cannot sample pixels reliably; ask for the CSS or a hex list, and say why |
 | A few hex codes in chat | Use them as-is; skip to step 3 |
 
@@ -33,11 +33,39 @@ single hex, skip to the generator — it is the same code with nothing observed.
 Run the bundled extractor, which does the parsing and the contrast maths:
 
 ```bash
-node <skill-dir>/scripts/extract-theme.js <file-or-dir> [more files…]
+node <skill-dir>/scripts/extract-theme.js <url-or-file-or-dir> [more…]
 ```
 
-It prints what it found in the design, the palette the recipe built from it, a
-ready-to-paste `Charts.applyPalette` block, and a contrast report. Read its
+**A URL is a first-class source.** The extractor shells out to
+`fetch-design.js`, which pulls the page and every stylesheet it links —
+whatever host serves them, since any site on Next.js or a CDN keeps its CSS on
+a separate asset domain — into a temp folder, then reads that folder like any
+other input. To keep the intermediate files, run the fetch yourself:
+
+```bash
+node <skill-dir>/scripts/fetch-design.js https://their.site -o ./brand
+node <skill-dir>/scripts/extract-theme.js ./brand
+```
+
+Two things to check before you trust the result, both printed at the top:
+
+- **How much CSS came back.** The fetch runs no JavaScript. A site that paints
+  itself from JS, or ships its palette as a runtime CSS-in-JS object, yields a
+  few KB and a confident-looking palette built from almost nothing. Under a few
+  KB, ask for their stylesheet or a few hex codes instead. If you have real
+  browser tooling, driving it and reading the *rendered* styles beats this.
+- **Whether the series hue is the brand's.** The extractor ranks by how many
+  kinds of declaration a colour appears in, which usually finds the brand
+  colour and sometimes finds a heavily-used secondary instead. You know what
+  the company's colour is; the script only knows what the CSS does. Override
+  by passing the hex to `generate-theme.js` instead.
+
+Never point it at anything behind a login — the fetch is unauthenticated, so a
+private URL returns a login page whose palette belongs to the login provider.
+
+It prints what it found in the design, the typeface the design leans on, the
+palette the recipe built from it, a ready-to-paste `Charts.applyPalette` block,
+and a contrast report. Read its
 output before pasting — it proposes, you decide.
 
 Its first job is to find the **canvas**, the **series hue**, and any color the
@@ -150,6 +178,25 @@ anything it flags:
 Apply the palette once, after `theme.js` loads and **before the first chart
 factory call**. Never set colors per chart — that is how a page ends up with six
 slightly different blues.
+
+The extractor can do the applying, which is the whole flow in one command:
+
+```bash
+node <skill-dir>/scripts/extract-theme.js https://their.site --write index.html
+```
+
+`--write` drops the generated block into the template's brand-recolour
+placeholder, or replaces the `Charts.applyPalette({…})` call already there — so
+re-running it against a different brand re-skins the page instead of stacking a
+second palette on the first. With neither anchor present it refuses and tells
+you to paste by hand, rather than guessing where in your markup the call goes.
+Read the report either way: `--write` saves you a paste, it does not save you
+from a palette that is wrong about which colour the brand actually leads with.
+
+**`theme.js` itself is never edited.** It holds the default palette *and* the
+palette → role derivation the whole library reads; a page that patches the
+library instead of calling `applyPalette` breaks the moment it is rebuilt, and
+takes the default theme with it for every other page built from that copy.
 
 Hand the **palette** to `Charts.applyPalette`; do not assign theme roles one by
 one. `theme.js` owns the palette → role mapping, and it covers roles a

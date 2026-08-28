@@ -3,10 +3,10 @@
  * extract-theme.js — derive a Charts.theme override from a reference design.
  *
  * Usage:
- *   node extract-theme.js <file-or-dir> [more files…]
+ *   node extract-theme.js <url-or-file-or-dir> [more…] [--write <page.html>]
  *
- * Give it a brand's CSS and/or HTML (a saved page, an exported stylesheet, a
- * directory containing them) and it prints:
+ * Give it a brand's CSS and/or HTML — a live URL, a saved page, an exported
+ * stylesheet, a directory containing them — and it prints:
  *   1. what it found, so you can sanity-check the mapping
  *   2. a Charts.theme override block ready to paste
  *   3. a contrast report flagging anything unreadable
@@ -16,6 +16,18 @@
  * fill (accent, annotation, counter) are taken from the design; roles it cannot
  * are derived from the harvested series hue.
  *
+ * A URL is fetched first (page + its stylesheets, via fetch-design.js) into a
+ * temp folder, which is then read exactly like local files. That fetch runs no
+ * JavaScript: check the "read N file(s)" line before trusting a palette built
+ * from a site that paints itself from JS.
+ *
+ * `--write <page.html>` applies the result instead of printing it for you to
+ * paste: the generated `Charts.applyPalette` block replaces the template's
+ * brand-recolour placeholder in that page. Re-running it replaces the block
+ * again, so a page can be re-skinned without hand-editing. The library's own
+ * theme.js is never modified — it holds the *default* palette and the
+ * palette → role derivation, and a page that edits it stops being portable.
+ *
  * It proposes; you decide. Reading the report matters more than pasting the
  * block — an extractor cannot know that a brand's "--accent-2" is reserved for
  * error states, and a palette that passes every ratio can still be wrong.
@@ -23,7 +35,9 @@
  * No dependencies. Works on any Node 14+.
  */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const G = require('./generate-theme.js');
 
 // ── colour parsing ───────────────────────────────────────────────────
@@ -87,14 +101,67 @@ function collectFiles(target) {
     .filter(f => fs.statSync(f).isFile() && /\.(css|html?)$/i.test(f));
 }
 
-const inputs = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const wi = argv.indexOf('--write');
+const writeTarget = wi >= 0 ? argv[wi + 1] : null;
+const inputs = wi >= 0 ? argv.filter((a, i) => i !== wi && i !== wi + 1) : argv.slice();
 if (!inputs.length) {
-  console.error('usage: node extract-theme.js <file-or-dir> [more files…]');
+  console.error('usage: node extract-theme.js <url-or-file-or-dir> [more…] [--write <page.html>]');
   process.exit(2);
 }
-const files = inputs.flatMap(collectFiles);
+if (wi >= 0 && !writeTarget) { console.error('--write needs a file path'); process.exit(2); }
+
+// A URL is fetched into a temp folder and then read like any other source, so
+// everything downstream — harvest, ranking, recipe — is one code path whether
+// the design arrived over the wire or off disk.
+const fetched = [];
+const resolved = inputs.map(src => {
+  if (!/^https?:\/\//i.test(src)) return src;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'brand-'));
+  try {
+    const out = execFileSync(process.execPath, [path.join(__dirname, 'fetch-design.js'), src, '-o', dir],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    console.log(out.split('\nNow run:')[0]);
+  } catch (e) {
+    console.error('Could not fetch ' + src + ': ' + String((e.stderr || e.message)).trim());
+    console.error('Ask the user for their stylesheet, or a few hex codes, and use those instead.');
+    process.exit(1);
+  }
+  fetched.push({ url: src, dir });
+  return dir;
+});
+const files = resolved.flatMap(collectFiles);
 if (!files.length) { console.error('No .css/.html files found.'); process.exit(2); }
 const css = files.map(f => fs.readFileSync(f, 'utf8')).join('\n');
+
+// ── typeface ─────────────────────────────────────────────────────────
+// A face is reported, never assigned. `Charts.theme.font` takes a CSS stack
+// that has to resolve on the *reader's* machine, and a chart is the worst
+// place to find out it didn't: a substituted face at 11px silently re-measures
+// every axis label, so labels the engine had fitted now collide. The rule is
+// the one in theming.md — a family only goes into the theme if the page can
+// actually load it (a Google Fonts link the site already carries, or a face
+// common enough to be a system font), and the template's fallbacks always stay
+// behind it. Everything else is reported, so you can tell the user what their
+// brand uses and why the charts are not using it.
+const SYSTEM_SAFE = /^(inter|arial|helvetica( neue)?|georgia|times( new roman)?|verdana|tahoma|trebuchet ms|courier( new)?|segoe ui|roboto|system-ui|-apple-system|ui-sans-serif|ui-serif|sans-serif|serif|monospace)$/i;
+const googleFamilies = new Set();
+for (const m of css.matchAll(/fonts\.googleapis\.com\/css2?\?([^"'\s>)]+)/g)) {
+  for (const f of m[1].matchAll(/family=([^&:]+)/g)) {
+    googleFamilies.add(decodeURIComponent(f[1].replace(/\+/g, ' ')).trim());
+  }
+}
+const fontUse = new Map();
+for (const m of css.matchAll(/font-family\s*:\s*([^;}{]+)[;}]/gi)) {
+  const stack = m[1].trim().replace(/\s+/g, ' ');
+  const first = (stack.split(',')[0] || '').trim().replace(/^["']|["']$/g, '');
+  if (!first || /^(inherit|initial|unset|var\()/i.test(first)) continue;
+  const e = fontUse.get(first) || { n: 0, stack };
+  e.n++; fontUse.set(first, e);
+}
+const fontRanked = [...fontUse.entries()].sort((a, b) => b[1].n - a[1].n);
+const bodyFace = fontRanked[0] || null;
+const fontLoadable = !!bodyFace && (googleFamilies.has(bodyFace[0]) || SYSTEM_SAFE.test(bodyFace[0]));
 
 // ── harvest ──────────────────────────────────────────────────────────
 // 1. Custom properties: the brand has already named the roles for us.
@@ -149,8 +216,32 @@ const noteUse = (list, kind) => list.forEach(c => {
 noteUse(bgs, 'bg'); noteUse(texts, 'text'); noteUse(borders, 'border');
 const useOf = h => usage.get(h) || { total: 0, kinds: new Set() };
 
-// Canvas: what charts sit on. Trust the most-declared background before any name.
-const surface = bgs[0] || pickVar('surface', 'card', 'panel') || { hex: '#f4f3f0', rgb: toRgb('#f4f3f0') };
+// Canvas: what the charts sit on. "Most-declared background" is the obvious
+// pick and it is wrong on any real stylesheet: GOV.UK declares its focus-state
+// yellow #ffdd00 on more elements than anything else, so the naive rule hands
+// back a canary dashboard. Three tests, in order of how much they actually
+// know:
+//   1. what the page paints on `body` / `html` / `:root` — the real canvas,
+//      stated by the design itself;
+//   2. a named surface/background variable;
+//   3. the most-declared background that could plausibly be a page ground —
+//      near-neutral, since a saturated one is a highlight, a badge or a
+//      callout, not a canvas.
+const BODY_BG = /(^|[,}])\s*(?:html|body|:root)[^{}]*\{([^}]*)\}/gi;
+const bodyBgs = [];
+for (const m of css.matchAll(BODY_BG)) {
+  const decl = /(?:^|;)\s*background(?:-color)?\s*:\s*([^;]+)/i.exec(m[2]);
+  if (!decl) continue;
+  const tok = (decl[1].match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\)/) || [])[0];
+  const rgb = tok && toRgb(tok);
+  if (rgb) bodyBgs.push({ hex: hex(rgb), rgb, n: 1 });
+}
+const plausibleGround = c => G.rgbToOklch(c.rgb).C < 0.08;
+const surface = bodyBgs[0]
+  || validate(pickVar('surface', 'canvas', 'page-bg', 'background'), plausibleGround)
+  || bgs.filter(plausibleGround)[0]
+  || bgs[0]
+  || { hex: '#f4f3f0', rgb: toRgb('#f4f3f0') };
 const dark = luminance(surface.rgb) < 0.35;
 
 // Ink: readable against the canvas, and the *least* saturated such colour —
@@ -205,9 +296,12 @@ const accent = validate(pickVar('accent', 'signal', 'primary', 'brand'), c => ch
   || brandPool.sort(rankBrand)[0]
   || { hex: '#2323FF', rgb: toRgb('#2323FF') };
 
-// Page ground: a background near the canvas, not the ink that happens to be dark.
+// Page ground: a background near the canvas, not the ink that happens to be
+// dark and not a saturated highlight that happens to be pale. Same chroma
+// guard as the canvas — a ground is a near-neutral by definition.
 const groundFallback = mix(surface.rgb, toRgb(dark ? '#000000' : '#000000'), dark ? 0.35 : 0.06);
-const pageBg = bgs.find(c => c.hex !== surface.hex && contrast(c.rgb, surface.rgb) < 2)
+const pageBg = bgs.find(c => c.hex !== surface.hex && plausibleGround(c) &&
+    contrast(c.rgb, surface.rgb) < 2)
   || { hex: hex(groundFallback), rgb: groundFallback };
 
 const danger = validate(pickVar('bad', 'danger', 'error', 'negative'), c => chromaOf(c.rgb) >= 0.05);
@@ -301,6 +395,17 @@ for (const k of ['n0', 'n0a', 'n1', 'n2a', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', '
   console.log('  ' + pad(k) + c[k] + src);
 }
 
+console.log('\nTypeface');
+if (!bodyFace) {
+  console.log('  none declared in the harvested CSS — keep the template stack');
+} else {
+  console.log('  ' + pad('most-used') + bodyFace[0] + '  (' + bodyFace[1].n + ' declarations)');
+  fontRanked.slice(1, 3).forEach(f => console.log('  ' + pad('also') + f[0] + '  (' + f[1].n + ')'));
+  console.log('  ' + pad('verdict') + (fontLoadable
+    ? 'loadable — may go in Charts.theme.font, with the template fallbacks kept behind it'
+    : 'NOT loadable here (no shippable @font-face, not a system face) — keep the template stack and tell the user why'));
+}
+
 console.log('\nPaste this after theme.js loads and before the first chart call:\n');
 console.log(G.themeBlock(p));
 
@@ -310,3 +415,40 @@ console.log(r.rows.join('\n'));
 console.log(r.allOk
   ? '\nAll required ratios pass. Still look at the rendered page before shipping.'
   : '\nFix the FAIL rows above before using this palette - adjust the offending token by hand.');
+
+// ── apply ────────────────────────────────────────────────────────────
+// `--write` puts the palette into a page instead of leaving you to paste it.
+// It targets the template's brand-recolour placeholder — the commented block
+// between `theme.js` loading and the page-chrome sync — and on a page already
+// recoloured it replaces the previous `Charts.applyPalette({…})` call, so
+// re-running against a new brand re-skins rather than stacking two palettes.
+if (writeTarget) {
+  if (!fs.existsSync(writeTarget)) {
+    console.error('\n--write: no such file: ' + writeTarget);
+    process.exit(1);
+  }
+  let page = fs.readFileSync(writeTarget, 'utf8');
+  const block = G.themeBlock(p).trim();
+  const placeholder = /\/\*\s*Brand recolour goes HERE[\s\S]*?\*\//;
+  const existing = /Charts\.applyPalette\(\{[\s\S]*?\}\);/;
+  let how;
+  if (placeholder.test(page)) {
+    page = page.replace(placeholder, block);
+    how = 'replaced the placeholder block';
+  } else if (existing.test(page)) {
+    page = page.replace(existing, block);
+    how = 'replaced the existing applyPalette call';
+  } else {
+    // No anchor. Rather than guess at an insertion point in someone's markup,
+    // say so — a palette applied after the first chart call is a no-op that
+    // looks like the extractor failed.
+    console.error('\n--write: found neither the template placeholder nor an existing');
+    console.error('Charts.applyPalette call in ' + path.basename(writeTarget) + '.');
+    console.error('Paste the block by hand, after theme.js loads and before the first chart.');
+    process.exit(1);
+  }
+  if (!/applyPalette/.test(page)) { console.error('\n--write: refusing to write a page with no palette call'); process.exit(1); }
+  fs.writeFileSync(writeTarget, page);
+  console.log('\nWrote the palette into ' + writeTarget + ' — ' + how + '.');
+  console.log('Reload the page and look at it: the contrast report above is a floor, not a verdict.');
+}
