@@ -4,7 +4,7 @@ A tiny, self-contained SVG chart library styled to the clean-charts theme
 (cream background, Inter typography, black + blue gradient palette,
 top-left title, thin dark spines).
 
-Zero dependencies. Drop `charts.js` into your page and call one of eleven
+Zero dependencies. Drop `charts.js` into your page and call one of thirteen
 factory functions. Every chart is inline SVG with native tooltip, hover, and
 legend interactions — no canvas, no external framework.
 
@@ -48,6 +48,13 @@ legend interactions — no canvas, no external framework.
 All functions take `(container, config)` where `container` is a DOM element
 or its id, and `config` is a Highcharts-compatible options object.
 
+**Data labels are on by default in every chart type.** The value a mark encodes
+is what the reader came for, so making them read it off an axis is a needless
+indirection. Turn them off per chart with `dataLabels: false` (or
+`{ enabled: false }`) in that engine's `plotOptions` block — or per series,
+where the engine has series. Scatter/bubble point labels use `showLabels: false`,
+and they only ever draw for points that carry a `name`.
+
 ## Variations catalog
 
 Every option below is optional; the library picks sensible defaults.
@@ -66,19 +73,26 @@ Every option below is optional; the library picks sensible defaults.
   series sharing an x-axis. See `annotation.md` § Intervention and forecast.
 - **Step alignment**: `step: 'left' | 'center' | 'right'` (for step series)
 - **Dash style**: `dashStyle: 'Solid'|'ShortDash'|'ShortDot'|'Dot'|'Dash'|'LongDash'|'DashDot'`
-- **Markers**: `marker: { enabled, symbol: 'circle'|'square'|'diamond'|'triangle', radius }`
-- **Data labels**: `dataLabels: { enabled, format }`
+- **Markers**: `marker: { enabled, symbol: 'circle'|'square'|'diamond'|'triangle'|'triangle-down', radius }`
+- **Data labels**: on by default; `dataLabels: false` (or `{ enabled: false }`),
+  globally via `plotOptions.series` or per series, turns them off, `{ format }`
+  reformats them. Placement is collision-aware — a label that would overlap one
+  already drawn is dropped rather than stacked on top of it, so a dense line
+  ends up partly labelled and is usually better off with them off.
 - **X must be continuous or temporal.** The engine *refuses to draw* a line
   over named categories and renders an error panel instead — see `chart-selection.md`
   § Input contract. Valid axes:
   - Linear (default): numeric `x`, or `data: [[x, y], …]`
-  - Datetime: `xAxis: { type: 'datetime', tickInterval: 'year'|'quarter'|'month'|'week'|'day'|'hour'|'minute'|'second' }` with epoch-ms `x` values
-  - Date-labelled categories: `xAxis: { categories: [...] }` where **every**
-    label parses as a date. It must contain a 4-digit year or a `d/d` pair *and*
-    survive `Date.parse`, so `'2019'`, `'Jan 2025'`, `'2024-01-01'`, `'3/14'`
-    all work — while `'Jan'`, `'Q1'`, `'Q1 2024'`, `'Week 1'`, `'Mon'` do not.
-    For quarters, pass the quarter's start date (`'2024-01-01'`) or its year
-    when one point per year (`'2024'`).
+  - Datetime: `xAxis: { type: 'datetime', tickInterval: 'auto'|'year'|'quarter'|'month'|'week'|'day'|'hour'|'minute'|'second' }` with epoch-ms `x` values. `'auto'` (the default) walks the ladder of periods and stops at the first whose labels fit the axis width.
+  - Ordered categories: `xAxis: { categories: [...] }` where the list passes
+    **either** test. (1) Every label parses as a date — a 4-digit year or a
+    `d/d` pair *and* `Date.parse` succeeds: `'2019'`, `'Jan 2025'`,
+    `'2024-01-01'`, `'3/14'`. (2) The labels are a strictly rising sequence —
+    month names (`'Jan'…'Dec'`), weekday names (`'Mon'…'Sun'`), or one stem
+    numbered upwards (`'Q1'…'Q4'`, `'Week 1'…'Week 12'`, `'Band 1'…'Band 5'`).
+    A shuffled or partial run fails both, as does an unordered set of names.
+    Date-parsing categories collapse to a coarser calendar period (day → week →
+    month → quarter → year) as the axis gets crowded.
   - Logarithmic Y: `yAxis: { type: 'logarithmic' }` — **strictly positive
     values only.** A zero or negative point is clamped to the axis floor and
     plots as a flat line along the bottom; the axis silently starts at 1 when
@@ -107,10 +121,14 @@ Every option below is optional; the library picks sensible defaults.
 - **3D effect**: `chart: { options3d: { enabled: true, depth: 40 } }`
 - **Negative values**: bars flip below zero baseline; `negativeColor` overrides bar color for negatives
 - **Population pyramid**: horizontal bar + a series with all-negative values + `tooltip.absoluteX:true`
-- **Data labels**: `plotOptions.series.dataLabels.enabled` — placed above (column) or
-  inside/outside right end (bar) with automatic contrast text color. **Off by
-  default; turn them on for most categorical charts.** `format: '{y}%'` templates
-  the label. Per-series override with `series[i].dataLabels`.
+- **Data labels**: **on by default** — above the bar (column) or at the right
+  end (bar), with automatic contrast text color. In a **stacked** chart they
+  move inside each segment, since above a segment is where the next one sits,
+  and segments too small to hold the number go unlabelled — except where a
+  category has a single segment on that side of zero (the population-pyramid
+  shape), where the label takes the bar's outer end. `format: '{y}%'` templates
+  the label. Turn off with `dataLabels: false` at `plotOptions.column` /
+  `.bar` / `.series`, or per series via `series[i].dataLabels`.
 - **Per-point color**: any data point may be written as an object with its own
   `color`, which wins over the series color and over `negativeColor`:
   ```js
@@ -142,7 +160,18 @@ Every option below is optional; the library picks sensible defaults.
   `Charts.theme.secondaryColor` on de-emphasised series so a legend on an
   emphasis chart doesn't present every series as equally important. Supported on
   line, column/bar, and scatter/bubble.
-- **Category wrapping**: long category names auto-wrap to two lines below the bar
+- **Category labels are never dropped.** A partly-labelled axis ("Chrome, ?, ?,
+  Safari") is worse than none, so crowding is solved by presentation, in order:
+  full width → a size smaller → wrapped onto two lines → two staggered rows →
+  45° slant → 90° vertical, with an ellipsis only after wrapping has been tried.
+  Categories that parse as dates are the exception — they collapse to a coarser
+  calendar period instead. Horizontal bars skip all of this: each category owns
+  a row, so the label already has the room.
+- **Target & threshold marks**: `yAxis.plotLines` / `yAxis.plotBands` draw a
+  labelled target, budget, or break-even. They are drawn **above** the bars — a
+  target hidden behind a bar is useless — and follow the chart's orientation, so
+  the same config works for `Charts.column` and `Charts.bar`. Values outside the
+  axis range are clamped to it. See `annotation.md` § Threshold shift.
 - **Column range**: `type:'columnrange'` with `data: [[low, high], …]`
 
 ### Bar list (`Charts.barList`)
@@ -228,8 +257,9 @@ Charts.barInsightTable('container', {
   `descriptionSize`, `statSize`.
 - **Colors** as in `column`/`bar`: one series takes `defaultColor`, two or more
   walk `theme.colors`; `statColor` tints an individual stat.
-- **Value labels** off by default — the stat is the readout that matters. Turn on
-  with `dataLabels: true`.
+- **Value labels**: bar-end values are on by default like everywhere else
+  (`dataLabels: false` removes them); the row's *stat* is the readout that
+  carries the finding. `valueSuffix` and `format: '{y}%'` work as elsewhere.
 - **Dividers** are hairlines between rows only; `dividers: false` removes them.
 - **Height**: the container grows to fit the rows; `autoHeight: false` keeps the
   container's own height.
@@ -319,9 +349,9 @@ Charts.panels('chart', {
 ### Scatter / bubble / packed (`Charts.scatter`, `Charts.bubble`, `Charts.packedBubble`)
 
 - **Series type per series**: `type: 'scatter' | 'bubble' | 'packedbubble'`
-- **Marker symbol**: `marker: { symbol: 'circle'|'square'|'diamond'|'triangle', radius }`
+- **Marker symbol**: `marker: { symbol: 'circle'|'square'|'diamond'|'triangle'|'triangle-down', radius }`
 - **Trend line**: `series[i].regression: true` — dashed blue linear least-squares
-- **Point labels**: `series[i].showLabels: true` — draws `point.name` above each marker
+- **Point labels**: on by default, but drawn only for points that carry a `name`; `series[i].showLabels: false` turns them off
 - **Bubble size scale (area)**: `plotOptions.bubble: { minSize, maxSize }` — area in "points²", radius derived
 - **Bubble color gradient**: automatically applied when there's only one bubble series (larger bubbles → bluer)
 - **Packed clusters**: with N series → N separate clusters; with 1 series → single cluster and color-by-size gradient

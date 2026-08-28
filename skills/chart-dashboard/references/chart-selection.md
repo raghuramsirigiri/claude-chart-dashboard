@@ -40,16 +40,26 @@ Two cases look like exceptions and aren't:
   and it is what the error message means by "give each category its own series
   over a date or numeric x-axis".
 - *Ordered non-temporal bins* — age bands, deciles, funnel stages, Likert
-  points — genuinely have order, and a line over them is legitimate in
-  principle. charts-lib still refuses them, so plot the bin's numeric midpoint
-  on a linear x, or use columns. Don't fake a date to get past the guard.
+  points — genuinely have order, and a line over them is legitimate. The guard
+  accepts them as long as the labels carry their own sequence (see below);
+  labels that don't, like `'Strongly agree' … 'Strongly disagree'`, need the
+  bin's numeric midpoint on a linear x, or columns. Don't fake a date to get
+  past the guard.
 
-**Date-labelled categories must actually parse.** The label needs a 4-digit year
-or a `d/d` pair *and* must survive `Date.parse`. So `'2019'`, `'Jan 2025'`,
-`'2024-01-01'`, `'3/14'` are fine — and `'Jan'`, `'Q1'`, `'Q1 2024'`, `'Week 1'`,
-`'Mon'` are **not**, even though they read as time to a human. Bare month names
-are the single most common way this fails: write `'Jan 2025'`, not `'Jan'`. For
-quarters, pass the quarter's start date and say "quarterly" in the subtitle.
+**What counts as an ordered x-label.** The engine accepts a category list when
+*either* test passes:
+
+- **Every label parses as a date** — it carries a 4-digit year or a `d/d` pair
+  *and* survives `Date.parse`: `'2019'`, `'Jan 2025'`, `'2024-01-01'`, `'3/14'`.
+- **The labels are a rising, evenly-spaced sequence** — month names (`'Jan' …
+  `'Dec'`), weekday names (`'Mon' … 'Sun'`), or one stem numbered upwards
+  (`'Q1'…'Q4'`, `'Week 1'…'Week 12'`, `'Band 1'…'Band 5'`, `'2019'…'2025'`).
+  Strictly increasing is required, so a shuffled or partial run still fails.
+
+Anything else — `'Chrome', 'Safari', 'Firefox'` — is refused. Where a bare
+sequence is ambiguous to the *reader* (`'Jan'` in a chart spanning two years),
+still write `'Jan 2025'`: the guard is about whether a line is meaningful, the
+label is about whether the axis is.
 
 **Part-of-whole charts need parts of one whole.** Donut, pie, and waffle all
 assume the values are non-negative shares that add up to something meaningful.
@@ -123,9 +133,9 @@ rows are categories, not periods.
 - **A line over named categories** — browsers, regions, departments, SKUs.
   The engine refuses it and you ship an error panel; even if it drew, the
   slope between two names means nothing. Use columns.
-- Bare month names (`'Jan'`) or quarter labels (`'Q1 2024'`) as line
-  categories — they don't parse as dates. Write `'Jan 2025'` or the
-  quarter's start date.
+- Line categories that aren't a rising sequence — a partial or shuffled run
+  of month or quarter labels reads as time to a human but fails the guard.
+  Keep the run complete and in order, or write full dates.
 - A log y-axis over data containing zero or negative values.
 - A scatter where one axis is a category — `xAxis.categories` is ignored,
   so the points land on an index axis that means nothing.
@@ -380,12 +390,14 @@ chart is none. Full recipe, including forecast notation, in
 
 ## Data labels
 
-Turn `dataLabels` on for bar, column, and bar-list charts by default. They are
-off in the library and the resulting chart makes the reader trace a bar back to
-a gridline to recover a number that would have fit above it.
+**Data labels are on by default in every chart type**, because the value a mark
+encodes is what the reader came for and making them trace a bar back to a
+gridline is a needless indirection. You mostly reformat them rather than enable
+them; turn them off where they'd collide.
 
 ```js
-plotOptions: { series: { dataLabels: { enabled: true, format: '{y}%' } } }
+plotOptions: { series: { dataLabels: { format: '{y}%' } } }   // reformat
+plotOptions: { column: { dataLabels: false } }                // opt out
 ```
 
 - **Label, or keep the axis — rarely both.** Once every bar carries its value,
@@ -393,12 +405,18 @@ plotOptions: { series: { dataLabels: { enabled: true, format: '{y}%' } } }
   labels + heavy ticks + gridlines is three renderings of one number.
 - **Turn them off when they'd collide**: more than ~15 bars, or grouped columns
   with 3+ series where the labels overlap. The axis does the job there.
-- **Stacked columns**: label the segments only if each is wide enough; otherwise
-  label nothing and let the tooltip carry it.
+- **Stacked columns**: labels move inside each segment (above a segment is
+  where the next one sits), and segments too small to hold their number go
+  unlabelled on their own. The exception is a category with a single segment on
+  one side of zero — the population-pyramid shape — where the label takes the
+  bar's outer end.
 - **Format them like the subtitle promises** — `format: '{y}%'`, or round in the
   data. A label reading `0.4729331` is worse than no label.
-- **Line charts stay unlabelled** unless there are few points; a labelled line
-  becomes a wall of text. Use `callouts` for the points that matter.
+- **Line charts often want them off** — `dataLabels: false` on the series —
+  unless there are few points; a labelled line becomes a wall of text. Placement
+  is collision-aware (a label that would overlap one already drawn is dropped,
+  not stacked on it), so a dense line silently loses most of its labels, which
+  is worse than none. Use `callouts` for the points that matter.
 
 ## Reference marks, intervention, thresholds, annotation
 

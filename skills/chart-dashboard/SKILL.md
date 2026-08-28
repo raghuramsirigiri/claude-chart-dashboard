@@ -83,10 +83,10 @@ HTML page of SVG charts rendered with `charts-lib`.
    **Check the chart's input contract first** (`chart-selection.md` § Input
    contract). Each engine accepts a particular kind of x and y, and a mismatch
    is a broken panel rather than a style choice. The one that bites most often:
-   a line chart needs an *ordered* x — dates or numbers. Named categories
-   (regions, browsers, departments) render an error panel instead of a chart,
-   and even bare month names like `'Jan'` fail because they don't parse as
-   dates; write `'Jan 2025'`, or use `Charts.column` when x is a name.
+   a line chart needs an *ordered* x — dates, numbers, or labels that carry
+   their own rising sequence (`'Jan'…'Dec'`, `'Q1'…'Q4'`, `'Week 1'…'Week 12'`).
+   Named categories (regions, browsers, departments) render an error panel
+   instead of a chart; use `Charts.column` when x is a name.
 
    **When a panel marks something up** — an intervention, a projection, a
    target, a labelled anomaly — read `references/annotation.md` for the cue and
@@ -272,9 +272,9 @@ how a page ends up technically correct and useless. Override them on purpose:
   fill with `scenario: 'plan' | 'forecast'` (outlined / hatched) and keep color
   for the finding. A projection drawn identically to a measurement is the same
   failure as inventing the number.
-- **Data labels.** On by default for bar, column, and bar-list —
-  `plotOptions: { series: { dataLabels: { enabled: true } } }`. Off only when
-  they'd collide (many bars, dense grouped columns). See § Data labels.
+- **Data labels.** The library draws them in every chart type by default. Opt
+  out with `dataLabels: false` where they'd collide — dense lines, many bars,
+  grouped columns with 3+ series. See § Data labels.
 - **Geofacet variant.** `'bar'` is what you get by typing nothing, which is not
   a reason to use it three times on one page. `'heat'` when the spatial pattern
   is the point, `'gauge'` when regions are measured against a shared target.
