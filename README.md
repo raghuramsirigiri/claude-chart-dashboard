@@ -354,6 +354,8 @@ skills/chart-dashboard/
 │   ├── chart-selection.md          # data shape → chart type, emphasis, anti-patterns
 │   ├── layout.md                   # deriving the grid from the analysis; spans, breakpoints
 │   ├── annotation.md               # callouts, plot bands, forecast vs. measured notation
+│   ├── narrative.md                # action titles; where a finding goes
+│   ├── controls.md                 # wiring a filter so every panel and title follows it
 │   └── theming.md                  # the OKLCH recipe behind a brand recolour
 ├── scripts/
 │   ├── extract-theme.js            # brand CSS/HTML → a Charts.theme block

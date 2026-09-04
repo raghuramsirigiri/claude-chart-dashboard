@@ -87,6 +87,11 @@ HTML page of SVG charts rendered with `charts-lib`.
    Named categories (regions, browsers, departments) render an error panel
    instead of a chart; use `Charts.column` when x is a name.
 
+   Two more references come in at this step when they apply: write the panel
+   titles against `references/narrative.md` (where a finding goes, and how to
+   state it without editorializing), and if the page has a filter or dropdown,
+   read `references/controls.md` before wiring it.
+
    **When a panel marks something up** — an intervention, a projection, a
    target, a labelled anomaly — read `references/annotation.md` for the cue and
    its mechanics. Colour and stroke are per-series on a line, so actual-vs-
@@ -249,23 +254,10 @@ will accept without proof doesn't need one either.
 ### Fit the page to how it will be read
 
 The templates are tuned for someone reading at a desk. When the user tells you
-otherwise — and they usually do, in passing — adapt, because the same page fails
-badly in a different context:
-
-- **"Behind me on screen", "for the all-hands", "I'm presenting this"** — a
-  projector is read from ten feet away by someone who gets thirty seconds per
-  slide. Use few panels, give each a lot of room, and scale the type up
-  (`Charts.theme.titleSize`, `tickSize`, `valueSize`, and a larger `--kpi-value`
-  step). A dense grid that works on a laptop is unreadable in a room.
-- **"Send it round", "paste into the weekly update", "for the board pack"** — it
-  will be read alone, without you narrating. Lean on subtitles and callouts to
-  carry the context you would otherwise say out loud.
-- **"Print it", "PDF"** — one column, no reliance on hover; tooltips don't exist
-  on paper, so anything only visible on hover must also be a label.
-
-None of this changes the design system — same palette, same type scale
-relationships, same components. It changes how much you put on the page and at
-what size.
+otherwise — "I'm presenting this", "send it round", "print it" — the same page
+fails badly in that other context, and the fix is how much you put on the page
+and at what size, never a different design system. The three cases and what each
+one changes are in `references/layout.md` § Fit the page to how it will be read.
 
 ### Make the chart show the finding, not just the data
 
@@ -303,7 +295,7 @@ how a page ends up technically correct and useless. Override them on purpose:
   failure as inventing the number.
 - **Data labels.** The library draws them in every chart type by default. Opt
   out with `dataLabels: false` where they'd collide — dense lines, many bars,
-  grouped columns with 3+ series. See § Data labels.
+  grouped columns with 3+ series. See `references/chart-selection.md` § Data labels.
 - **Geofacet variant.** `'bar'` is what you get by typing nothing, which is not
   a reason to use it three times on one page. `'heat'` when the spatial pattern
   is the point, `'gauge'` when regions are measured against a shared target.
@@ -314,68 +306,11 @@ how a page ends up technically correct and useless. Override them on purpose:
 A dropdown that doesn't change the charts is worse than no dropdown: it reads as
 a broken page, and the reader stops trusting the numbers that *are* correct. So
 either add no controls at all — a static page is a perfectly good deliverable —
-or wire them completely. There is no acceptable middle.
-
-Wiring completely means three things, and the third is the one that gets missed:
-
-1. **The data is filtered, not just the label.** Keep the full dataset in one
-   `const DATA`, derive the filtered rows inside a `render(state)` function, and
-   have every affected chart drawn *inside* that function. Re-calling a factory
-   on the same container id is the supported update path — each engine clears
-   the container first.
-2. **Every dependent panel re-renders**, including KPI tiles and any note that
-   quotes a number. A grid where two panels respond to the filter and four don't
-   is the same broken-trust failure in a subtler form.
-3. **Action titles re-compute.** This is the trap in the combination of the two
-   features. The moment a title states a finding — "The top two categories drive
-   90% of volume" — that sentence is a *function of the filtered data*, and a
-   filter that leaves it frozen makes the page assert something false about what
-   is on screen. So the title must be built from the same filtered rows:
-
-   ```js
-   const DATA = [ /* every row, unfiltered */ ];
-
-   function render(state) {
-     const rows = DATA.filter(r => state.region === 'all' || r.region === state.region)
-                      .sort((a, b) => b.value - a.value);
-     const total = rows.reduce((s, r) => s + r.value, 0);
-     const topTwo = rows.slice(0, 2).reduce((s, r) => s + r.value, 0);
-     const share = Math.round(100 * topTwo / total);
-     const scope = state.region === 'all' ? 'all regions' : state.region;
-
-     Charts.bar('c1', {
-       title: `Top two categories drive ${share}% of volume`,   // recomputed
-       subtitle: `Units shipped · ${scope} · FY2026`,           // scope follows too
-       xAxis: { categories: rows.map(r => r.name) },
-       plotOptions: { series: { dataLabels: { enabled: true } } },
-       legend: { enabled: false },
-       series: [{ name: 'Units', data: rows.map((r, i) => ({
-         y: r.value, color: i < 2 ? Charts.theme.colors[1] : Charts.theme.muted
-       })) }]
-     });
-     // …every other dependent panel, drawn here too
-   }
-
-   document.querySelectorAll('.filter-bar select').forEach(sel =>
-     sel.addEventListener('change', () => render(readState())));
-   render(readState());   // first paint goes through the same path
-   ```
-
-   If a filtered slice can't support the claim — one category left, no top two —
-   fall back to a descriptive title for that state rather than printing a
-   sentence the chart no longer proves.
-
-Two guards worth applying before you ship a control: the **first paint must go
-through `render()`** (never draw once statically and wire the dropdown to a
-second code path — they drift), and **every filter value must be reachable and
-non-empty**. A dropdown option that yields zero rows should draw an empty-state,
-not a blank card.
-
-The last question to ask is whether the control earns its place. A filter is
-worth it when the reader genuinely has several slices to inspect; when there are
-three regions and the comparison *is* the finding, three small-multiple panels
-beat a dropdown, because the reader sees all three at once instead of holding
-two in memory.
+or wire them completely, which means the data is filtered rather than the label,
+every dependent panel re-renders, and any action title recomputes from the same
+filtered rows. **If the page has a control, read `references/controls.md`**: it
+has the `render(state)` pattern in full, the guards to apply before shipping
+one, and the cases where small multiples beat a filter.
 
 ### Legends go in one place
 
@@ -394,48 +329,27 @@ cramped one. The only sanctioned alternative is charts-lib's own
 `lineLabels: 'inline'`, and if you use it on one line chart, use it on all of
 them.
 
-### Put the finding in the title, not in a quote box
+### Put the finding in the title
 
 A chart titled "Weekly throughput by site" makes the reader do the work of
 finding the point. A chart titled "Throughput fell 12% the week of the WMS
-cutover" hands it to them and then proves it underneath. That is an **action
-title**: the headline states what the data shows, and the chart is the evidence.
-The insight lives in the chart's own hierarchy, so it travels with the figure
-into a screenshot, a slide, or an email.
+cutover" hands it to them and then proves it underneath — the insight lives in
+the chart's own hierarchy, so it travels with the figure into a screenshot, a
+slide, or an email. The finding goes in `title`, the units and scope stay in
+`subtitle`.
 
-The title-subtitle pair splits cleanly:
+The line that keeps this from becoming editorializing is whether the chart
+proves the sentence: "Billing drives 27% of all tickets" is measurable off the
+chart, "Billing is a serious problem" is a verdict the reader should reach
+themselves. When no single finding dominates, a plain descriptive title is the
+honest choice — don't manufacture a headline.
 
-```
-title:    'Throughput fell 12% the week of the WMS cutover'   ← the finding
-subtitle: 'Units picked per week by site · W01–W04 2026'      ← units, scope, window
-```
+**Read `references/narrative.md` before writing the titles.** It has the
+write-this/not-this table, the length budget per cell, and the three-way choice
+between an action title, `Charts.barInsightTable`, and a soft surface card —
+including the rule that stops the same sentence appearing in two of them.
 
-The subtitle keeps doing its old job. What changes is that the title is allowed —
-preferred — to say what happened, when the data supports a specific claim.
-
-**This is not licence to editorialize.** The line is whether the chart proves the
-sentence:
-
-| Write this | Not this | Why |
-|:--|:--|:--|
-| "Throughput fell 12% the week of the cutover" | "Concerning dip in throughput" | The first is measurable off the chart; the second is a verdict the reader should reach themselves |
-| "Billing drives 27% of all tickets" | "Billing is a serious problem" | Same fact, but the second adds an opinion the data doesn't contain |
-| "Weekly throughput by site" | "Throughput improving steadily" | When no single finding dominates, a plain descriptive title is the honest choice — don't manufacture a headline |
-
-So: adjectives and verdicts stay out, quantified findings come in. If you cannot
-put a number or a specific comparison in the title, you probably don't have a
-finding, and a descriptive title is right.
-
-**Length has room, but not unlimited room.** charts-lib wraps titles across two
-lines and subtitles across three, measuring against the panel width and shrinking
-the plot area to fit, so a full sentence is safe — this is why an action title
-doesn't have to be compressed into a label. Keep titles under about 70
-characters and they work in any cell, including the narrow `w4` (~35 characters
-per line, two lines). Past roughly 90 characters in a narrow cell the tail is
-ellipsized, which loses exactly the part carrying the finding. If a title won't
-fit that budget, the usual fix is that it's carrying two findings — split the
-panel — or that the qualifying detail belongs in the subtitle. Exact per-cell
-limits are in `references/chart-api.md`.
+### Nothing on the page that isn't data or its labels
 
 - No invented narrative furniture that repeats what a chart already says: no
   "Key insight" banners, no "Executive summary" you wrote yourself, no
@@ -446,52 +360,6 @@ limits are in `references/chart-api.md`.
 - Conclusions the user themselves stated ("the March spike is the thing I need to
   explain") belong on the relevant chart — as its title or a callout, in their
   framing — not restated as your own analysis in a banner.
-
-### Where a finding goes: action title, insight column, or soft surface card
-
-Three containers, and the choice is almost mechanical. Ask: **how many findings
-are there, and can one chart prove them?**
-
-**One finding, one chart proves it → action title.** It belongs in that chart's
-`title`, with the descriptive detail moving to `subtitle`. The finding and its
-evidence stay welded together, which is what makes the figure survive being
-screenshotted out of context.
-
-**One finding per row → `Charts.barInsightTable`.** When every category carries
-its own point — an income statement, a KPI review, a scorecard — a single title
-can't hold them all, and writing one card per row buries the chart. This chart
-type puts each row's sentence and its headline number beside that row's bars.
-Selection guidance in `references/chart-selection.md`.
-
-**No single figure carries it → soft surface card** (`.note` in both templates).
-Use it for text that spans figures:
-
-- a caveat that changes how several figures should be read ("labor hours don't
-  reconcile with the stated total; site rows used")
-- an honesty note (illustrative figures, carried-forward panels)
-- a method or definition the reader needs up front
-- the ask, in a report — what you want the reader to do
-
-The card is a low-contrast fill, not a bordered pull-quote. A `border-left` bar
-or a big italic quote is decoration borrowed from editorial layout: it shouts
-without adding information, and on a dark theme the coloured bar becomes the
-loudest thing on the page. The soft fill does the same separating job by sitting
-a few percent off the canvas, so the text is set apart and nothing competes with
-the data. `--surface-soft` is computed from the theme, so it inverts correctly on
-dark brands.
-
-**Never both for the same sentence.** A card restating a title that already says
-it is the "AI slop" failure in a new costume — the reader reads the same finding
-twice and trusts the page less. If you catch yourself writing a card that
-paraphrases a chart, delete the card; the title is doing the work.
-
-Pull quotes are out entirely. A quote needs a speaker, and in a data page there
-isn't one — you are quoting yourself, which is why it reads as filler. If a
-number deserves that much emphasis, it is a KPI tile or a chart of its own.
-
-When a page needs argument and prose, that is the report format — where the
-narrative is the point and every claim is tied to a figure. Don't smuggle
-report-style commentary into a dashboard.
 
 ### One design system, only the colors change
 

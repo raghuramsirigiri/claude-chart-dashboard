@@ -28,6 +28,8 @@ pasted numbers, metrics, notes, or a topic with figures in it.
    - [`references/chart-selection.md`](skills/chart-dashboard/references/chart-selection.md) — data shape → chart type
    - [`references/layout.md`](skills/chart-dashboard/references/layout.md) — deriving the grid from the findings; spans and page structure
    - [`references/annotation.md`](skills/chart-dashboard/references/annotation.md) — callouts, plot bands, forecast vs. measured notation
+   - [`references/narrative.md`](skills/chart-dashboard/references/narrative.md) — action titles; where a finding goes (title, insight column, or card)
+   - [`references/controls.md`](skills/chart-dashboard/references/controls.md) — read before adding a filter or dropdown
    - [`references/theming.md`](skills/chart-dashboard/references/theming.md) — brand recolour, and the two scripts under `scripts/` that generate it
 3. Start from a template in `skills/chart-dashboard/templates/`.
 4. Stage the library beside your output while you build and verify it, then

@@ -100,7 +100,7 @@ behind it is the one to either cut or go find evidence for.
   hairline and panel-surface values into the page's CSS variables at load, so
   charts sit flush with their card and one `Charts.applyPalette` call reskins
   everything. Don't hand-edit the color literals in `:root` — change the
-  palette. Method in `references/theming.md`.
+  palette. Method in `theming.md`.
 - `--bg` (the ground behind cards/paper) and `--radius` are the only page-level
   color/shape choices. Keep `--bg` a small step from `Charts.theme.bg`.
 - **Legend position is fixed**: charts-lib draws it at the top under the
@@ -114,3 +114,24 @@ behind it is the one to either cut or go find evidence for.
 - Footer carries sources, definitions, and a note if any figure is illustrative.
 - Everything ships as **one** HTML file with the library inlined — no sibling
   folder, no CDN, no build step. See SKILL.md step 8.
+
+## Fit the page to how it will be read
+
+The templates are tuned for someone reading at a desk. When the user tells you
+otherwise — and they usually do, in passing — adapt, because the same page fails
+badly in a different context:
+
+- **"Behind me on screen", "for the all-hands", "I'm presenting this"** — a
+  projector is read from ten feet away by someone who gets thirty seconds per
+  slide. Use few panels, give each a lot of room, and scale the type up
+  (`Charts.theme.titleSize`, `tickSize`, `valueSize`, and a larger `--kpi-value`
+  step). A dense grid that works on a laptop is unreadable in a room.
+- **"Send it round", "paste into the weekly update", "for the board pack"** — it
+  will be read alone, without you narrating. Lean on subtitles and callouts to
+  carry the context you would otherwise say out loud.
+- **"Print it", "PDF"** — one column, no reliance on hover; tooltips don't exist
+  on paper, so anything only visible on hover must also be a label.
+
+None of this changes the design system — same palette, same type scale
+relationships, same components. It changes how much you put on the page and at
+what size.
