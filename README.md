@@ -357,7 +357,11 @@ skills/chart-dashboard/
 │   └── theming.md                  # the OKLCH recipe behind a brand recolour
 ├── scripts/
 │   ├── extract-theme.js            # brand CSS/HTML → a Charts.theme block
-│   └── generate-theme.js           # one hex → the same, with nothing observed
+│   ├── generate-theme.js           # one hex → the same, with nothing observed
+│   ├── fetch-design.js             # pull a URL's CSS/HTML down for the above
+│   ├── check-page.js               # the static checks; --final gates the shipped file
+│   ├── inline-lib.js               # fold the library into the page
+│   └── finalize.js                 # --stage to verify, then the whole ending in one command
 └── templates/
     ├── dashboard.html              # bento grid starting point
     └── report.html                 # paper-column starting point

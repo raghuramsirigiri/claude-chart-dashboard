@@ -30,7 +30,12 @@ pasted numbers, metrics, notes, or a topic with figures in it.
    - [`references/annotation.md`](skills/chart-dashboard/references/annotation.md) — callouts, plot bands, forecast vs. measured notation
    - [`references/theming.md`](skills/chart-dashboard/references/theming.md) — brand recolour, and the two scripts under `scripts/` that generate it
 3. Start from a template in `skills/chart-dashboard/templates/`.
-4. Copy `skills/chart-dashboard/assets/charts-lib/` next to your output HTML.
+4. Stage the library beside your output while you build and verify it, then
+   fold it in and ship one file:
+   ```bash
+   node skills/chart-dashboard/scripts/finalize.js index.html --stage   # verify against this
+   node skills/chart-dashboard/scripts/finalize.js index.html           # inline, clean up, gate
+   ```
 
 ## Non-negotiables
 

@@ -119,9 +119,9 @@ HTML page of SVG charts rendered with `charts-lib`.
    ```
 7. **Verify before reporting done.** The page still has its `charts-lib/…`
    placeholders at this point, so to *run* it you need the library beside it
-   temporarily — copy it, verify, and delete the folder again in step 8:
-   ```
-   <skill-dir>/assets/charts-lib   →  ./charts-lib      (temporary, for verification only)
+   temporarily. Stage it — step 8 removes it again:
+   ```bash
+   node <skill-dir>/scripts/finalize.js index.html --stage
    ```
    Then use the strongest check your environment supports:
    - *Browser tooling available* — open the file, read the console for errors,
@@ -139,7 +139,8 @@ HTML page of SVG charts rendered with `charts-lib`.
      reaches the network. Each one reads as a styling bug rather than the
      missing wiring it is. Exit code is non-zero when something fails, so it
      also works as a gate. Run it here without `--final` — the page is not
-     inlined yet, and mid-build that is simply where you are.
+     inlined yet, and mid-build that is simply where you are. (Step 8 runs it
+     for you either way; running it now just shortens the loop.)
    Either way, fix any panel that renders empty or overflows its cell first. A
    panel reading *"Line charts need a continuous or temporal x-axis"* is the
    input-contract failure above — change the chart type or the x values, don't
@@ -156,17 +157,17 @@ HTML page of SVG charts rendered with `charts-lib`.
    and it fails *silently*: the markup, the headings and the KPI numbers are all
    there, so it looks like a styling bug rather than a missing dependency. So
    the last build step replaces the three placeholder tags with the library's
-   own contents:
+   own contents. One command does the whole ending — checks the page as built,
+   inlines the library, removes the staged copy, then re-checks with `--final`,
+   which this time *insists* the page is standalone:
    ```bash
-   node <skill-dir>/scripts/inline-lib.js index.html
-   rm -r charts-lib          # the verification copy; nothing references it now
+   node <skill-dir>/scripts/finalize.js index.html
    ```
-   Then run the checker once more with `--final`, which re-checks the wiring
-   and this time *insists* the page is standalone — the state you are about to
-   hand over:
-   ```bash
-   node <skill-dir>/scripts/check-page.js index.html --final
-   ```
+   It stops before inlining if the build checks fail, since inlining a broken
+   page only makes it a bigger broken page, and its exit code is the gate: a
+   non-zero exit means you are not done. It removes a sibling `charts-lib/`
+   only when that folder holds exactly the three files it staged, so a folder
+   of your own that happens to share the name survives.
    The result is one ~420 KB HTML file that opens over `file://` with no server,
    no network, and no sibling folder. Some rules that follow from that:
    - **Never reintroduce a `<script src>` or `<link href>` to anything.** No CDN
@@ -178,13 +179,15 @@ HTML page of SVG charts rendered with `charts-lib`.
    - **The library is inlined verbatim.** Don't minify it, don't strip the parts
      you think a page doesn't use, and don't hand-edit the inlined copy — a
      bug fixed in the page instead of in `assets/charts-lib/` is lost on the
-     next build. Rerunning `inline-lib.js` on an already-inlined file is a
+     next build. Rerunning `finalize.js` on an already-inlined file is a
      harmless no-op, so it is safe to re-run after edits.
    - **If the user explicitly asks for the split form** — they're checking the
      page into a repo beside other pages that share the library, say — skip
-     this step and copy `assets/charts-lib/` next to the output instead, keeping
-     the placeholder tags as the real references. That is the exception, not
-     the default.
+     `finalize.js` and keep the staged `charts-lib/` next to the output, with
+     the placeholder tags as the real references. Check that page with
+     `scripts/check-page.js index.html` (no `--final`, which would fail it for
+     the references it is supposed to have). That is the exception, not the
+     default.
 
 ## Rules that keep output good
 
@@ -548,7 +551,7 @@ figures came from the user's data and which, if any, were illustrative.
 
 Nothing in this skill requires a specific agent or vendor. It needs only the
 ability to read files from this directory, write an HTML file, copy a folder,
-and run Node (for `inline-lib.js` and the static checks). Without Node, inline
+and run Node (for `finalize.js` and the static checks). Without Node, inline
 the three library files by hand — paste `charts.css` into a `<style>` and
 `theme.js` then `charts.js` into `<script>` blocks, in that order, replacing the
 placeholder tags. Browser preview, screenshots, and file attachment are used
