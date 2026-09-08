@@ -59,7 +59,15 @@ const note = (name, detail) => results.push({ name, passed: true, note: true, de
 // Charts.line('chart', …) — scanning raw text counts that as a chart aimed at
 // a panel that doesn't exist. A commented-out call shouldn't count either.
 const code = html.replace(/\/\*[\s\S]*?\*\//g, ' ');
-const ids = [...code.matchAll(/id="(c\d+|f\d+)"/g)].map(m => m[1]);
+// Panels are found by the class the templates put on every chart container,
+// not by an id shape: the dashboard and report number theirs c1/f1, while the
+// deck names them for what they show (c-trend). The id="…" pattern stays as a
+// fallback for a page that dropped the class.
+const ids = [
+  ...[...code.matchAll(/<div[^>]*class="[^"]*\bchart\b[^"]*"[^>]*>/g)]
+      .map(m => (m[0].match(/id="([^"]+)"/) || [])[1]).filter(Boolean),
+  ...[...code.matchAll(/id="(c\d+|f\d+)"/g)].map(m => m[1])
+].filter((v, i, a) => a.indexOf(v) === i);
 const calls = [...code.matchAll(/Charts\.\w+\(\s*'([^']+)'/g)].map(m => m[1]);
 const orphan = ids.filter(i => !calls.includes(i));
 const ghost = calls.filter(c => !ids.includes(c));

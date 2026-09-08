@@ -7,7 +7,7 @@
 [![Works offline](https://img.shields.io/badge/works-offline-success)](#does-it-work-offline)
 
 **chart-dashboard is a free, open-source Claude Agent Skill that turns raw data into a
-finished HTML dashboard or illustrated report in a single prompt.** Give Claude a
+finished HTML dashboard, illustrated report or slide deck in a single prompt.** Give Claude a
 table, a CSV, pasted numbers, or meeting notes, and it returns one self-contained
 HTML file with interactive SVG charts — no CDN, no npm install, no build step, and
 no API keys.
@@ -352,7 +352,7 @@ skills/chart-dashboard/
 ├── references/
 │   ├── chart-api.md                # full library API — every factory and option
 │   ├── chart-selection.md          # data shape → chart type, emphasis, anti-patterns
-│   ├── layout.md                   # deriving the grid from the analysis; spans, breakpoints
+│   ├── layout.md                   # picking the format; deriving the grid or the slide sequence
 │   ├── annotation.md               # callouts, plot bands, forecast vs. measured notation
 │   ├── narrative.md                # action titles; where a finding goes
 │   ├── controls.md                 # wiring a filter so every panel and title follows it
@@ -366,7 +366,8 @@ skills/chart-dashboard/
 │   └── finalize.js                 # --stage to verify, then the whole ending in one command
 └── templates/
     ├── dashboard.html              # bento grid starting point
-    └── report.html                 # paper-column starting point
+    ├── report.html                 # paper-column starting point
+    └── slides.html                 # 16:9 deck, eighteen slide layouts
 ```
 
 Two finished outputs live in [`examples/`](examples/) — a 20-panel e-commerce

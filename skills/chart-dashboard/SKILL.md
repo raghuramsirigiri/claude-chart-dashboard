@@ -1,13 +1,14 @@
 ---
 name: chart-dashboard
-description: Build a self-contained HTML dashboard or data-story report from supplied information (metrics, tables, notes, pasted data, a topic), rendered with the bundled zero-dependency charts-lib SVG chart library. Use whenever the user asks for a dashboard, analytics page, KPI/bento view, chart deck, or illustrated report built from data they provide or describe.
+description: Build a self-contained HTML dashboard, data-story report, or slide deck from supplied information (metrics, tables, notes, pasted data, a topic), rendered with the bundled zero-dependency charts-lib SVG chart library. Use whenever the user asks for a dashboard, analytics page, KPI/bento view, illustrated report, or a presentation, slides or a deck built from data they provide or describe.
 ---
 
 # Chart dashboard
 
 Turn whatever information the user gives — a table, pasted numbers, a set of
 metrics, notes, or just a topic and some facts — into a single self-contained
-HTML page of SVG charts rendered with `charts-lib`.
+HTML page of SVG charts rendered with `charts-lib`: a dashboard, a report, or a
+slide deck.
 
 ## Workflow
 
@@ -42,23 +43,36 @@ HTML page of SVG charts rendered with `charts-lib`.
      to convince someone ("write up", "for the board", "retrospective",
      "analysis"), or when they told you the conclusion themselves and the page
      exists to support it. Use `templates/report.html`.
+   - **Deck** — an argument delivered *by someone*, one claim per slide, read
+     from across a room or clicked through in a tab. Reach for it when the user
+     says presentation, slides, deck, "present this", "walk them through it", or
+     names a meeting the page has to survive. Use `templates/slides.html`.
 
    When it's genuinely ambiguous, ask yourself who reads it and whether you will
    be in the room. Nobody presents a bento grid to a board, and nobody watches a
-   five-section narrative to see if last night's numbers moved.
+   five-section narrative to see if last night's numbers moved. The deck is the
+   one format that assumes a presenter: if the page has to stand alone with no
+   one narrating, it is a report, however much the user said "slides".
 3. **Copy the template.** It lives in this skill's own directory — resolve
    `templates/` relative to the directory containing this SKILL.md, never from a
    hard-coded home path:
    ```
    <skill-dir>/templates/dashboard.html  →  ./index.html
+   <skill-dir>/templates/report.html     →  ./index.html
+   <skill-dir>/templates/slides.html     →  ./index.html
    ```
    Do **not** copy `assets/charts-lib/` next to the output. The template's three
    `charts-lib/…` tags are placeholders; leave them exactly as written while you
    build the page, and fold the library in as the last step (step 9). Their
    order matters and the inliner preserves it — theme must load before charts.
-4. **Derive the grid from the findings, not from the template.** The dashboard
-   template deliberately ships with a placeholder two-cell grid, because any
-   arrangement shipped there would end up on every page this skill produces.
+4. **Derive the structure from the findings, not from the template.** The
+   dashboard template deliberately ships with a placeholder two-cell grid,
+   because any arrangement shipped there would end up on every page this skill
+   produces. *(Building a deck? The same rule, applied to slide order rather
+   than grid cells: `references/layout.md` § Deck. The template shows one
+   example of each of its eighteen layouts so the markup is visible in one
+   place — that sequence is a catalogue, never a running order. Delete what the
+   argument does not need.)*
    Before writing markup, answer: what is the dominant shape of this analysis
    (one trend / a head-to-head comparison / a ranking / a funnel / a
    distribution / parallel equal measures / geography)? Is there genuinely one
@@ -150,6 +164,12 @@ HTML page of SVG charts rendered with `charts-lib`.
    panel reading *"Line charts need a continuous or temporal x-axis"* is the
    input-contract failure above — change the chart type or the x values, don't
    restyle it.
+
+   **If you built a deck, check it on paper too.** It is made to be handed
+   round as a PDF, and that path has failures the screen never shows: print to
+   PDF (or open the print preview) and confirm one slide per sheet, nothing
+   crossing a page edge, and the dark slides still dark. A slide whose content
+   outgrew its frame is silently cropped there rather than scrolled.
 
    **If the page has any control, test it.** Change each dropdown to a
    non-default value and confirm — with a screenshot or by reading the rendered
@@ -253,11 +273,14 @@ will accept without proof doesn't need one either.
 
 ### Fit the page to how it will be read
 
-The templates are tuned for someone reading at a desk. When the user tells you
-otherwise — "I'm presenting this", "send it round", "print it" — the same page
-fails badly in that other context, and the fix is how much you put on the page
-and at what size, never a different design system. The three cases and what each
-one changes are in `references/layout.md` § Fit the page to how it will be read.
+The dashboard and report templates are tuned for someone reading at a desk.
+When the user tells you otherwise — "I'm presenting this", "send it round",
+"print it" — the same page fails badly in that other context. Presenting is the
+case with its own template: a deck (`templates/slides.html`) is the right answer
+to "I'm presenting this", not a dashboard with the type scaled up. For the other
+two the fix is how much you put on the page and at what size, never a different
+design system. All three cases are in `references/layout.md` § Fit the page to
+how it will be read.
 
 ### Make the chart show the finding, not just the data
 
@@ -408,7 +431,9 @@ would carry the information better. Usually it would.
 ## Output
 
 One HTML file, standalone — no sibling `charts-lib/` folder, no CDN tags, no
-network at open time (see step 8). Write it to the working directory (or where
+network at open time (see step 8). A deck ships the same way, and a reader turns
+it into a PDF with their browser's own Print → Save as PDF: the template sets
+A4 landscape, one slide per sheet. Write it to the working directory (or where
 the user asked). Then surface
 it however your environment does that — attach or render the file if you can (in
 Claude Code: `SendUserFile` with `display: "render"`); otherwise print the
