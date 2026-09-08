@@ -32,7 +32,8 @@
      It reads the way a PDF does in a browser tab: slides stacked in one
      scrolling column, no ground colour behind them, no progress bar, no
      next/back controls, nothing to click. Scrolling is the only navigation,
-     which is also what makes the deck print and screenshot cleanly. */
+     which is also what lets it print straight to A4 landscape, one slide per
+     sheet — see the @page block at the end of this stylesheet. */
   .deck { max-width:1280px; margin:0 auto; padding:40px 24px 80px; }
   /* Pages are separated by margin alone. Padding or a border inside the page
      would sit inside the 16:9 box and push the slide past its own frame. */
@@ -294,10 +295,42 @@
   .l-stat .arrow hr { border:0; border-top:1px solid currentColor; width:130px; margin:0 0 8px; }
 
   /* Printing gives one slide per page, still at exactly 16:9. */
+  /* ── Print: one slide per A4 landscape page ───────────────────────────────
+     Print (Ctrl/Cmd+P) → Save as PDF and the deck comes out as A4 landscape,
+     one slide per sheet. Leave the printer's own margins at Default or None;
+     @page already sets them to zero.
+
+     A4 landscape is 297x210mm — 1.414:1, against the slide's 16:9 — so the
+     slide fits the page WIDTH and centres in the leftover height, the same
+     choice a projector makes.
+
+     The screen path scales the slide with a transform, which leaves its layout
+     box at the authored 1280x720. On paper that box is wider than the sheet,
+     and the print engine fragments it: backgrounds get clipped part-way down
+     and content spills past the page edge. So printing uses `zoom` instead,
+     which scales the layout box itself — the slide becomes a real 1122x631px
+     block that fits inside the sheet and needs no offsets. `zoom` is supported
+     by Chrome, Edge and Safari, which is where Save as PDF actually happens.
+
+     0.877 = 297mm at 96dpi (1122.5px) ÷ the 1280px authored width. Change
+     --slide-w and it needs recomputing. */
+  @page { size: A4 landscape; margin: 0; }
   @media print {
-    .deck { max-width:none; padding:0; }
-    .page { border-top:0; margin:0; padding:0; page-break-after:always; }
-    .slide { top:0; }
+    html, body { background:#fff; }
+    .deck { max-width:none; margin:0; padding:0; }
+    .page { width:297mm; height:210mm; aspect-ratio:auto; margin:0; padding:0;
+      display:flex; align-items:center; justify-content:center;
+      overflow:hidden; break-after:page; page-break-after:always; }
+    .page:last-child { break-after:auto; page-break-after:auto; }
+    /* In flow + zoom: the box really is 1122x631 here, so the flex centring
+       above does the positioning and the transform is dropped entirely.
+       position stays `relative` rather than `static` — the slide has to remain
+       the containing block for the absolutely positioned .foot and .l-cover
+       .meta, which otherwise fall through to .page and print below the slide. */
+    .slide { position:relative; transform:none; zoom:0.877;
+      /* Dark slides and note fills must survive the browser's default of
+         dropping backgrounds when printing. */
+      -webkit-print-color-adjust:exact; print-color-adjust:exact; }
   }
 </style>
 </head>
