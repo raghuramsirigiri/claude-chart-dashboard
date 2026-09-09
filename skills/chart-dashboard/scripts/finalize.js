@@ -38,6 +38,10 @@ const { spawnSync } = require('child_process');
 
 const SCRIPTS = __dirname;
 const LIB = path.join(SCRIPTS, '..', 'assets', 'charts-lib');
+// The three RUNTIME files, listed rather than globbed on purpose:
+// assets/charts-lib/ also holds charts.manifest.json, which is an authoring
+// reference and has no business next to a finished page. It is also what the
+// cleanup below matches against, so staging and removal stay symmetrical.
 const LIB_FILES = ['charts.css', 'charts.js', 'theme.js'];
 
 const argv = process.argv.slice(2);

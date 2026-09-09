@@ -93,6 +93,12 @@ slide deck.
    factory, option, and theme token). Read that file before writing chart code —
    don't guess option names.
 
+   For a single fact about one engine — what it refuses, whether it self-sizes,
+   how many grid tracks it wants, its minimum readable size — read
+   `assets/charts-lib/charts.manifest.json` instead of the whole API file. It is
+   the same index the library carries as `Charts.meta`, kept in step with the
+   code by the build, and it also holds the shared `plotBox` and `grid` rules.
+
    **Check the chart's input contract first** (`chart-selection.md` § Input
    contract). Each engine accepts a particular kind of x and y, and a mismatch
    is a broken panel rather than a style choice. The one that bites most often:
@@ -193,7 +199,7 @@ slide deck.
    non-zero exit means you are not done. It removes a sibling `charts-lib/`
    only when that folder holds exactly the three files it staged, so a folder
    of your own that happens to share the name survives.
-   The result is one ~420 KB HTML file that opens over `file://` with no server,
+   The result is one ~590 KB HTML file that opens over `file://` with no server,
    no network, and no sibling folder. Some rules that follow from that:
    - **Never reintroduce a `<script src>` or `<link href>` to anything.** No CDN
      for a chart library, a font, an icon set, or a CSS reset — an offline

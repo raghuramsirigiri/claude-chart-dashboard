@@ -24,6 +24,11 @@ particular *kind* of x and a particular *kind* of y, and picking one whose
 contract the data doesn't meet produces a broken panel, not a stylistic
 mismatch. Check the row before you write the config.
 
+The same contracts are machine-readable in
+`assets/charts-lib/charts.manifest.json` (`requires` / `refuses` per factory,
+and `Charts.meta` at runtime) — use it to check one engine quickly, and this
+table to see them against each other.
+
 | Chart | x / rows accept | y accepts | Violating it gives you |
 |:--|:--|:--|:--|
 | `line` (incl. spline, step) | **Ordered continuous or temporal only** — numbers, epoch-ms with `type:'datetime'`, or category labels that either all parse as dates or form a rising sequence (`'Jan'…'Dec'`, `'Q1'…'Q4'`, `'Week 1'…`) | Numbers; `null` for a gap | An error panel — the engine refuses unordered named categories outright |

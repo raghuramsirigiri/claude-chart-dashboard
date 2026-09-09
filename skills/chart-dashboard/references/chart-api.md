@@ -3,6 +3,7 @@
 **Contents**
 
 - [API](#api)
+- [The manifest (`charts.manifest.json` / `Charts.meta`)](#the-manifest-chartsmanifestjson--chartsmeta)
 - [Variations catalog](#variations-catalog)
   - [Line (`Charts.line`)](#line-chartsline)
   - [Column & bar (`Charts.column`, `Charts.bar`)](#column--bar-chartscolumn-chartsbar)
@@ -81,6 +82,42 @@ indirection. Turn them off per chart with `dataLabels: false` (or
 `{ enabled: false }`) in that engine's `plotOptions` block — or per series,
 where the engine has series. Scatter/bubble point labels use `showLabels: false`,
 and they only ever draw for points that carry a `name`.
+
+## The manifest (`charts.manifest.json` / `Charts.meta`)
+
+`assets/charts-lib/charts.manifest.json` is the machine-readable index of every
+factory — the same object the library carries at runtime as `Charts.meta`, since
+the build inlines it and refuses to build if a factory and its entry disagree.
+Read it when you want one fact fast (does this engine self-size? how many tracks
+should it span? what does it refuse?) rather than the prose section below.
+
+Per factory:
+
+| Field | Says |
+| :-- | :-- |
+| `purpose` | The one-line reason to pick it |
+| `data` | The shape the factory expects |
+| `requires` / `refuses` | Hard preconditions, and what it will not draw — with the alternative it names in the refusal panel |
+| `selfSizing` | `true` = grows to its content **when the container has no height** |
+| `aspect` | `free`, `radial` or `grid` — `radial` and `grid` keep their shape and centre in whatever box they are given, so they are safe in any cell |
+| `minWidth` / `minHeight` | Below these, labels crowd and the chart stops being readable |
+| `gridSpan` / `gridSpanWhen` | Tracks to occupy, and when to widen to two |
+| `keyOptions` | The options worth knowing before reading the full section |
+| `notes` | The one thing callers most often get wrong |
+
+Two shared blocks sit beside the per-chart entries: `plotBox` (the 62/20 plot
+box and where the plot starts, which is why mixed charts align in a grid) and
+`grid` (`minCellWidth: 480`, `recommendedGap: 16`, and the span/height rules —
+never `grid-column: 1 / -1`, and keep the height rule consistent across a grid
+or rows will not line up).
+
+At runtime the same data is one property away, so a page can check itself:
+
+```js
+Charts.meta.charts.dumbbell.refuses     // → why a 3-series dumbbell won't draw
+Charts.meta.charts.barList.selfSizing   // → true
+Charts.meta.grid.minCellWidth           // → 480
+```
 
 ## Variations catalog
 
