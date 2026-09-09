@@ -12,11 +12,15 @@
   /* Same token contract as dashboard.html / report.html: --card, --ink,
      --muted, --hair and --font are overwritten at load from Charts.theme (sync
      block near the bottom), so recolouring the charts recolours the deck.
-     --surface-soft is the ONLY filled surface here, and it is reserved for
-     notes, tables and quadrants — charts sit straight on the slide, unframed,
-     exactly as figures do in report.html. A filled box around a chart reads as
-     a second border beside the chart's own plot frame. */
-  :root { --card:#f4f4f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7;
+     Two surfaces, the same pair dashboard.html uses. --ground is the slide
+     itself, one soft step darker than the cards; --card is the chart surface,
+     the colour the charts paint themselves, so a figure lifts off the slide by
+     luminance rather than by a border alone. --ground is the one page-level
+     colour choice here — repick it with the palette when you recolour.
+     --surface-soft is a third, quieter surface, reserved for notes, tables and
+     quadrants — text that belongs to no single chart. */
+  :root { --ground:#efece6;
+          --card:#f4f4f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7;
           --surface-soft:#eae8e4;
           --font:'Inter','Segoe UI',Arial,Helvetica,sans-serif;
           /* Slides are authored at this size and scaled to the column width, so
@@ -25,7 +29,7 @@
           /* One margin governs every slide; only a full-bleed image crosses it. */
           --pad:64px; }
   * { box-sizing:border-box; }
-  html, body { margin:0; padding:0; background:var(--card); color:var(--ink);
+  html, body { margin:0; padding:0; background:var(--ground); color:var(--ink);
     font-family:var(--font); -webkit-font-smoothing:antialiased; }
 
   /* ── The deck is a document ───────────────────────────────────────────────
@@ -44,9 +48,11 @@
   .slide { position:absolute; top:0; left:0;
     width:var(--slide-w); height:var(--slide-h);
     transform-origin:top left; transform:scale(var(--k,1));
-    background:var(--card); padding:var(--pad) var(--pad) 88px; }
-  .slide.dark { --card:#111111; --ink:#f4f4f0; --muted:#a3a3a0; --hair:#3a3a37;
-    --surface-soft:#1e1e1c; background:#111111; color:#f4f4f0; }
+    background:var(--ground); padding:var(--pad) var(--pad) 88px; }
+  /* A dark slide inverts the pair: the ground is the darkest thing on it and a
+     card sits one step above, so a figure still reads as lifted. */
+  .slide.dark { --ground:#111111; --card:#232321; --ink:#f4f4f0; --muted:#a3a3a0;
+    --hair:#3a3a37; --surface-soft:#1a1a18; background:#111111; color:#f4f4f0; }
 
   /* ── Type scale ───────────────────────────────────────────────────────────
      Six sizes, no more: h1 for covers, h2 for the slide claim, h3 for a unit
@@ -73,19 +79,21 @@
   .foot .n { margin-left:auto; font-variant-numeric:tabular-nums; }
 
   /* ── Figures ──────────────────────────────────────────────────────────────
-     A chart fills its cell and paints its own background — no fill, no border,
-     no padding around it. .cap is the one-line reading under a figure, the
-     deck's equivalent of report.html's figcaption. */
+     Every chart sits in a card: --card, the lighter of the two surfaces and the
+     one the charts paint themselves, over the darker --ground of the slide. The
+     luminance step is what separates the figure; the hairline and the small
+     shadow only sharpen the edge. The card is the only frame a chart gets — no
+     caption rule under it, no second border. */
   figure { margin:0; }
   .chart { width:100%; height:100%; }
-  .fig { display:flex; flex-direction:column; min-height:0; min-width:0; }
+  .fig { display:flex; flex-direction:column; min-height:0; min-width:0;
+    background:var(--card); border:1px solid var(--hair); border-radius:10px;
+    padding:10px; box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
   .fig .chart { flex:1; }
-  .fig .cap { font-size:12px; color:var(--muted); line-height:1.45;
-    margin-top:8px; padding-top:8px; border-top:1px dotted var(--hair); }
-  .fig .cap b { color:var(--ink); margin-right:6px; }
   /* The self-sizing chart types (barList, barInsightTable, waffle) grow to
-     their rows instead of filling. Give their .fig this class so the caption
-     follows the chart rather than dropping to the bottom of the cell. */
+     their rows instead of filling. Give their .fig this class so the card wraps
+     the chart rather than stretching it to the bottom of the cell. */
+  .fig.auto { align-self:start; justify-content:flex-start; }
   .fig.auto .chart { flex:0 0 auto; }
 
   /* The filled surfaces: a note and a table row. Both are text that belongs to
@@ -385,8 +393,6 @@
   <div class="page"><section class="slide l-split" data-title="Trend">
     <figure class="fig">
       <div class="chart" id="c-trend"></div>
-      <figcaption class="cap"><b>Fig. 1</b> The break in the line is the launch,
-        not a seasonal effect.</figcaption>
     </figure>
     <div class="words">
       <h2>Adoption tripled in six weeks</h2>
@@ -399,7 +405,6 @@
   <div class="page"><section class="slide l-media" data-title="Where time goes">
     <figure class="fig auto">
       <div class="chart" id="c-rank"></div>
-      <figcaption class="cap"><b>Fig. 2</b> Median seconds per step, all accounts.</figcaption>
     </figure>
     <div class="words">
       <h3>Sign-in costs more than the other three steps together</h3>
@@ -411,7 +416,7 @@
   <!-- 7 · Full-bleed figure -->
   <div class="page"><section class="slide l-full" data-title="By segment">
     <h2>Growth is concentrated in two segments</h2>
-    <div class="chart" id="c-full"></div>
+    <figure class="fig"><div class="chart" id="c-full"></div></figure>
     <p class="read"><b>Read.</b> The other segments moved less than the
       measurement error, so the average hides the whole story.</p>
   </section></div>
@@ -425,7 +430,7 @@
       <div class="k"><span>Time to value</span><b>4.2d</b><i>−1.9 days</i></div>
       <div class="k"><span>Support load</span><b>0.8</b><i>tickets per account</i></div>
     </div>
-    <div class="chart" id="c-kpi"></div>
+    <figure class="fig"><div class="chart" id="c-kpi"></div></figure>
   </section></div>
 
   <!-- 9 · Compare -->
@@ -580,7 +585,10 @@
 Charts.applyPalette({ n0: '…', n0a: '…', n1: '…', n8: '…', s1: '…', s2: '…' });
 */
 
-/* Deck chrome follows the chart theme, so there is one source of colour truth. */
+/* Deck chrome follows the chart theme, so there is one source of colour truth.
+   --ground is deliberately NOT synced: it is the slide surface the cards sit on,
+   and it has to stay a step away from t.bg by eye. Repick it in :root whenever
+   the palette changes, the way dashboard.html's --bg is repicked. */
 (function () {
   const t = Charts.theme, s = document.documentElement.style;
   s.setProperty('--card',  t.bg);
@@ -628,7 +636,7 @@ fit();
      · fewer series — two or three, never a legend of eight
      · data labels on, so a value can be read from the back of the room
      · the title carries the claim, complementing the slide's h2, not repeating it
-     · no frame — the chart paints its own background straight onto the slide
+     · no frame of your own — .fig is the card the chart sits in
    Every chart is drawn once at load: every slide is laid out on the page with a
    real size, so nothing needs deferring or redrawing. The slides are scaled by
    a CSS transform, which does not change the pixel size a chart measures, so a
