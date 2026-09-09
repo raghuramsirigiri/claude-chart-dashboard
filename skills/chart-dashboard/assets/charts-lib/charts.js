@@ -8,7 +8,12 @@
  *   Charts.barList(container, config)           — axis-free horizontal bars, category label above each bar
  *   Charts.barInsightTable(container, config)   — rows of bars + insight text + a large change/summary stat
  *   Charts.waffle(container, config)            — part-of-whole dot-grid panels with headline stat + caption
+ *   Charts.dumbbell(container, config)          — one row per category: two dots joined by a rod (the gap between two states)
+ *   Charts.histogram(container, config)           — raw numbers binned and counted
+ *   Charts.histogramPercent(container, config)    — the same bins as a share of the total
+ *   Charts.histogramCumulative(container, config) — the same bins as a running share (ogive)
  *   Charts.panels(container, config)            — up to 4 charts of any type side by side under one shared title
+ *   Charts.radar(container, config)             — one closed polygon per series over shared named axes
  *   Charts.donut(container, config)             — donut, semi-circle, variable-radius, gradient, sliced
  *   Charts.pie(container, config)               — alias of donut with innerSize:0 (full pie)
  *   Charts.scatter(container, config)           — 2D scatter + regression + labels
@@ -43,6 +48,7 @@
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_POINT_LBL, F_NOTICE, F_VALUE;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -59,7 +65,7 @@
     CALLOUT_C = t.callout || '#B31B38';
     INV_TEXT = t.inverseText || '#FFFFFF';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles â€” see the hierarchy comment in theme.js.
+    // Shared text roles — see the hierarchy comment in theme.js.
     CAT_COL = t.categoryColor || TITLE_COL;
     CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
     TICK_COL = t.tickColor || LABEL_COL;
@@ -81,6 +87,8 @@
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -119,7 +127,7 @@
     return e;
   }
 
-  // â”€â”€ Heading wrapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
@@ -129,8 +137,8 @@
   function _clipLine(str, fontSize, maxW, bold) {
     let s = String(str);
     if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + 'â€¦', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + 'â€¦';
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
   }
   function wrapHeading(str, fontSize, maxW, maxLines, bold) {
     const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
@@ -190,10 +198,10 @@
   }
 
 
-  // â”€â”€ dense-axis tick thinning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── dense-axis tick thinning ───────────────────────────────────────────
   // With many categories every label would be drawn, so they collide and the
   // axis looks squeezed. When the labels parse as dates we keep only the ones
-  // that open a calendar period (hour â†’ day â†’ week â†’ month â†’ quarter â†’ year),
+  // that open a calendar period (hour → day → week → month → quarter → year),
   // stepping up to a coarser period until the kept labels fit the available
   // pixels; otherwise we fall back to an even stride. Called from render(), so
   // a chart whose data keeps growing re-thins itself on every update.
@@ -282,7 +290,7 @@
   // Labels are centred on their tick, so the test is pair-wise: every gap
   // between neighbouring ticks must hold half of each label plus a little air.
   // Sizing every slot by the single widest label instead rejects axes that do
-  // fit â€” one long lead-in label like "Jan 1 2025" made ten short "Jan 6"s
+  // fit — one long lead-in label like "Jan 1 2025" made ten short "Jan 6"s
   // look nine times wider than they are, so a run of days skipped straight
   // past weekly labels to months.
   function labelsFit(items, avail, fontSize, pos) {
@@ -299,12 +307,12 @@
   }
 
   // Plan the x-axis category labels for `avail` px of axis.
-  // Temporal categories collapse to a coarser calendar period (see above) â€”
+  // Temporal categories collapse to a coarser calendar period (see above) —
   // dropping "Feb 3" from a run of days still leaves a readable time axis.
   // Named categories cannot be dropped that way: "Chrome, ?, ?, Safari" is
   // worse than no axis at all. So for them nothing is ever dropped; instead the
-  // labels are given more room, in order â€” full width, smaller type, two
-  // wrapped lines, two staggered rows, 45Â° slant, then 90Â° vertical. An
+  // labels are given more room, in order — full width, smaller type, two
+  // wrapped lines, two staggered rows, 45° slant, then 90° vertical. An
   // ellipsis is the last resort, used only after wrapping has been tried.
   // Returns { ticks:[{i, lines:[...]}], font, rotate, stagger, lines, height }.
   function layoutCategoryAxis(cats, avail, baseFont, maxBand) {
@@ -333,7 +341,7 @@
       // Label the points that open a calendar period. The very first datapoint
       // is a special case: when the data starts mid-period it is not a period
       // start, and labelling it anyway puts e.g. "Jan 1 2025" a few pixels from
-      // "Jan 6" â€” one crowded pair that would push the whole axis up to a
+      // "Jan 6" — one crowded pair that would push the whole axis up to a
       // coarser period than it needs. So try the run without that partial head
       // label first, and only fall back to including it if that does not fit.
       const pickPeriod = (period, withHead) => {
@@ -373,18 +381,18 @@
     }
 
     // Named categories: keep every label, find a presentation that fits.
-    // 1) upright â€” shrink the type a little, wrapping onto two lines if it helps
+    // 1) upright — shrink the type a little, wrapping onto two lines if it helps
     for (const font of FONTS) {
       if (widest * (font / base) + 10 <= slot) return upright(one(all), font, 1);
       const wrapped = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, 2) }));
       if (maxLineChars(wrapped) * CW * font + 8 <= slot) return upright(wrapped, font, 2);
     }
-    // 2) stagger onto two baselines â€” each label gets two slots of width
+    // 2) stagger onto two baselines — each label gets two slots of width
     for (const font of FONTS) {
       if (widest * (font / base) + 8 <= slot * 2) return upright(one(all), font, 1, true);
     }
-    // 3) slant 45Â°, then 4) stand labels vertically. Spacing now costs about a
-    // glyph height per wrapped line, and length is bounded by the band depth â€”
+    // 3) slant 45°, then 4) stand labels vertically. Spacing now costs about a
+    // glyph height per wrapped line, and length is bounded by the band depth —
     // so try a second line before giving up any characters.
     const slanted = (ticks, font, rotate, lines, proj) => ({
       ticks, font, rotate, stagger: false, lines, count: n,
@@ -413,7 +421,7 @@
         }
       }
     }
-    // Slots too narrow for any legible text â€” the tooltip carries the names.
+    // Slots too narrow for any legible text — the tooltip carries the names.
     return upright([], base, 1);
   }
 
@@ -422,7 +430,7 @@
   }
   function ellipsize(s, maxChars) {
     s = String(s);
-    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + 'â€¦';
+    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + '…';
   }
   // Word wrap into at most `lines` lines, split where the longest line comes
   // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
@@ -471,7 +479,7 @@
     ['year', 50], ['year', 100]
   ];
 
-  // Period-start boundaries at `mult` Ã— unit, covering [minMs, maxMs].
+  // Period-start boundaries at `mult` × unit, covering [minMs, maxMs].
   function genBoundaries(freq, mult, minMs, maxMs) {
     mult = mult || 1;
     const out = [];
@@ -690,12 +698,18 @@
       y += 10;
     }
     const cy = Math.max(y + 20, H / 2 - 10);
-    wrapHeading(headline, 13, W - 40, 2, true).forEach((l, i) => {
+    // The detail sits below however many lines the headline actually took: at a
+    // fixed 26px it lands on top of the second line whenever the headline wraps,
+    // which is exactly when the message is longest and most needed. The wrap is
+    // measured at F_NOTICE too - it was measuring at a hardcoded 13 and drawing
+    // at the token, so a themed noticeSize wrapped to the wrong width.
+    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+    headLines.forEach((l, i) => {
       txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
         fill: TITLE_COL, 'font-family': FONT }, svg);
     });
     wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
-      txt(l, { x: 20, y: cy + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+      txt(l, { x: 20, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
         'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
     });
     return {
@@ -1021,7 +1035,7 @@
     const maxNameLen = seriesRaw.reduce((a, s) => Math.max(a, (s.name || '').length), 0);
     const rightPadForNames = showInline ? Math.min(140, 8 + maxNameLen * 6.5) : 0;
 
-    // â”€â”€ Legend layout (top rows, wraps as needed) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Legend layout (top rows, wraps as needed) ───────────────────────
     function _layoutLegend(items, availW) {
       const widths = items.map(it => LEG_ICON + LEG_ICON_GAP + Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
       const rows = [];
@@ -1038,12 +1052,18 @@
     const _legendLayout = legendEnabled
       ? _layoutLegend(seriesRaw.map((s, i) => ({ name: s.name || 'Series ' + (i + 1) })), availLegW)
       : { rows: [], height: 0 };
-    const legendZone = _legendLayout.height + (legendEnabled ? 18 : 0);
+    const legendZone = _legendLayout.height;
 
     const M = {
-      l: 20,
-      r: 55 + rightPadForNames,  // y-labels on right + inline name space
-      t: titleBlockH + legendZone + 8,
+      // Y-labels sit in the LEFT margin, floating at titleX with no spine —
+      // the same 62 the column, bar, histogram and scatter engines use. This
+      // engine used to put them on the right (l:20, r:55), which read fine on
+      // its own but left a line chart's plot 35px narrower on the right than
+      // its neighbour's in a grid, with the numbers on the opposite side. The
+      // right margin now only carries the inline series names, when asked for.
+      l: 62,
+      r: 20 + rightPadForNames,
+      t: titleBlockH + legendZone + PLOT_GAP,
       b: 42
     };
     const IW = W - M.l - M.r;
@@ -1089,7 +1109,7 @@
         (opts.plotOptions && opts.plotOptions.series && opts.plotOptions.series.marker) || {}, s.marker || {});
       const points = normalizePoints(s.data, xType, xAxis.categories);
       // On by default, as everywhere else. A series with many points gets
-      // crowded, so dataLabels:false â€” globally or per series â€” is the way
+      // crowded, so dataLabels:false — globally or per series — is the way
       // back to a bare line.
       const plotDL = opts.plotOptions && opts.plotOptions.series && opts.plotOptions.series.dataLabels;
       const dataLabels = Object.assign({},
@@ -1337,10 +1357,10 @@
         }
       });
 
-      // Y-axis labels on RIGHT, no tick marks
+      // Y-axis labels float in the left margin, no tick marks and no spine.
       yTicks.forEach(v => {
         const y = yScale(v);
-        txt(formatY(v), { x: M.l + IW + 8, y: y + 4, 'text-anchor': 'start',
+        txt(formatY(v), { x: titleX, y: y + 4, 'text-anchor': 'start',
           'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
       });
 
@@ -1393,7 +1413,7 @@
       // Inline line-end labels
       if (showInline) placeInlineLabels();
 
-      // Callouts / annotations â€” auto-placed together to avoid overlap
+      // Callouts / annotations — auto-placed together to avoid overlap
       layoutCallouts(opts.callouts || []);
     }
 
@@ -1600,7 +1620,7 @@
       if (following) { viewMin = xMin; viewMax = xMax + xPad; }
     }
 
-    // â”€â”€ Top legend (below subtitle) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Top legend (below subtitle) ─────────────────────────────────────
     function renderLegend() {
       gLegend.innerHTML = '';
       if (!legendEnabled) return;
@@ -1677,6 +1697,7 @@
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_POINT_LBL, F_NOTICE;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -1692,10 +1713,10 @@
     INV_TEXT = t.inverseText || '#FFFFFF';
     HIGHLIGHT = t.highlight || '#243E63';
     POS_COL = t.aboveThreshold || t.positive || '#2323FF';
-    NEG_COL = t.belowThreshold || t.negative || '#D1107A';
+    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles â€” see the hierarchy comment in theme.js.
+    // Shared text roles — see the hierarchy comment in theme.js.
     CAT_COL = t.categoryColor || TITLE_COL;
     CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
     TICK_COL = t.tickColor || LABEL_COL;
@@ -1716,6 +1737,8 @@
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -1751,7 +1774,7 @@
     return e;
   }
 
-  // â”€â”€ Heading wrapping â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
@@ -1761,8 +1784,8 @@
   function _clipLine(str, fontSize, maxW, bold) {
     let s = String(str);
     if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + 'â€¦', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + 'â€¦';
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
   }
   function wrapHeading(str, fontSize, maxW, maxLines, bold) {
     const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
@@ -1789,10 +1812,10 @@
   function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 
-  // â”€â”€ dense-axis tick thinning â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── dense-axis tick thinning ───────────────────────────────────────────
   // With many categories every label would be drawn, so they collide and the
   // axis looks squeezed. When the labels parse as dates we keep only the ones
-  // that open a calendar period (hour â†’ day â†’ week â†’ month â†’ quarter â†’ year),
+  // that open a calendar period (hour → day → week → month → quarter → year),
   // stepping up to a coarser period until the kept labels fit the available
   // pixels; otherwise we fall back to an even stride. Called from render(), so
   // a chart whose data keeps growing re-thins itself on every update.
@@ -1874,7 +1897,7 @@
   // Labels are centred on their tick, so the test is pair-wise: every gap
   // between neighbouring ticks must hold half of each label plus a little air.
   // Sizing every slot by the single widest label instead rejects axes that do
-  // fit â€” one long lead-in label like "Jan 1 2025" made ten short "Jan 6"s
+  // fit — one long lead-in label like "Jan 1 2025" made ten short "Jan 6"s
   // look nine times wider than they are, so a run of days skipped straight
   // past weekly labels to months.
   function labelsFit(items, avail, fontSize, pos) {
@@ -1891,12 +1914,12 @@
   }
 
   // Plan the x-axis category labels for `avail` px of axis.
-  // Temporal categories collapse to a coarser calendar period (see above) â€”
+  // Temporal categories collapse to a coarser calendar period (see above) —
   // dropping "Feb 3" from a run of days still leaves a readable time axis.
   // Named categories cannot be dropped that way: "Chrome, ?, ?, Safari" is
   // worse than no axis at all. So for them nothing is ever dropped; instead the
-  // labels are given more room, in order â€” full width, smaller type, two
-  // wrapped lines, two staggered rows, 45Â° slant, then 90Â° vertical. An
+  // labels are given more room, in order — full width, smaller type, two
+  // wrapped lines, two staggered rows, 45° slant, then 90° vertical. An
   // ellipsis is the last resort, used only after wrapping has been tried.
   // Returns { ticks:[{i, lines:[...]}], font, rotate, stagger, lines, height }.
   function layoutCategoryAxis(cats, avail, baseFont, maxBand) {
@@ -1925,7 +1948,7 @@
       // Label the points that open a calendar period. The very first datapoint
       // is a special case: when the data starts mid-period it is not a period
       // start, and labelling it anyway puts e.g. "Jan 1 2025" a few pixels from
-      // "Jan 6" â€” one crowded pair that would push the whole axis up to a
+      // "Jan 6" — one crowded pair that would push the whole axis up to a
       // coarser period than it needs. So try the run without that partial head
       // label first, and only fall back to including it if that does not fit.
       const pickPeriod = (period, withHead) => {
@@ -1965,18 +1988,18 @@
     }
 
     // Named categories: keep every label, find a presentation that fits.
-    // 1) upright â€” shrink the type a little, wrapping onto two lines if it helps
+    // 1) upright — shrink the type a little, wrapping onto two lines if it helps
     for (const font of FONTS) {
       if (widest * (font / base) + 10 <= slot) return upright(one(all), font, 1);
       const wrapped = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, 2) }));
       if (maxLineChars(wrapped) * CW * font + 8 <= slot) return upright(wrapped, font, 2);
     }
-    // 2) stagger onto two baselines â€” each label gets two slots of width
+    // 2) stagger onto two baselines — each label gets two slots of width
     for (const font of FONTS) {
       if (widest * (font / base) + 8 <= slot * 2) return upright(one(all), font, 1, true);
     }
-    // 3) slant 45Â°, then 4) stand labels vertically. Spacing now costs about a
-    // glyph height per wrapped line, and length is bounded by the band depth â€”
+    // 3) slant 45°, then 4) stand labels vertically. Spacing now costs about a
+    // glyph height per wrapped line, and length is bounded by the band depth —
     // so try a second line before giving up any characters.
     const slanted = (ticks, font, rotate, lines, proj) => ({
       ticks, font, rotate, stagger: false, lines, count: n,
@@ -2005,7 +2028,7 @@
         }
       }
     }
-    // Slots too narrow for any legible text â€” the tooltip carries the names.
+    // Slots too narrow for any legible text — the tooltip carries the names.
     return upright([], base, 1);
   }
 
@@ -2050,7 +2073,7 @@
   }
   function ellipsize(s, maxChars) {
     s = String(s);
-    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + 'â€¦';
+    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + '…';
   }
   // Word wrap into at most `lines` lines, split where the longest line comes
   // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
@@ -2131,7 +2154,7 @@
     if (cur) lines.push(cur);
     if (lines.length > maxLines) {
       const last = lines.slice(0, maxLines);
-      last[maxLines - 1] = last[maxLines - 1].slice(0, maxChars - 1) + 'â€¦';
+      last[maxLines - 1] = last[maxLines - 1].slice(0, maxChars - 1) + '…';
       return last;
     }
     return lines;
@@ -2428,7 +2451,7 @@
     // titleX is the shared left edge for title, subtitle, and (for columns) y-labels
     const titleX = HEAD_X;
 
-    // â”€â”€ Legend layout (top row(s), auto-enabled when multi-series) â”€â”€â”€â”€â”€â”€
+    // ── Legend layout (top row(s), auto-enabled when multi-series) ──────
     const seriesCount = (opts.series || []).length;
     const legendEnabled = (opts.legend && opts.legend.enabled != null)
       ? !!opts.legend.enabled : (seriesCount > 1);
@@ -2448,7 +2471,7 @@
     const legendLayout = legendEnabled
       ? layoutLegend((opts.series || []).map((s, i) => ({ name: s.name || 'Series ' + (i + 1) })), availLegW)
       : { rows: [], height: 0 };
-    const legendZone = legendLayout.height + (legendEnabled ? 18 : 0);
+    const legendZone = legendLayout.height;
 
     // Horizontal bars carry their category label in the left gutter. Lay the
     // labels out against the widest gutter we would ever allow (a third of the
@@ -2462,7 +2485,7 @@
     let rowLabels = null;
     let leftPadForBars = 24;
     if (inverted) {
-      const ihEst = Math.max(40, H - (titleBlockH + legendZone + 34) - 26);
+      const ihEst = Math.max(40, H - (titleBlockH + legendZone + PLOT_GAP + TOP_AXIS_BAND) - 26);
       rowLabels = layoutRowLabels(rowLabelCats, gutterMax - titleX - 10,
         ihEst / rowCount, F_LABEL);
       leftPadForBars = Math.min(gutterMax,
@@ -2472,7 +2495,10 @@
     const M = {
       l: inverted ? leftPadForBars : 62,   // column: room for y-labels left-aligned to titleX
       r: 20,
-      t: titleBlockH + legendZone + (inverted ? 34 : 8),  // + legend + top-axis room when inverted
+      // The horizontal bar carries its value-axis labels ABOVE the plot, so it
+      // reserves a band for them on top of the shared clearance; every other
+      // engine starts its plot at exactly titleBlockH + legendZone + PLOT_GAP.
+      t: titleBlockH + legendZone + PLOT_GAP + (inverted ? TOP_AXIS_BAND : 0),
       b: (inverted ? 26 : 40)  // room for category labels + ~20px outer pad
     };
     const IW = W - M.l - M.r;
@@ -2968,14 +2994,14 @@
           class: 'bar', 'data-cat': catIdx, 'data-series': seriesIdx }, paint), gBars);
       }
 
-      // Data labels â€” clean-charts style
+      // Data labels — clean-charts style
       if (s.dataLabels && s.dataLabels.enabled) {
-        const val = (p.y != null) ? p.y : (p.high != null ? `${p.low}â€“${p.high}` : '');
+        const val = (p.y != null) ? p.y : (p.high != null ? `${p.low}–${p.high}` : '');
         const label = s.dataLabels.format
           ? String(s.dataLabels.format).replace('{y}', Math.abs(val))
           : (typeof val === 'number' ? fmtY(Math.abs(val)) : val);
 
-        // Estimated label width â€” the engines size text without measuring it.
+        // Estimated label width — the engines size text without measuring it.
         const labelW = String(label).length * F_VALUE * 0.60;
 
         if (!isBar) {
@@ -3001,9 +3027,9 @@
           const alone = (valueForLabel >= 0 ? side.pos : side.neg) <= 1;
           const ly = y + h / 2 + 4;
           if (alone) {
-            // Population-pyramid shape: the label sits at the bar's outer end â€”
+            // Population-pyramid shape: the label sits at the bar's outer end —
             // the right tip for a positive value, the left tip for a negative
-            // one â€” inside the bar when it fits, just outside when it does not.
+            // one — inside the bar when it fits, just outside when it does not.
             const outward = valueForLabel < 0;
             if (w >= labelW + 12) {
               txt(label, { x: outward ? x + 6 : x + w - 6, y: ly,
@@ -3048,7 +3074,7 @@
       return s.color;
     }
 
-    // Interaction â€” shared tooltip
+    // Interaction — shared tooltip
     const tooltip = document.createElement('div');
     tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
@@ -3082,7 +3108,7 @@
         if (!s.visible) return;
         const p = s.points[idx]; if (!p) return;
         let val;
-        if (p.low != null && p.high != null) val = `${formatValue(p.low, s)} â€“ ${formatValue(p.high, s)}`;
+        if (p.low != null && p.high != null) val = `${formatValue(p.low, s)} – ${formatValue(p.high, s)}`;
         else if (p.y != null) val = formatValue(Math.abs(p.y), s);
         else return;
         html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${s.color};border-radius:2px"></span><span style="color:${LABEL_COL}">${esc(s.name)}: </span><b style="color:${TITLE_COL}">${esc(val)}</b></div>`;
@@ -3104,7 +3130,7 @@
     svg.addEventListener('mousemove', onMove);
     svg.addEventListener('mouseleave', hideTooltip);
 
-    // â”€â”€ Top legend (below subtitle) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ── Top legend (below subtitle) ─────────────────────────────────────
     function renderLegend() {
       gLegend.innerHTML = '';
       if (!legendEnabled) return;
@@ -3180,6 +3206,7 @@ Charts.bar = function (container, opts) {
   let TT_BORDER, DIM_COL, HOVER_INK;
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -3216,6 +3243,8 @@ Charts.bar = function (container, opts) {
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -3712,7 +3741,7 @@ Charts.bar = function (container, opts) {
           return { name };
         }), availLegendW)
       : { rows: [], height: 0 };
-    const rawLegendZone = legendLayout.height + (legendEnabled ? 18 : 0);
+    const rawLegendZone = legendLayout.height;
 
     // The footnote takes its space out of the plot box, so the ring and the
     // stacked callouts shrink to make room rather than colliding with it.
@@ -3770,7 +3799,7 @@ Charts.bar = function (container, opts) {
     //   two-line blocks → one-line blocks → drop the legend → name-only
     //   labels → shrink the type (floor 0.72).
     // Something is always drawn; only the amount of detail gives way.
-    const vRoomFor = zone => (chartBottom - (titleBlockH + zone + 8)) - 24;
+    const vRoomFor = zone => (chartBottom - (titleBlockH + zone + PLOT_GAP)) - 24;
     const textWidthFor = mode =>
       mode === 'two' ? Math.max(widestName, widestValue)
       : mode === 'one' ? widestPair
@@ -3815,7 +3844,7 @@ Charts.bar = function (container, opts) {
       }
     }
     const legendVisible = legendEnabled && legendZone > 0;
-    const chartTop = titleBlockH + legendZone + 8;
+    const chartTop = titleBlockH + legendZone + PLOT_GAP;
     const chartH = chartBottom - chartTop;
     const vRoom = chartH - 24;
     // The column is only as wide as the text it holds plus the connector run,
@@ -4325,6 +4354,7 @@ Charts.pie = function (container, opts) {
   let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_POINT_LBL, SPINE_W, GRID_W;
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     applyThemeColors();
     const t = (window.Charts && window.Charts.theme) || {};
@@ -4347,6 +4377,8 @@ Charts.pie = function (container, opts) {
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -4784,7 +4816,7 @@ Charts.pie = function (container, opts) {
     const ySuffix = yAxis.suffix || '';
 
     // Layout tokens (clean-charts uses ~45px outer margin)
-    const marginPx = 22;
+    const marginPx = 20;   // the shared outer pad, as in column/line/histogram
     const titleLines = hasTitle
       ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
@@ -4813,7 +4845,7 @@ Charts.pie = function (container, opts) {
     const _legendLayout = hasLegend
       ? _layoutLegend((opts.series || []).map((s, i) => ({ name: s.name || 'Series ' + (i + 1) })), W - HEAD_X * 2)
       : { rows: [], height: 0 };
-    const legendZone = _legendLayout.height + (hasLegend ? 18 : 0);
+    const legendZone = _legendLayout.height;
 
     // Left margin needs room for y-label (rotated) + y-tick text
     // Estimate widest y-tick label so leftPad scales with the actual numbers
@@ -4832,14 +4864,18 @@ Charts.pie = function (container, opts) {
       Math.max(m, (addCommas((+v.toFixed(6)).toString()) + ySuffix).length), 3);
     const _tickTextW = Math.ceil(_maxLbl * F_TICK * 0.6) + 8; // +8 gap between text and spine
     // Symmetric with bottomPad: edge pad + title + tick strings.
-    const leftPad = 8 + (yTitle ? 22 : 0) + _tickTextW;
+    // At least the 62 the column, line and histogram engines use, so a scatter
+    // sitting beside one of them in a grid starts its plot on the same line;
+    // wider when the y ticks actually need it, which is what this engine
+    // measured for in the first place.
+    const leftPad = Math.max(62, 8 + (yTitle ? 22 : 0) + _tickTextW);
     // Bottom needs room for x-label and tick labels
     const bottomPad = 28 + (xTitle ? 22 : 0);
 
     const M = {
       l: leftPad,
       r: marginPx,
-      t: titleBlockH + legendZone + 8,
+      t: titleBlockH + legendZone + PLOT_GAP,
       b: bottomPad
     };
     const IW = W - M.l - M.r;
@@ -5297,6 +5333,7 @@ Charts.packedBubble = function (container, opts) {
   let TT_BORDER, DIM_COL, HOVER_INK;
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -5308,7 +5345,7 @@ Charts.packedBubble = function (container, opts) {
     SUB_COL = t.subtitleColor || '#666666';
     LABEL_COL = t.labelColor || '#333333';
     SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.belowThreshold || t.negative || '#D1107A';
+    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
     // Shared text roles — see the hierarchy comment in theme.js.
@@ -5330,6 +5367,8 @@ Charts.packedBubble = function (container, opts) {
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -5730,26 +5769,83 @@ Charts.packedBubble = function (container, opts) {
     const n = points.length;
     const labelH = Math.round(F_LABEL * 1.25);
     const labelGap = 5;
-    const rowGap = plot.rowGap != null ? plot.rowGap : 22;
+    const baseRowGap = plot.rowGap != null ? plot.rowGap : 22;
+    let rowGap = baseRowGap;
     let barH = plot.barHeight != null ? plot.barHeight : 26;
+    // Spare or missing height is absorbed by the ROW GAP, not by the bar.
+    // A bar encodes its value in length alone; once its thickness approaches
+    // that length the eye starts reading area instead, and the shortest bars
+    // gain visual weight they have not earned. Bar thickness therefore stays
+    // put — which also keeps two lists on one dashboard looking like the same
+    // chart type — and the gap between rows takes up the slack. Widening that
+    // gap is safe because the label→bar gap does NOT widen with it: the
+    // asymmetry is what makes each label read as belonging to the bar beneath
+    // it, and stretching only the outer gap strengthens the pairing.
+    const GAP_MAX = baseRowGap * 2.5;   // past this a list reads as loose items
+    const GAP_MIN = 8;                  // below this the pairs start to merge
 
     // Height: honour an explicit container height by fitting the rows into
     // it; otherwise grow the container to the content, which is what a list
     // of arbitrary length actually wants.
     const rowH = () => labelH + labelGap + barH + rowGap;
-    const chromeH = titleBlockH + marginB;
+    const chromeH = titleBlockH + PLOT_GAP + marginB;
+    // A height on the container is an instruction: fill it. Only when there is
+    // no height to honour does the list grow to its own content. The previous
+    // default was the other way round, which meant a 30-row list dropped into a
+    // 300px dashboard cell wrote 2022px into it and broke the layout around it.
+    // `autoHeight: true` asks for the growing behaviour explicitly.
+    //
+    // An inline height THIS engine wrote on an earlier render is not an
+    // instruction from the author, so it is cleared before measuring —
+    // otherwise redraw() would read back its own output and switch modes.
+    if (container.dataset.chartsGrew === '1') container.style.height = '';
     const fixedH = container.clientHeight;
+    const fillHeight = plot.autoHeight !== true && fixedH > 0;
+    let topOffset = 0;
+    let outgrew = false;
     let H;
-    if (plot.autoHeight === false && fixedH) {
+    if (fillHeight) {
       H = fixedH;
       const avail = H - chromeH;
       if (n) {
+        const gaps = Math.max(1, n - 1);
         const need = n * rowH() - rowGap;
-        if (need > avail) barH = Math.max(6, barH - (need - avail) / n);
+        if (need > avail) {
+          // Too tall: close the gaps down to their floor before thinning the
+          // bars, so the mark keeps its size for as long as it can.
+          const over = need - avail;
+          const fromGap = Math.min(over, (rowGap - GAP_MIN) * gaps);
+          rowGap -= fromGap / gaps;
+          const stillOver = over - fromGap;
+          if (stillOver > 0) {
+            const BAR_MIN = 6;
+            barH = Math.max(BAR_MIN, barH - stillOver / n);
+            // Floors reached and it still does not fit: grow the canvas rather
+            // than clip the last rows off the bottom. Hiding rows to honour a
+            // height would be the one trade this library never makes.
+            const needNow = n * rowH() - rowGap;
+            if (needNow > avail) {
+              H = Math.round(chromeH + needNow);
+              container.style.height = H + 'px';
+              outgrew = true;
+            }
+          }
+        } else if (avail > need) {
+          // Room to spare: open the gaps, and once they hit the cap, centre
+          // the block rather than keep stretching it.
+          const spare = avail - need;
+          const room = (GAP_MAX - rowGap) * gaps;
+          const used = Math.min(spare, room);
+          rowGap += used / gaps;
+          topOffset = Math.max(0, (spare - used) / 2);
+        }
       }
+      if (outgrew) container.dataset.chartsGrew = '1';
+      else delete container.dataset.chartsGrew;
     } else {
       H = Math.round(chromeH + (n ? n * rowH() - rowGap : 0));
       container.style.height = H + 'px';
+      container.dataset.chartsGrew = '1';
     }
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
@@ -5803,7 +5899,7 @@ Charts.packedBubble = function (container, opts) {
     }
 
     // ── Rows ────────────────────────────────────────────────────────────
-    let y = titleBlockH;
+    let y = titleBlockH + PLOT_GAP + topOffset;
     // One anchor per bar, so `callouts: [{ name, text }]` can name a row.
     const barAnchors = [];
     // Bar + its label above it: the block a note must not cover.
@@ -5950,6 +6046,7 @@ Charts.packedBubble = function (container, opts) {
   let TT_BORDER, DIM_COL, HOVER_INK;
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -5960,7 +6057,7 @@ Charts.packedBubble = function (container, opts) {
     TITLE_COL = t.titleColor || '#111111';
     SUB_COL = t.subtitleColor || '#666666';
     SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.belowThreshold || t.negative || '#D1107A';
+    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
     DEFAULT_COL = t.defaultColor || '#000000';
     COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
     // Shared text roles — see the hierarchy comment in theme.js.
@@ -5982,6 +6079,8 @@ Charts.packedBubble = function (container, opts) {
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -6324,6 +6423,15 @@ Charts.packedBubble = function (container, opts) {
     container.style.fontFamily = FONT;
     container.style.background = BG;
 
+    // The author's height is measured HERE, while the container is empty, and
+    // not inside render(): by then this engine's own <svg> is already in the
+    // DOM, and an <svg> with no height attribute is 150px tall by CSS default.
+    // An auto-height container would therefore measure 150 and be mistaken for
+    // a container the author had sized. An inline height left by a previous
+    // render is cleared first, for the same reason.
+    if (container.dataset.chartsGrew === '1') container.style.height = '';
+    const authoredH = container.clientHeight;
+
     const W = container.clientWidth || 900;
     const plot = (opts.plotOptions && opts.plotOptions.barInsightTable) ||
                  (opts.plotOptions && opts.plotOptions.series) || {};
@@ -6435,7 +6543,7 @@ Charts.packedBubble = function (container, opts) {
     }
     const legendLayout = legendEnabled
       ? layoutLegend(seriesDefs, W - HEAD_X * 2) : { rows: [], height: 0 };
-    const legendZone = legendLayout.height + (legendEnabled ? 18 : 0);
+    const legendZone = legendLayout.height + PLOT_GAP;
 
     // ── Column geometry ─────────────────────────────────────────────────
     // Four columns: row label, bars, insight text, stat. Widths are fractions
@@ -6533,9 +6641,57 @@ Charts.packedBubble = function (container, opts) {
 
       const bodyH = rows.reduce((a, r) => a + r.h, 0);
       const chromeH = titleBlockH + legendZone + marginB;
-      const fixedH = container_.clientHeight;
-      if (plot.autoHeight === false && fixedH) H = fixedH;
-      else { H = Math.round(chromeH + bodyH); container_.style.height = H + 'px'; }
+      // A height on the container is an instruction: fill it. The table only
+      // grows to its own content when there is no height to honour.
+      // `autoHeight: true` asks for the growing behaviour explicitly. An inline
+      // height this engine wrote on an earlier render is cleared first, so a
+      // legend toggle (which re-runs this whole pass) does not read back its
+      // own output and switch modes halfway through a session.
+      const fixedH = authoredH;
+      let bodyOffset = 0;
+      let outgrewCell = false;
+      if (plot.autoHeight !== true && fixedH > 0) {
+        H = fixedH;
+        // Spare height goes into the space BETWEEN rows, never into the bars.
+        // The bars carry the comparison in their length, and `barGap` holds the
+        // group together, so both stay fixed; a row simply gets taller and its
+        // content — which is already centred in the row — floats to the middle
+        // of it. Extra leading between rows also helps each row read across as
+        // the sentence it is: label, bars, insight, stat.
+        const spare = (H - chromeH) - bodyH;
+        if (spare > 0 && rows.length) {
+          const perRow = Math.min(spare / rows.length, rowPad * 3);   // 2.5x padding
+          rows.forEach(r => { r.h += perRow; });
+          // Once the padding is at its cap, centre the block rather than keep
+          // opening it up: past that the rows stop reading as one table.
+          bodyOffset = Math.max(0, (spare - perRow * rows.length) / 2);
+        } else if (spare < 0 && rows.length) {
+          // Not enough room. Close the padding down to a floor first — the same
+          // order the fill uses in reverse, so the marks keep their size for as
+          // long as they can. Row height past that is set by the text and the
+          // bars themselves and cannot be squeezed further.
+          const PAD_MIN = 6;
+          const perRow = Math.min(-spare / rows.length, (rowPad - PAD_MIN) * 2);
+          rows.forEach(r => { r.h -= perRow; });
+          const stillOver = -spare - perRow * rows.length;
+          if (stillOver > 0) {
+            // It genuinely does not fit. Grow the canvas rather than clip a row
+            // off the bottom: an unreadable last row is worse than a chart that
+            // is taller than its cell, and silently hiding data is not a
+            // trade-off this library makes anywhere else.
+            H = Math.round(chromeH + rows.reduce((a, r) => a + r.h, 0));
+            container_.style.height = H + 'px';
+            outgrewCell = true;
+          }
+        }
+        if (outgrewCell) container_.dataset.chartsGrew = '1';
+        else delete container_.dataset.chartsGrew;
+      }
+      else {
+        H = Math.round(chromeH + bodyH);
+        container_.style.height = H + 'px';
+        container_.dataset.chartsGrew = '1';
+      }
       svg.setAttribute('width', W);
       svg.setAttribute('height', H);
       svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -6607,7 +6763,7 @@ Charts.packedBubble = function (container, opts) {
       // by the bounds below instead — they are whole columns, not stray marks.
       const barRects = [];
 
-      let y = titleBlockH + legendZone;
+      let y = titleBlockH + legendZone + bodyOffset;
       rows.forEach((r, ri) => {
         const mid = y + (r.h - (r.noteH || 0)) / 2;
 
@@ -6805,6 +6961,7 @@ Charts.packedBubble = function (container, opts) {
   let TT_BORDER, DIM_COL, HOVER_INK;
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -6834,6 +6991,8 @@ Charts.packedBubble = function (container, opts) {
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -7234,9 +7393,9 @@ Charts.packedBubble = function (container, opts) {
     const gapRatio = plot.dotGap != null ? plot.dotGap : 0.42;  // gap as a share of dot size
     const maxDot = plot.dotSize != null ? plot.dotSize : 11;
     let dot = Math.min(maxDot, innerW / (gridCols + (gridCols - 1) * gapRatio));
-    const gap = dot * gapRatio;
-    const gridW = gridCols * dot + (gridCols - 1) * gap;
-    const gridH = gridRows * dot + (gridRows - 1) * gap;
+    let gap = dot * gapRatio;
+    let gridW = gridCols * dot + (gridCols - 1) * gap;
+    let gridH = gridRows * dot + (gridRows - 1) * gap;
 
     const F_STAT = plot.statSize != null ? plot.statSize : 34;
     const F_NAME = plot.nameSize != null ? plot.nameSize : F_LABEL + 1;
@@ -7252,6 +7411,45 @@ Charts.packedBubble = function (container, opts) {
     const maxDescLines = Math.max(0, ...descLinesPer.map(l => l.length));
     const descH = maxDescLines ? maxDescLines * DESC_LH + 6 : 0;
 
+    // Spare height grows the DOT, which is the opposite of what the row-based
+    // engines do with theirs — and for the same reason. There, length carries
+    // the value and thickness must stay out of it; here the value is the NUMBER
+    // of dots, and a dot is one unit at any size, so scaling the grid distorts
+    // nothing. It is also the only lever that helps: opening the gaps instead
+    // would thin the block out until it stopped reading as a countable mass,
+    // which is the whole point of a waffle. `dotGap` is a share of the dot, so
+    // the grid keeps its proportions as it grows.
+    // A height on the container is an instruction: fill it. The panels only
+    // grow to their own content when there is no height to honour.
+    // `autoHeight: true` asks for the growing behaviour explicitly. An inline
+    // height this engine wrote on an earlier render is cleared first, so a
+    // re-render does not read back its own output.
+    if (container.dataset.chartsGrew === '1') container.style.height = '';
+    const containerH = container.clientHeight;
+    const fixedH = (plot.autoHeight !== true && containerH > 0) ? containerH : 0;
+    if (fixedH) {
+      const chrome = titleBlockH + PLOT_GAP + statH + 14 + nameH + descH + marginB;
+      const hBudget = fixedH - chrome - (function () {
+        let band = 0;
+        (opts.callouts || []).forEach(co => {
+          band = Math.max(band, measureCalloutBox(co.text).h);
+        });
+        return band ? band + 22 : 0;
+      })();
+      const byH = hBudget / (gridRows + (gridRows - 1) * gapRatio);
+      const byW = innerW / (gridCols + (gridCols - 1) * gapRatio);
+      // Whichever axis binds first, exactly as the donut sizes its ring.
+      // byH can be smaller than the natural dot in a short box, and then the
+      // grid has to shrink rather than overflow the panel.
+      const grown = Math.min(byW, byH > 0 ? byH : dot);
+      if (isFinite(grown) && grown > 0) {
+        dot = grown;
+        gap = dot * gapRatio;
+        gridW = gridCols * dot + (gridCols - 1) * gap;
+        gridH = gridRows * dot + (gridRows - 1) * gap;
+      }
+    }
+
     const bodyH = statH + gridH + 14 + nameH + descH;
     // A waffle panel is a solid block — big number, dot grid, name, note — with
     // no slack anywhere inside it. So the notes get their own band above the
@@ -7261,8 +7459,16 @@ Charts.packedBubble = function (container, opts) {
       calloutBand = Math.max(calloutBand, measureCalloutBox(co.text).h);
     });
     if (calloutBand) calloutBand += 22;
-    const H = Math.round(titleBlockH + calloutBand + bodyH + marginB);
-    container.style.height = H + 'px';
+    // With an explicit height the container is left alone — it is the author's
+    // instruction, and the grid above was sized to fill it.
+    // A panel's headline, label and description are fixed text; only the grid
+    // can give, and it has already shrunk as far as the box allows. If the
+    // panel still does not fit, take the height it needs rather than clip the
+    // description off the bottom — the same trade every other engine makes.
+    const naturalH = Math.round(titleBlockH + PLOT_GAP + calloutBand + bodyH + marginB);
+    const H = (fixedH && naturalH <= fixedH) ? fixedH : naturalH;
+    if (fixedH && naturalH <= fixedH) delete container.dataset.chartsGrew;
+    else { container.style.height = H + 'px'; container.dataset.chartsGrew = '1'; }
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
     svg.style.background = BG;
@@ -7278,7 +7484,7 @@ Charts.packedBubble = function (container, opts) {
                                   : addCommas(v) + valueSuffix);
 
     const gPanels = el('g', {}, svg);
-    const top = titleBlockH + calloutBand;
+    const top = titleBlockH + PLOT_GAP + calloutBand;
     const gridTop = top + statH;
 
     // ── Dividers: hairlines between panels, spanning the grid + label
@@ -7444,6 +7650,7 @@ Charts.packedBubble = function (container, opts) {
   let TT_BORDER, DIM_COL, HOVER_INK, TILE_COL, TILE_TRACK;
   let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
   let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
   function applyTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
     TT_BORDER = t.tooltipBorder || '#dcdbd7';
@@ -7478,6 +7685,8 @@ Charts.packedBubble = function (container, opts) {
     HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
     HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
     HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
     F_LEG = t.legendSize != null ? t.legendSize : 12;
     LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
     LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
@@ -7897,7 +8106,7 @@ Charts.packedBubble = function (container, opts) {
     const rowMin = Math.min(...grid.map(g => g.row));
     const nCols = Math.max(...grid.map(g => g.col)) - colMin + 1;
     const nRows = Math.max(...grid.map(g => g.row)) - rowMin + 1;
-    const gridTop = titleBlockH + 8;
+    const gridTop = titleBlockH + PLOT_GAP;
     const availW = W - marginPx * 2;
     const availH = H - gridTop - marginPx;
     // One square cell size for both axes: the grid keeps its map shape at any
@@ -8114,6 +8323,2932 @@ Charts.packedBubble = function (container, opts) {
     Charts.geofacet = Chart;
 })();
 
+// ─── radar ─────────────────────────────────────────────────────────
+
+/*
+ * Clean-charts-styled radar (spider) chart engine.
+ * One closed polygon per series over a shared set of named axes: the shape a
+ * series makes IS the reading, so every axis has to share one scale and every
+ * scale has to start at the centre. Two things follow from that and are not
+ * options:
+ *   - the value axis starts at zero (or at yAxis.min, if the caller sets one
+ *     deliberately) — a radar with a floating baseline turns a 5% difference
+ *     into a shape twice the size of its neighbour;
+ *   - the axes are drawn in the order given and evenly spaced, because the
+ *     polygon's silhouette depends on that order.
+ * Cream bg, Inter, top-left title/subtitle, top legend, series palette shared
+ * with every other engine. Interactive: hover a sector → the whole spoke
+ * highlights and one tooltip lists every visible series on that axis; click a
+ * legend key → toggle the series.
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+  // --- theme tokens (populated from window.Charts.theme at render time) ---
+  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, HIGHLIGHT, CALLOUT_C, INV_TEXT, COLORS;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
+  let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_POINT_LBL, F_NOTICE, F_VALUE;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
+    BG = t.bg || '#f4f3f0';
+    GRID = t.grid || '#dcdbd7';
+    AXIS = t.axis || '#000000';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    LABEL_COL = t.labelColor || '#333333';
+    SEC_COL = t.secondaryColor || '#666666';
+    HIGHLIGHT = t.highlight || '#243E63';
+    CALLOUT_C = t.callout || '#B31B38';
+    INV_TEXT = t.inverseText || '#FFFFFF';
+    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
+    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
+    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
+    F_TICK = t.tickSize != null ? t.tickSize : 11;
+    F_INLINE = t.inlineSize != null ? t.inlineSize : 11;
+    AXIS_W = t.axisWidth != null ? t.axisWidth : 1.8;
+    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
+    LINE_W = t.lineWidth != null ? t.lineWidth : 3;
+    TICK_L = t.tickLength != null ? t.tickLength : 6;
+    TICK_W = t.tickWidth != null ? t.tickWidth : 1.5;
+  }
+
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function niceTicks(min, max, count) {
+    count = count || 5;
+    if (min === max) { min -= 1; max += 1; }
+    const range = max - min;
+    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
+    const err = (count / range) * step0;
+    let step = step0;
+    if (err <= 0.15) step *= 10;
+    else if (err <= 0.35) step *= 5;
+    else if (err <= 0.75) step *= 2;
+    const lo = Math.floor(min / step) * step;
+    const hi = Math.ceil(max / step) * step;
+    const out = [];
+    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
+    return out;
+  }
+
+  // The outer ring is the value axis' frame, drawn at the spine weight the
+  // cartesian engines give their axis line so a radar in a grid reads at the
+  // same ink level as its neighbours.
+  let SPINE_W;
+  function applyRadarTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    SPINE_W = t.spineWidth != null ? t.spineWidth : 1.1;
+  }
+
+  function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26.
+    // Same 12-significant-figure cut-off every other engine uses.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+
+  // A point may be a bare number, [name, y] or {y}. The NAME on a point is
+  // ignored on purpose: the axes come from xAxis.categories and are shared by
+  // every series, so a per-series name here would describe an axis that only
+  // one polygon has — which is not a radar.
+  function pointY(p) {
+    const y = Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? p.y : p);
+    return Number.isFinite(+y) ? +y : null;
+  }
+  // Refusal panel: drawn in place of the chart when the options describe
+  // something a radar cannot honestly show. Returns the same stub API
+  // shape as Chart() so callers do not blow up on .redraw().
+  function errorChart(container, W, H, opts, headline, detail) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[charts-lib radar] ' + headline + ' ' + detail);
+    }
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+    let y = 34;
+    if (opts.title) {
+      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+        txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
+          'font-family': FONT }, svg);
+        y += TITLE_LH;
+      });
+      y += 10;
+    }
+    const cy = Math.max(y + 20, H / 2 - 10);
+    // The detail sits below however many lines the headline actually took: at a
+    // fixed 26px it lands on top of the second line whenever the headline wraps,
+    // which is exactly when the message is longest and most needed. The wrap is
+    // measured at F_NOTICE too - it was measuring at a hardcoded 13 and drawing
+    // at the token, so a themed noticeSize wrapped to the wrong width.
+    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+    headLines.forEach((l, i) => {
+      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+        fill: TITLE_COL, 'font-family': FONT }, svg);
+    });
+    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+      txt(l, { x: 20, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+    });
+    return {
+      redraw() {}, addPoint() {}, shift() {}, getSeries() { return []; },
+      error: headline
+    };
+  }
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'near') {
+        // Stack the box straight above (or below) the anchor and reach it with
+        // a vertical elbow. On a line chart every direction looks "free" until
+        // the leader is drawn, and a diagonal leader across a trend reads as
+        // another data mark; a vertical stem never does. Lateral nudges are a
+        // last resort, so a note stays over the point it names.
+        const NEAR_MIN = 26, NEAR_MAX = 190;
+        for (let d = NEAR_MIN; d <= NEAR_MAX && bestCost > 0; d += 12) {
+          consider(it.x - box.w / 2, it.y - d - box.h, d * 0.6, 'above');
+          consider(it.x - box.w / 2, it.y + d, d * 0.6 + 30, 'below');
+        }
+        for (let k = 1; k <= 4 && bestCost > 0; k++) {
+          const dx = k * 26;
+          for (let d = NEAR_MIN; d <= 150 && bestCost > 0; d += 16) {
+            consider(it.x - box.w / 2 + dx, it.y - d - box.h, d * 0.6 + dx * 1.4, 'above');
+            consider(it.x - box.w / 2 - dx, it.y - d - box.h, d * 0.6 + dx * 1.4, 'above');
+            consider(it.x - box.w / 2 + dx, it.y + d, d * 0.6 + dx * 1.4 + 30, 'below');
+            consider(it.x - box.w / 2 - dx, it.y + d, d * 0.6 + dx * 1.4 + 30, 'below');
+          }
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = (mode === 'near') ? 'above' : 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
+  function Chart(container, opts) {
+    applyTheme();
+    applyRadarTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 800;
+    const H = container.clientHeight || 500;
+    const xAxis = opts.xAxis || {};
+    const yAxis = opts.yAxis || {};
+    const plotOpts = (opts.plotOptions && opts.plotOptions.radar) || {};
+    const cats = (xAxis.categories || []).map(String);
+    const seriesRaw = opts.series || [];
+
+    // ── Guards ──────────────────────────────────────────────────────────
+    // Three axes is the floor: with two the polygon collapses to a line
+    // through the centre and with one it is a single spoke, and in both cases
+    // the shape — the only thing a radar adds over a bar chart — carries no
+    // information at all.
+    if (cats.length < 3) {
+      return errorChart(container, W, H, opts,
+        'A radar needs at least three axes.',
+        'xAxis.categories has ' + cats.length + '. With fewer than three the polygon collapses and the shape says nothing the values do not. Use column for one value per category, or dumbbell for two states.');
+    }
+    if (!seriesRaw.length) {
+      return errorChart(container, W, H, opts,
+        'A radar needs at least one series.',
+        'Give series: [{ name, data: [...] }] with one value per category, in the same order as xAxis.categories.');
+    }
+
+    const valueSuffix = (yAxis.suffix != null) ? yAxis.suffix
+      : ((opts.tooltip && opts.tooltip.valueSuffix) || '');
+
+    // ── Heading block ───────────────────────────────────────────────────
+    const hasTitle = !!opts.title;
+    const hasSub = !!opts.subtitle;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
+
+    // ── Series ──────────────────────────────────────────────────────────
+    // Values pair with axes BY POSITION, exactly as a column chart's data
+    // pairs with its categories. A short series leaves gaps rather than
+    // wrapping around, so a missing measurement reads as missing.
+    const seriesDefs = seriesRaw.map((s, i) => {
+      const color = s.color || COLORS[i % COLORS.length];
+      const values = cats.map((_, ci) => pointY((s.data || [])[ci]));
+      return {
+        name: s.name || 'Series ' + (i + 1),
+        color: color, legendColor: s.legendColor, values: values, visible: true,
+        fillOpacity: s.fillOpacity != null ? s.fillOpacity
+          : (plotOpts.fillOpacity != null ? plotOpts.fillOpacity : 0.16),
+        lineWidth: s.lineWidth != null ? s.lineWidth : Math.max(1.5, LINE_W - 1),
+        dashStyle: s.dashStyle,
+        valueSuffix: s.valueSuffix || valueSuffix
+      };
+    });
+
+    // ── Legend ──────────────────────────────────────────────────────────
+    // A radar with two or more polygons is a comparison, and a comparison
+    // needs its keys; a single series names itself in the title.
+    const legendEnabled = (opts.legend && opts.legend.enabled != null)
+      ? !!opts.legend.enabled : seriesDefs.length > 1;
+    function layoutLegend(items, availW) {
+      const widths = items.map(it => LEG_ICON + LEG_ICON_GAP +
+        Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
+      const rows = [];
+      let cur = [], curX = 0;
+      for (let i = 0; i < items.length; i++) {
+        if (cur.length && curX + widths[i] > availW) { rows.push(cur); cur = []; curX = 0; }
+        cur.push({ item: items[i], x: curX, w: widths[i] });
+        curX += widths[i];
+      }
+      if (cur.length) rows.push(cur);
+      return { rows: rows, height: rows.length * LEG_ROW };
+    }
+    const legendLayout = legendEnabled
+      ? layoutLegend(seriesDefs, W - HEAD_X * 2) : { rows: [], height: 0 };
+    const legendZone = legendLayout.height;
+
+    // ── Scale ───────────────────────────────────────────────────────────
+    // One scale for every axis. Per-axis scales are what turn a radar into a
+    // shape that means nothing — the polygon would be comparing percentages
+    // with milliseconds — so the maximum is taken across all series and all
+    // axes. Axes measured in different units belong on separate charts, or
+    // want normalising to a common index before they get here.
+    let dataMax = -Infinity, dataMin = Infinity;
+    seriesDefs.forEach(s => s.values.forEach(v => {
+      if (v == null) return;
+      if (v > dataMax) dataMax = v;
+      if (v < dataMin) dataMin = v;
+    }));
+    if (!Number.isFinite(dataMax)) { dataMax = 1; dataMin = 0; }
+    // The centre is zero unless the caller moves it deliberately. On a radial
+    // scale a cropped baseline does not merely exaggerate a difference, it
+    // multiplies the AREA of it, so this is not a default worth guessing from
+    // the data the way a cartesian y-axis can.
+    const vMin = yAxis.min != null ? yAxis.min : Math.min(0, dataMin);
+    const ticks = niceTicks(vMin, yAxis.max != null ? yAxis.max : dataMax,
+      plotOpts.tickCount || 4).filter(t => t >= vMin);
+    if (!ticks.length || ticks[0] > vMin) ticks.unshift(vMin);
+    const vMax = yAxis.max != null ? yAxis.max : ticks[ticks.length - 1];
+    const span = (vMax - vMin) || 1;
+
+    // ── Plot box ────────────────────────────────────────────────────────
+    // The web is centred in whatever box it is given and grows until the
+    // narrower axis binds, so a radar is safe in any grid cell — the same
+    // contract the donut, waffle and geofacet keep.
+    const MARGIN = 22;
+    const chartTop = titleBlockH + legendZone + PLOT_GAP;
+    const chartBottom = H - MARGIN;
+    const chartLeft = MARGIN, chartRight = W - MARGIN;
+    const chartW = chartRight - chartLeft, chartH = chartBottom - chartTop;
+
+    // Axis names live outside the outer ring, so their width comes out of the
+    // radius. They are never dropped: a radar whose corners are unlabelled is
+    // a shape with no subject.
+    const widestCat = cats.reduce((a, c) => Math.max(a, c.length), 0);
+    const LABEL_GAP = 10;
+    const sidePad = Math.max(46, Math.min(chartW * 0.28,
+      widestCat * F_LABEL * 0.58 + LABEL_GAP));
+    // The spoke that carries the value ticks needs its axis name pushed out
+    // past the outermost tick, or the scale's top number and the axis' name
+    // land on the same two lines of pixels.
+    const TICK_LANE = plotOpts.axisLabels === false ? 0 : F_TICK + 3;
+    const vertPad = F_LABEL * 2.2 + LABEL_GAP + TICK_LANE;
+    const R = Math.max(40, Math.min((chartW - sidePad * 2) / 2, (chartH - vertPad * 2) / 2));
+    // Axis names shrink before they clip. A radar's corners ARE its subject —
+    // "Reliab…" names nothing — and unlike a bar row a name here has no second
+    // line to wrap onto once it is a single long word. So the type gives way
+    // first, down to a floor, and only past that does the ellipsis appear.
+    const catScale = (function () {
+      const longest = cats.reduce((a, c) =>
+        Math.max(a, Math.max.apply(null, String(c).split(/\s+/).map(w => w.length))), 0);
+      const need = longest * F_LABEL * 0.58;
+      return Math.max(0.78, Math.min(1, (sidePad - 4) / Math.max(1, need)));
+    })();
+    const F_CAT = F_LABEL * catScale;
+    const cx = chartLeft + chartW / 2;
+    const cy = chartTop + chartH / 2;
+
+    // Axis i sits at 12 o'clock plus i steps clockwise, matching the reading
+    // order of xAxis.categories.
+    const step = (Math.PI * 2) / cats.length;
+    const startA = (plotOpts.startAngle != null ? plotOpts.startAngle : 0) * Math.PI / 180;
+    function angleOf(i) { return -Math.PI / 2 + startA + i * step; }
+    function radiusOf(v) {
+      return ((Math.max(vMin, Math.min(vMax, v)) - vMin) / span) * R;
+    }
+    function pointAt(i, v) {
+      const a = angleOf(i), r = radiusOf(v);
+      return [cx + Math.cos(a) * r, cy + Math.sin(a) * r];
+    }
+    // Grid rings follow the polygon by default: a circular ring behind an
+    // angular series reads as a second, contradicting geometry.
+    const ringShape = plotOpts.shape === 'circle' ? 'circle' : 'polygon';
+    function ringPath(r) {
+      if (ringShape === 'circle') {
+        return 'M ' + (cx + r) + ' ' + cy +
+          ' A ' + r + ' ' + r + ' 0 1 1 ' + (cx - r) + ' ' + cy +
+          ' A ' + r + ' ' + r + ' 0 1 1 ' + (cx + r) + ' ' + cy + ' Z';
+      }
+      return cats.map((_, i) => {
+        const a = angleOf(i);
+        return (i ? 'L ' : 'M ') + (cx + Math.cos(a) * r) + ' ' + (cy + Math.sin(a) * r);
+      }).join(' ') + ' Z';
+    }
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    const titleX = HEAD_X;
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+      'text-anchor': 'start', 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+      fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH,
+      'text-anchor': 'start', 'font-size': F_SUB, 'font-weight': SUB_FW,
+      fill: SUB_COL, 'font-family': FONT }, svg));
+
+    const gGrid = el('g', null, svg);
+    const gHover = el('g', null, svg);
+    const gSeries = el('g', null, svg);
+    const gAxisLbl = el('g', null, svg);
+    const gAnnot = el('g', null, svg);
+    const gLegend = el('g', null, svg);
+
+    function dash(style) {
+      switch (style) {
+        case 'Dash': return '6 4';
+        case 'ShortDash': return '4 2';
+        case 'Dot': return '2 4';
+        case 'LongDash': return '10 4';
+        default: return '';
+      }
+    }
+    function fmt(v, s) {
+      if (v == null) return '—';
+      const raw = yAxis.decimals != null ? +v.toFixed(yAxis.decimals) : v;
+      return addCommas(raw) + ((s && s.valueSuffix) || valueSuffix);
+    }
+
+    // ── Grid, spokes, axis names ────────────────────────────────────────
+    function renderGrid() {
+      gGrid.innerHTML = '';
+      gAxisLbl.innerHTML = '';
+      ticks.forEach((t, i) => {
+        const r = radiusOf(t);
+        if (r <= 0.5) return;
+        const outer = i === ticks.length - 1;
+        el('path', { d: ringPath(r), fill: 'none',
+          stroke: outer ? AXIS : GRID,
+          'stroke-width': outer ? SPINE_W : GRID_W,
+          'stroke-linejoin': 'round' }, gGrid);
+      });
+      // Spokes carry the axes themselves, so they are drawn in the gridline
+      // colour at gridline weight — structure, not data.
+      cats.forEach((_, i) => {
+        const a = angleOf(i);
+        el('line', { x1: cx, y1: cy, x2: cx + Math.cos(a) * R, y2: cy + Math.sin(a) * R,
+          stroke: GRID, 'stroke-width': GRID_W }, gGrid);
+      });
+
+      // Value ticks ride the 12 o'clock spoke. A halo in the canvas colour
+      // keeps them legible where a polygon edge crosses underneath, which on a
+      // radar is the one place a number and a mark are guaranteed to meet.
+      if (plotOpts.axisLabels !== false) {
+        const aUp = angleOf(0);
+        ticks.forEach((t, i) => {
+          if (i === 0) return;
+          const r = radiusOf(t);
+          const node = txt(fmt(t), {
+            x: cx + Math.cos(aUp) * r + 5,
+            y: cy + Math.sin(aUp) * r + F_TICK * 0.36,
+            'text-anchor': 'start', 'font-size': F_TICK, 'font-weight': TICK_FW,
+            fill: TICK_COL, 'font-family': FONT, stroke: BG, 'stroke-width': 3
+          }, gGrid);
+          node.setAttribute('paint-order', 'stroke');
+        });
+      }
+
+      // Axis names, wrapped to two lines inside the pad reserved for them.
+      cats.forEach((name, i) => {
+        const a = angleOf(i);
+        const ux = Math.cos(a), uy = Math.sin(a);
+        const gap = LABEL_GAP + (i === 0 ? TICK_LANE : 0);
+        const lx = cx + ux * (R + gap);
+        const ly = cy + uy * (R + gap);
+        const anchor = Math.abs(ux) < 0.25 ? 'middle' : (ux > 0 ? 'start' : 'end');
+        const lines = wrapHeading(name, F_CAT, sidePad - 4, 2, true);
+        // Above the centre the block hangs upward, below it downward, so the
+        // ring keeps the same clearance all the way round.
+        const blockH = (lines.length - 1) * (F_CAT * 1.2);
+        const y0 = ly + (uy < -0.25 ? -blockH : (uy > 0.25 ? F_CAT * 0.8 : F_CAT * 0.34));
+        lines.forEach((ln, li) => txt(ln, {
+          x: lx, y: y0 + li * (F_CAT * 1.2), 'text-anchor': anchor,
+          'font-size': F_CAT, 'font-weight': CAT_FW, fill: CAT_COL,
+          'font-family': FONT
+        }, gAxisLbl));
+      });
+    }
+
+    // ── Series polygons ─────────────────────────────────────────────────
+    const markerRects = [];
+    function renderSeries() {
+      gSeries.innerHTML = '';
+      markerRects.length = 0;
+      seriesDefs.forEach(s => {
+        if (!s.visible) return;
+        // A gap breaks the ring rather than being bridged: a polygon closed
+        // over a missing axis claims a value nobody measured.
+        const runs = [];
+        let cur = [];
+        s.values.forEach((v, i) => {
+          if (v == null) { if (cur.length) { runs.push(cur); cur = []; } return; }
+          cur.push([i, v]);
+        });
+        if (cur.length) runs.push(cur);
+        const complete = runs.length === 1 && runs[0].length === cats.length;
+
+        runs.forEach(run => {
+          const pts = run.map(pv => pointAt(pv[0], pv[1]));
+          const d = pts.map((p, k) => (k ? 'L ' : 'M ') + p[0] + ' ' + p[1]).join(' ')
+            + (complete ? ' Z' : '');
+          if (complete && s.fillOpacity > 0) {
+            el('path', { d: d, fill: s.color, 'fill-opacity': s.fillOpacity,
+              stroke: 'none' }, gSeries);
+          }
+          const line = el('path', { d: d, fill: 'none', stroke: s.color,
+            'stroke-width': s.lineWidth, 'stroke-linejoin': 'round',
+            'stroke-linecap': 'round' }, gSeries);
+          if (s.dashStyle) line.setAttribute('stroke-dasharray', dash(s.dashStyle));
+        });
+
+        // Markers sit on every measured axis: they are what a reader points at
+        // to check one value, and what the hover tooltip reports.
+        if (plotOpts.markers !== false) {
+          s.values.forEach((v, i) => {
+            if (v == null) return;
+            const p = pointAt(i, v);
+            el('circle', { cx: p[0], cy: p[1], r: 3.4, fill: s.color,
+              stroke: BG, 'stroke-width': 1.4 }, gSeries);
+            markerRects.push({ x: p[0] - 8, y: p[1] - 8, w: 16, h: 16 });
+          });
+        }
+      });
+    }
+
+    // ── Hover: one sector per axis, one tooltip for every series ────────
+    // The comparison a radar exists for is "who is furthest out on THIS
+    // axis", so the hover target is the axis, not the individual dot, and one
+    // tooltip answers that question for the whole spoke.
+    let hoverIdx = -1;
+    function renderHover() {
+      gHover.innerHTML = '';
+      if (hoverIdx < 0) return;
+      const a = angleOf(hoverIdx);
+      const half = step / 2;
+      const p1 = [cx + Math.cos(a - half) * R, cy + Math.sin(a - half) * R];
+      const p2 = [cx + Math.cos(a + half) * R, cy + Math.sin(a + half) * R];
+      const large = step > Math.PI ? 1 : 0;
+      el('path', {
+        d: 'M ' + cx + ' ' + cy + ' L ' + p1[0] + ' ' + p1[1] +
+           ' A ' + R + ' ' + R + ' 0 ' + large + ' 1 ' + p2[0] + ' ' + p2[1] + ' Z',
+        fill: HOVER_INK, 'fill-opacity': 0.05, stroke: 'none'
+      }, gHover);
+      el('line', { x1: cx, y1: cy, x2: cx + Math.cos(a) * R, y2: cy + Math.sin(a) * R,
+        stroke: HOVER_INK, 'stroke-opacity': 0.35, 'stroke-width': TICK_W }, gHover);
+    }
+
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
+      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' +
+      F_TIP + 'px ' + FONT + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    container.appendChild(tooltip);
+
+    function showTooltip(idx, ev) {
+      const rows = seriesDefs.filter(s => s.visible).map(s =>
+        '<div><span style="display:inline-block;width:9px;height:9px;background:' + s.color +
+        ';border-radius:2px;margin-right:6px"></span>' + esc(s.name) +
+        ': <b style="color:' + TITLE_COL + '">' + esc(fmt(s.values[idx], s)) + '</b></div>').join('');
+      tooltip.innerHTML =
+        '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
+        ';margin-bottom:2px">' + esc(cats[idx]) + '</div>' + rows;
+      tooltip.style.display = 'block';
+      const rect = svg.getBoundingClientRect();
+      const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+      const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+      let tx = px + 14, ty = py - th / 2;
+      if (tx + tw > W - 4) tx = px - tw - 14;
+      if (ty < 4) ty = 4;
+      if (ty + th > H - 4) ty = H - th - 4;
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top = ty + 'px';
+    }
+
+    svg.addEventListener('mousemove', ev => {
+      const rect = svg.getBoundingClientRect();
+      const dx = ev.clientX - rect.left - cx, dy = ev.clientY - rect.top - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      // A generous ring: the reader aims at a corner of the polygon, which sits
+      // ON the outer ring, so the target has to reach past it.
+      if (dist > R + 18 || dist < 6) {
+        if (hoverIdx !== -1) { hoverIdx = -1; renderHover(); }
+        tooltip.style.display = 'none';
+        return;
+      }
+      let a = Math.atan2(dy, dx) - (-Math.PI / 2 + startA) + step / 2;
+      a = ((a % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      const idx = Math.floor(a / step) % cats.length;
+      if (idx !== hoverIdx) { hoverIdx = idx; renderHover(); }
+      showTooltip(idx, ev);
+    });
+    svg.addEventListener('mouseleave', () => {
+      hoverIdx = -1; renderHover();
+      tooltip.style.display = 'none';
+    });
+
+    // ── Callouts ────────────────────────────────────────────────────────
+    // `callouts: [{ category, series, text }]` — the anchor is the point where
+    // that series meets that axis (the first visible series carrying a value,
+    // when none is named). Boxes are pushed straight out from the centre so a
+    // leader reads as one more spoke, and the markers are obstacles.
+    function renderCallouts() {
+      gAnnot.innerHTML = '';
+      const cos = opts.callouts || [];
+      if (!cos.length) return;
+      const list = cos.map(co => {
+        const key = calloutKey(co);
+        const i = key == null ? 0 : cats.indexOf(String(key));
+        if (i < 0) return null;
+        const s = co.series != null
+          ? seriesDefs.find(x => x.name === co.series)
+          : seriesDefs.find(x => x.visible && x.values[i] != null);
+        if (!s || s.values[i] == null) return null;
+        const p = pointAt(i, s.values[i]);
+        return { x: p[0], y: p[1], text: co.text, color: co.color };
+      }).filter(Boolean);
+      if (!list.length) return;
+      drawCallouts(gAnnot, list, { x: 4, y: chartTop, w: W - 8, h: chartBottom - chartTop }, {
+        mode: 'radial',
+        center: { x: cx, y: cy },
+        obstacles: markerRects.concat([
+          // The disc as a cross of two rects: together they cover the web
+          // including its sides, leaving the diagonal corners free — which is
+          // where a note fits beside a radar.
+          { x: cx - R, y: cy - R * 0.707, w: R * 2, h: R * 1.414 },
+          { x: cx - R * 0.707, y: cy - R, w: R * 1.414, h: R * 2 }
+        ])
+      });
+    }
+
+    // ── Legend ──────────────────────────────────────────────────────────
+    function renderLegend() {
+      gLegend.innerHTML = '';
+      if (!legendEnabled) return;
+      const startY = titleBlockH + 2;
+      legendLayout.rows.forEach((row, ri) => {
+        row.forEach(cell => {
+          const s = seriesDefs.find(x => x.name === cell.item.name);
+          if (!s) return;
+          const x = HEAD_X + cell.x;
+          const y = startY + ri * LEG_ROW;
+          const gr = el('g', { class: 'lg-item', style: 'cursor:pointer' }, gLegend);
+          el('rect', { x: x - 2, y: y - 2, width: cell.w, height: LEG_ROW - 2, fill: 'transparent' }, gr);
+          el('rect', { x: x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
+            fill: s.visible ? s.color : DIM_COL }, gr);
+          txt(s.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
+            'font-size': F_LEG, 'font-weight': LEG_FW,
+            fill: s.visible ? (s.legendColor || TITLE_COL) : DIM_COL,
+            'text-decoration': s.visible ? 'none' : 'line-through',
+            'font-family': FONT }, gr);
+          gr.addEventListener('click', () => {
+            s.visible = !s.visible;
+            renderSeries(); renderCallouts(); renderLegend();
+          });
+        });
+      });
+    }
+
+    function render() { renderGrid(); renderSeries(); renderHover(); renderCallouts(); }
+    render();
+    renderLegend();
+
+    return {
+      redraw: () => { render(); renderLegend(); },
+      getSeries() { return seriesDefs; }
+    };
+  }
+
+    Charts.radar = Chart;
+})();
+
+// ─── dumbbell ──────────────────────────────────────────
+
+/*
+ * Clean-charts-styled DUMBBELL engine (Charts.dumbbell).
+ *
+ * One row per category: two dots joined by a rod. The dots are the two states
+ * — before/after, 2019/2024, men/women, plan/actual — and the rod between them
+ * is the gap. That gap is the point of the chart: a grouped bar pair encodes
+ * the same two numbers, but the reader has to compute the difference by
+ * comparing two lengths from a shared baseline, while a dumbbell draws the
+ * difference directly as the thing between the marks.
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the
+ *    other engines, all label x-positions aligned to the same titleX = 20
+ *  - Theme tokens only (Charts.theme) — no literal colors in the draw code
+ *  - Each category owns a row, so its label sits in the left gutter at full
+ *    length and is never dropped (the rule Charts.bar follows)
+ *  - Data labels on by default: the value at each dot, plus the change in the
+ *    right gutter, since the change is what the rod encodes
+ *  - Hover highlight + shared tooltip, callouts in the right gutter
+ *
+ * EXACTLY TWO SERIES. A dumbbell asserts "these two states, this gap". A third
+ * dot on the rod turns it into an unordered row of points with a line drawn
+ * through it, which says something the data does not support — so one series
+ * is refused (that is Charts.barList) and three or more are refused (that is
+ * Charts.bar, grouped), each with a panel naming the chart that does fit.
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
+    BG = t.bg || '#f4f3f0';
+    GRID = t.grid || '#dcdbd7';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    LABEL_COL = t.labelColor || '#333333';
+    SEC_COL = t.secondaryColor || '#666666';
+    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
+    DEFAULT_COL = t.defaultColor || '#000000';
+    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
+    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+  }
+
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+  // Rough advance width. The engines all estimate rather than measure so that
+  // layout is decided before anything is added to the DOM.
+  function textW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
+  }
+  function truncate(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (textW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s + '…';
+  }
+
+  // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
+  // ── Tokens this engine needs beyond the shared block ────────────────
+  // (the prelude above is the same in every engine; these are the value-axis
+  // and direction roles a dumbbell uses and a bar list has no need of)
+  let AXIS_COL, GRID_W, SPINE_W, F_TICK, F_NOTICE, MUTED, ABOVE_COL, BELOW_COL;
+  function applyExtraTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    AXIS_COL = t.axis || '#000000';
+    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
+    SPINE_W = t.spineWidth != null ? t.spineWidth : 1.1;
+    F_TICK = t.tickSize != null ? t.tickSize : 11;
+    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
+    MUTED = t.muted || '#8f8d87';
+    ABOVE_COL = t.aboveThreshold || t.positive || '#2323FF';
+    BELOW_COL = t.belowThreshold || t.negative || '#9a0060';
+  }
+
+  function ellipsize(s, maxChars) {
+    s = String(s);
+    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + '…';
+  }
+  // Word wrap into at most `lines` lines, split where the longest line comes
+  // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
+  function wrapAxisLabel(label, lines) {
+    const s = String(label);
+    const words = s.split(/\s+/);
+    if (lines < 2 || words.length <= 1) return [s];
+    let best = null;
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
+      const score = Math.max(a.length, b.length);
+      if (!best || score < best.score) best = { score, out: [a, b] };
+    }
+    if (lines <= 2 || words.length === 2) return best.out;
+    return [best.out[0]].concat(wrapAxisLabel(best.out[1], lines - 1));
+  }
+
+  // Row labels in the left gutter. Each category owns a row, so nothing is
+  // ever dropped: a label that outgrows the gutter wraps onto a second line
+  // whenever the row is tall enough for one, and only what still does not fit
+  // after wrapping is cut with an ellipsis. Same routine as Charts.bar.
+  function layoutRowLabels(cats, availW, rowH, baseFont) {
+    const CW = 0.62;
+    const strs = cats.map(c => (c == null ? '' : String(c)));
+    const fonts = [baseFont, baseFont - 1, baseFont - 2].filter(f => f >= 9);
+    for (const font of fonts) {
+      const lh = font * 1.2;
+      if (lh > rowH && font !== fonts[fonts.length - 1]) continue;
+      const maxChars = Math.max(3, Math.floor(availW / (CW * font)));
+      if (strs.every(l => l.length <= maxChars)) return { lines: strs.map(l => [l]), font, lh };
+      if (rowH >= lh * 2) {
+        const wrapped = strs.map(l => wrapAxisLabel(l, 2));
+        if (wrapped.every(w => w.every(l => l.length <= maxChars))) return { lines: wrapped, font, lh };
+      }
+    }
+    const font = fonts[0] || baseFont;
+    const lh = font * 1.2;
+    const maxChars = Math.max(3, Math.floor(availW / (CW * font)));
+    const maxLines = rowH >= lh * 2 ? 2 : 1;
+    return {
+      lines: strs.map(l => wrapAxisLabel(l, maxLines).slice(0, maxLines).map(x => ellipsize(x, maxChars))),
+      font, lh
+    };
+  }
+  function rowLabelWidth(rl) {
+    return rl.lines.reduce((a, lns) =>
+      Math.max(a, lns.reduce((b, l) => Math.max(b, l.length), 0)), 0) * 0.62 * rl.font;
+  }
+
+  function niceTicks(min, max, count) {
+    count = count || 5;
+    if (min === max) { min -= 1; max += 1; }
+    const range = max - min;
+    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
+    const err = (count / range) * step0;
+    let step = step0;
+    if (err <= 0.15) step *= 10;
+    else if (err <= 0.35) step *= 5;
+    else if (err <= 0.75) step *= 2;
+    const lo = Math.floor(min / step) * step;
+    const hi = Math.ceil(max / step) * step;
+    const out = [];
+    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
+    return out;
+  }
+
+  // Refusal panel: drawn in place of the chart when the options describe
+  // something a dumbbell cannot honestly show. Returns the same stub API shape
+  // as Chart() so callers do not blow up on .redraw().
+  function errorChart(container, W, H, opts, headline, detail) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[charts-lib dumbbell] ' + headline + ' ' + detail);
+    }
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+    let y = 34;
+    if (opts.title) {
+      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+        txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
+          'font-family': FONT }, svg);
+        y += TITLE_LH;
+      });
+      y += 10;
+    }
+    const cy = Math.max(y + 20, H / 2 - 10);
+    // The detail sits below however many lines the headline actually took: at a
+    // fixed 26px it lands on top of the second line whenever the headline wraps,
+    // which is exactly when the message is longest and most needed.
+    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+    headLines.forEach((l, i) => {
+      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+        fill: TITLE_COL, 'font-family': FONT }, svg);
+    });
+    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+      txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+    });
+    return { redraw: function () {}, getData: function () { return []; }, error: headline };
+  }
+
+  // Normalise one series' data to [{name, y}], accepting the same shapes as
+  // every other engine: [{name,y}], [name, y] pairs, or bare numbers.
+  function readSeries(series, cats) {
+    return (series.data || []).map((d, i) => {
+      let name, y, color;
+      if (Array.isArray(d)) { name = d[0]; y = +d[1]; }
+      else if (d && typeof d === 'object') { name = d.name; y = +d.y; color = d.color; }
+      else { y = +d; }
+      if (name == null) name = cats[i] != null ? cats[i] : null;
+      return { name: name, y: Number.isFinite(y) ? y : 0, color: color };
+    });
+  }
+
+  function Chart(container, opts) {
+    applyTheme();
+    applyExtraTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 800;
+    const H0 = container.clientHeight || 400;
+    const plot = (opts.plotOptions && opts.plotOptions.dumbbell) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+    const yAxis = opts.yAxis || {};
+    const allSeries = opts.series || [];
+
+    // ── Guards ──────────────────────────────────────────────────────────
+    // The chart type IS the pair. Anything else is a different chart, and the
+    // panel names which one rather than drawing something misleading.
+    if (allSeries.length < 2) {
+      return errorChart(container, W, H0, opts,
+        'A dumbbell needs two series',
+        'The rod between the dots is the gap between two states, so there have to be two of them. ' +
+        'One value per category is Charts.barList (a ranked list) or Charts.bar (against a scale).');
+    }
+    if (allSeries.length > 2) {
+      return errorChart(container, W, H0, opts,
+        'A dumbbell shows two series, not ' + allSeries.length,
+        'A third dot on the rod reads as a range with a midpoint, which is not what the data says. ' +
+        'Use Charts.bar with grouped series to compare more than two states per category.');
+    }
+
+    const cats = (opts.xAxis && opts.xAxis.categories) || [];
+    const sA = allSeries[0], sB = allSeries[1];
+    const nameA = sA.name || 'Series 1', nameB = sB.name || 'Series 2';
+    const colA = sA.color || COLORS[0] || DEFAULT_COL;
+    const colB = sB.color || COLORS[1] || DEFAULT_COL;
+    const dataA = readSeries(sA, cats), dataB = readSeries(sB, cats);
+
+    // Rows pair up by position — the two series describe the same categories in
+    // the same order, which is what makes a row a row.
+    const n = Math.min(dataA.length, dataB.length);
+    const rows = [];
+    for (let i = 0; i < n; i++) {
+      const a = dataA[i], b = dataB[i];
+      const name = a.name != null ? a.name
+                 : (b.name != null ? b.name
+                 : (cats[i] != null ? cats[i] : 'Item ' + (i + 1)));
+      rows.push({ name: String(name), a: a.y, b: b.y, delta: b.y - a.y,
+                  colA: a.color || colA, colB: b.color || colB, idx: i });
+    }
+    if (!rows.length) {
+      return errorChart(container, W, H0, opts, 'No data to chart',
+        'Both series are empty, so there is no pair to draw.');
+    }
+
+    // Ranked comparisons are the common case. 'desc'/'asc' rank by the SECOND
+    // series — the "after" state, which is what a before/after list is about —
+    // and 'delta' ranks by the size of the change, which is what the rod shows.
+    if (plot.sort === 'desc') rows.sort((p, q) => q.b - p.b);
+    else if (plot.sort === 'asc') rows.sort((p, q) => p.b - q.b);
+    else if (plot.sort === 'delta') rows.sort((p, q) => q.delta - p.delta);
+    else if (plot.sort === 'delta-asc') rows.sort((p, q) => p.delta - q.delta);
+
+    // ── Options ─────────────────────────────────────────────────────────
+    const valueSuffix = plot.valueSuffix != null ? plot.valueSuffix
+                      : (yAxis.suffix != null ? yAxis.suffix : '');
+    const valuePrefix = plot.valuePrefix != null ? plot.valuePrefix : '';
+    const showValues = dlEnabled(plot.dataLabels, true);
+    const showDelta = plot.showDelta !== false;
+    const deltaAsPercent = plot.deltaFormat === 'percent';
+    const deltaColorBySign = plot.deltaColorBySign !== false;
+    const connectorBySign = plot.connectorBySign === true;
+    const showArrow = plot.connectorArrow === true;
+    const showGrid = plot.gridlines !== false;
+    // Value labels default to their own dot's color: with two numbers at
+    // opposite ends of one rod, tinting each to the mark it belongs to is what
+    // answers "which one is 2024?" without a second trip to the legend.
+    const valueColorMode = plot.valueColor != null ? plot.valueColor : 'series';
+
+    const dotSize = plot.dotSize != null ? plot.dotSize : 12;
+    const dotR = dotSize / 2;
+    const rodW = plot.connectorWidth != null ? plot.connectorWidth : 4;
+    const rowGap = plot.rowGap != null ? plot.rowGap : 18;
+    const rodColor = plot.connectorColor || MUTED;
+
+    const fmt = v => (plot.format ? String(plot.format).replace('{y}', addCommas(v))
+                                  : valuePrefix + addCommas(v) + valueSuffix);
+    const deltaText = r => {
+      if (typeof plot.deltaFormat === 'function') return plot.deltaFormat(r.delta, r);
+      if (deltaAsPercent) {
+        if (!r.a) return '—';
+        const pct = (r.b - r.a) / Math.abs(r.a) * 100;
+        return (pct > 0 ? '+' : pct < 0 ? '−' : '') + addCommas(Math.abs(+pct.toFixed(1))) + '%';
+      }
+      const d = +r.delta.toPrecision(12);
+      return (d > 0 ? '+' : d < 0 ? '−' : '') + fmt(Math.abs(d));
+    };
+
+    // ── Heading ─────────────────────────────────────────────────────────
+    const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
+    const titleX = HEAD_X;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
+
+    // ── Legend ──────────────────────────────────────────────────────────
+    // On unless refused: with two states, the legend is the only thing that
+    // says which dot is which. It does not toggle — hiding one series of a
+    // dumbbell leaves a rod with one end, and there is nothing honest to draw.
+    const legendEnabled = (opts.legend && opts.legend.enabled != null)
+      ? !!opts.legend.enabled : true;
+    const legItems = [{ name: nameA, color: colA }, { name: nameB, color: colB }];
+    const legendRows = [];
+    if (legendEnabled) {
+      const widths = legItems.map(it =>
+        LEG_ICON + LEG_ICON_GAP + Math.ceil(String(it.name).length * F_LEG * 0.55) + LEG_GAP);
+      let cur = [], curX = 0;
+      for (let i = 0; i < legItems.length; i++) {
+        if (cur.length && curX + widths[i] > W - HEAD_X * 2) { legendRows.push(cur); cur = []; curX = 0; }
+        cur.push({ item: legItems[i], x: curX, w: widths[i] });
+        curX += widths[i];
+      }
+      if (cur.length) legendRows.push(cur);
+    }
+    const legendZone = legendRows.length * LEG_ROW;
+
+    // ── Vertical rhythm ─────────────────────────────────────────────────
+    const marginR = 20, marginB = 14;
+    const axisH = F_TICK + 12;                      // tick labels under the plot
+    const topY = titleBlockH + legendZone + PLOT_GAP;
+    const rowMin = Math.max(dotSize + 4, F_LABEL * 1.2);
+    let rowH = rowMin + rowGap;
+
+    // Height: honour an explicit container height by fitting the rows into it;
+    // otherwise grow the container to the content, which is what a list of
+    // arbitrary length actually wants — the rule Charts.barList follows.
+    const chromeH = topY + axisH + marginB;
+    // A height on the container is an instruction: fill it. The chart only
+    // grows to its own content when there is no height to honour.
+    // `autoHeight: true` asks for the growing behaviour explicitly. An inline
+    // height this engine wrote on an earlier render is cleared first, so
+    // redraw() does not read back its own output.
+    if (container.dataset.chartsGrew === '1') container.style.height = '';
+    const fixedH = container.clientHeight;
+    let H;
+    let outgrew = false;
+    if (plot.autoHeight !== true && fixedH > 0) {
+      H = fixedH;
+      rowH = Math.max(rowMin, (H - chromeH) / rows.length);
+      // Every row is already at its floor and they still do not fit: take the
+      // height the rows need rather than clip the last ones away.
+      const needNow = chromeH + rows.length * rowH;
+      if (needNow > H) { H = Math.round(needNow); container.style.height = H + 'px'; outgrew = true; }
+      if (outgrew) container.dataset.chartsGrew = '1';
+      else delete container.dataset.chartsGrew;
+    } else {
+      H = Math.round(chromeH + rows.length * rowH);
+      container.style.height = H + 'px';
+      container.dataset.chartsGrew = '1';
+    }
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+      'text-anchor': 'start', 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+      fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH,
+      'text-anchor': 'start', 'font-size': F_SUB, 'font-weight': SUB_FW,
+      fill: SUB_COL, 'font-family': FONT }, svg));
+
+    if (legendEnabled) {
+      const gLeg = el('g', {}, svg);
+      const startY = titleBlockH + 2;
+      legendRows.forEach((row, ri) => {
+        row.forEach(cell => {
+          const x = HEAD_X + cell.x, y = startY + ri * LEG_ROW;
+          // A round swatch, because the mark it stands for is a dot.
+          el('circle', { cx: x + LEG_ICON / 2, cy: y + 2 + LEG_ICON / 2, r: LEG_ICON / 2,
+            fill: cell.item.color }, gLeg);
+          txt(cell.item.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
+            'font-size': F_LEG, 'font-weight': LEG_FW, fill: TITLE_COL,
+            'font-family': FONT }, gLeg);
+        });
+      });
+    }
+
+    // ── Horizontal scale ────────────────────────────────────────────────
+    // One scale for every row, so rows are comparable; a per-row scale would
+    // quietly make a small gap look like a big one.
+    let dataMin = Infinity, dataMax = -Infinity;
+    rows.forEach(r => {
+      dataMin = Math.min(dataMin, r.a, r.b);
+      dataMax = Math.max(dataMax, r.a, r.b);
+    });
+    const ticks = niceTicks(yAxis.min != null ? yAxis.min : dataMin,
+                            yAxis.max != null ? yAxis.max : dataMax,
+                            plot.tickCount || 5);
+    const axMin = yAxis.min != null ? yAxis.min : ticks[0];
+    const axMax = yAxis.max != null ? yAxis.max : ticks[ticks.length - 1];
+    const axSpan = (axMax - axMin) || 1;
+
+    // Gutters: row labels on the left, the widest value label at each end of a
+    // rod, and the change column on the right. All reserved before anything is
+    // drawn, so a long name or a long number cannot push a dot off the canvas.
+    const widestValue = showValues
+      ? rows.reduce((m, r) => Math.max(m, textW(fmt(r.a), F_VALUE, true),
+                                          textW(fmt(r.b), F_VALUE, true)), 0)
+      : 0;
+    const widestDelta = showDelta
+      ? rows.reduce((m, r) => Math.max(m, textW(deltaText(r), F_VALUE, true)), 0)
+      : 0;
+    const valuePad = 8, deltaPad = 18;
+
+    // A chart with notes on it makes room for them rather than letting a box
+    // land on the data — the same bargain the column engine strikes when it
+    // extends its value axis for a callout band. Every row here is occupied
+    // edge to edge (label, dots, values, change), so the room has to come from
+    // the track: a strip is reserved at the far right, and the change column
+    // moves in to sit beside it. Costs nothing when there are no callouts.
+    const calloutGutter = (opts.callouts && opts.callouts.length)
+      ? Math.round(Math.min(calloutTheme().maxW, W * 0.3)) + 14 : 0;
+    const rightEdge = W - marginR - calloutGutter;
+
+    const rowLabels = layoutRowLabels(rows.map(r => r.name),
+      W * 0.34 - titleX - 10, rowH, F_LABEL);
+    const labelGutter = Math.round(rowLabelWidth(rowLabels)) + 14;
+
+    const plotL = titleX + labelGutter + dotR + widestValue + valuePad;
+    const plotR = rightEdge - (showDelta ? widestDelta + deltaPad : 0)
+                  - dotR - widestValue - valuePad;
+    const trackW = Math.max(40, plotR - plotL);
+    const sx = v => plotL + (v - axMin) / axSpan * trackW;
+
+    const plotTop = topY;
+    const plotBot = topY + rows.length * rowH;
+
+    // ── Axis: gridlines, tick labels, baseline ──────────────────────────
+    // A numeric scale CAN drop ticks — unlike a category axis, the ones left
+    // still say what the axis measures, and the reader interpolates between
+    // them. So when the labels will not fit the track (a dumbbell inside a
+    // narrow Charts.panels column, mostly), thin them by a stride rather than
+    // letting the numbers run into each other. The gridline goes with its own
+    // label: a rule with no number under it is a line the reader can't price.
+    const visTicks = (function () {
+      const inRange = ticks.filter(t => t >= axMin - 1e-9 && t <= axMax + 1e-9);
+      for (let stride = 1; stride <= inRange.length; stride++) {
+        const kept = inRange.filter((_, i) => i % stride === 0);
+        const need = kept.reduce((s, t) => s + textW(fmt(t), F_TICK, false) + 10, 0);
+        if (need <= trackW || kept.length <= 2) return kept;
+      }
+      return inRange;
+    })();
+
+    const gAxis = el('g', {}, svg);
+    visTicks.forEach(t => {
+      const x = sx(t);
+      if (showGrid) el('line', { x1: x, y1: plotTop, x2: x, y2: plotBot,
+        stroke: GRID, 'stroke-width': GRID_W }, gAxis);
+      txt(fmt(t), { x: x, y: plotBot + F_TICK + 8, 'text-anchor': 'middle',
+        'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL,
+        'font-family': FONT }, gAxis);
+    });
+    el('line', { x1: plotL, y1: plotBot, x2: plotL + trackW, y2: plotBot,
+      stroke: AXIS_COL, 'stroke-width': SPINE_W }, gAxis);
+    // A zero rule earns its keep only when the scale actually crosses zero.
+    if (axMin < 0 && axMax > 0) {
+      el('line', { x1: sx(0), y1: plotTop, x2: sx(0), y2: plotBot,
+        stroke: AXIS_COL, 'stroke-width': SPINE_W, opacity: 0.55 }, gAxis);
+    }
+
+    // Arrowheads are opt-in. One marker per rod colour, and the ids carry a
+    // per-chart suffix so two dumbbells on the same page cannot collide in the
+    // document-wide id space that <marker> lives in.
+    const uid = 'db' + Math.random().toString(36).slice(2, 8);
+    const arrowId = r => uid + (!connectorBySign ? 'N'
+      : r.delta > 0 ? 'P' : r.delta < 0 ? 'M' : 'N');
+    if (showArrow) {
+      const defs = el('defs', {}, svg);
+      [[uid + 'P', ABOVE_COL], [uid + 'M', BELOW_COL], [uid + 'N', rodColor]]
+        .forEach(pair => {
+          const mk = el('marker', { id: pair[0], viewBox: '0 0 10 10', refX: 8, refY: 5,
+            markerWidth: 4.5, markerHeight: 4.5, orient: 'auto-start-reverse',
+            markerUnits: 'strokeWidth' }, defs);
+          el('path', { d: 'M 0 1 L 9 5 L 0 9 z', fill: pair[1] }, mk);
+        });
+    }
+
+    // ── Rows ────────────────────────────────────────────────────────────
+    const gRods = el('g', {}, svg);
+    const gDots = el('g', {}, svg);
+    const gText = el('g', {}, svg);
+    const gHit = el('g', {}, svg);
+    const anchors = [], rowRects = [];
+
+    rows.forEach((r, i) => {
+      const cy = plotTop + i * rowH + rowH / 2;
+      const xa = sx(r.a), xb = sx(r.b);
+      const lo = Math.min(xa, xb), hi = Math.max(xa, xb);
+
+      // Row label in the left gutter, vertically centred on its own row.
+      const lns = rowLabels.lines[i] || [r.name];
+      const l0 = cy - (lns.length - 1) * rowLabels.lh / 2 + rowLabels.font * 0.34;
+      lns.forEach((ln, li) => txt(ln, {
+        x: titleX, y: l0 + li * rowLabels.lh, 'text-anchor': 'start',
+        'font-size': rowLabels.font, 'font-weight': CAT_FW, fill: CAT_COL,
+        'font-family': FONT }, gText));
+
+      // The rod, drawn between the two dot centres and under them, so the dots
+      // cap it rather than sitting on a line that runs through them.
+      const rodCol = connectorBySign
+        ? (r.delta > 0 ? ABOVE_COL : r.delta < 0 ? BELOW_COL : rodColor)
+        : rodColor;
+      if (hi - lo > 0.5) {
+        const attrs = { x1: lo, y1: cy, x2: hi, y2: cy, stroke: rodCol,
+          'stroke-width': rodW, 'stroke-linecap': 'round' };
+        if (showArrow) {
+          // The head points at the SECOND series — the direction of travel.
+          const fromA = xa <= xb;
+          attrs.x1 = fromA ? lo : hi; attrs.x2 = fromA ? hi : lo;
+          attrs['marker-end'] = 'url(#' + arrowId(r) + ')';
+        }
+        el('line', attrs, gRods);
+      }
+
+      el('circle', { cx: xa, cy: cy, r: dotR, fill: r.colA }, gDots);
+      el('circle', { cx: xb, cy: cy, r: dotR, fill: r.colB }, gDots);
+
+      // Values sit outside the pair — the lower one to the left of the left
+      // dot, the higher one to the right of the right dot — so neither can land
+      // on the rod or on the other dot however close the two states are.
+      if (showValues) {
+        const loIsA = xa <= xb;
+        const loVal = loIsA ? r.a : r.b, hiVal = loIsA ? r.b : r.a;
+        const loCol = loIsA ? r.colA : r.colB, hiCol = loIsA ? r.colB : r.colA;
+        txt(fmt(loVal), { x: lo - dotR - valuePad, y: cy + F_VALUE * 0.36,
+          'text-anchor': 'end', 'font-size': F_VALUE, 'font-weight': VAL_FW,
+          fill: valueColorMode === 'series' ? loCol : VAL_COL, 'font-family': FONT }, gText);
+        txt(fmt(hiVal), { x: hi + dotR + valuePad, y: cy + F_VALUE * 0.36,
+          'text-anchor': 'start', 'font-size': F_VALUE, 'font-weight': VAL_FW,
+          fill: valueColorMode === 'series' ? hiCol : VAL_COL, 'font-family': FONT }, gText);
+      }
+
+      // The change, in its own right-hand column, right-aligned so signs and
+      // digits stack into a column the eye can run down instead of ragging off
+      // the ends of the rods.
+      if (showDelta) {
+        const dc = deltaColorBySign
+          ? (r.delta > 0 ? ABOVE_COL : r.delta < 0 ? BELOW_COL : SEC_COL)
+          : VAL_COL;
+        txt(deltaText(r), { x: rightEdge, y: cy + F_VALUE * 0.36, 'text-anchor': 'end',
+          'font-size': F_VALUE, 'font-weight': VAL_FW, fill: dc, 'font-family': FONT }, gText);
+      }
+
+      // Anchor past everything already sitting at the row's right end, so a
+      // callout leader does not run through a number.
+      anchors.push({ name: r.name,
+        x: Math.min(W - 12, hi + dotR + (showValues ? widestValue + valuePad * 2 : valuePad)),
+        y: cy });
+      // What a note must not cover is the row's MARKS, not the row's whole
+      // width — the two are different here, and treating the band as solid
+      // would leave the placer no clean slot at all, so it would park a box on
+      // whatever it happened to cost least to cover. Two rects per row: the
+      // label-through-values block on the left, and the change column on the
+      // right. The gap between them is exactly the room a short row has spare.
+      rowRects.push({ x: titleX, y: cy - rowH / 2, h: rowH,
+        w: (hi + dotR + (showValues ? widestValue + valuePad : valuePad)) - titleX });
+      if (showDelta) rowRects.push({ x: rightEdge - widestDelta, y: cy - rowH / 2,
+        w: widestDelta, h: rowH });
+
+      // One transparent band per row does the hit-testing: on a dumbbell the
+      // reader is asking about the pair, not about one dot.
+      const hit = el('rect', { x: titleX, y: cy - rowH / 2,
+        width: (W - marginR) - titleX, height: rowH, fill: 'transparent',
+        class: 'db-row', 'data-idx': i, style: 'cursor:default' }, gHit);
+      r._hit = hit;
+    });
+
+    // `callouts: [{ name, text, color }]` — `name` is the row's category.
+    (function () {
+      const cos = opts.callouts || [];
+      if (!cos.length) return;
+      const gAnnot = el('g', {}, svg);
+      const items = cos.map(co => {
+        const key = calloutKey(co);
+        const a = key != null ? anchors.filter(q => q.name === key)[0] : anchors[0];
+        return a ? { x: a.x, y: a.y, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      // Rows run the full width, so the free room is past the right end of the
+      // rod — the same gutter Charts.bar and Charts.barList put their notes in.
+      // Bounds stop at the baseline: the strip under it belongs to the tick
+      // labels, and a note parked on the scale costs the reader the scale.
+      drawCallouts(gAnnot, items, { x: 4, y: plotTop, w: W - 8, h: plotBot - plotTop },
+        { mode: 'right', obstacles: rowRects, gutter: 6 });
+    })();
+
+    // ── Tooltip (same treatment as the other engines) ───────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
+      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' +
+      F_TIP + 'px ' + FONT + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    container.appendChild(tooltip);
+
+    function clearHover() {
+      rows.forEach(q => { if (q._hit) q._hit.setAttribute('fill', 'transparent'); });
+      tooltip.style.display = 'none';
+    }
+
+    svg.addEventListener('mousemove', ev => {
+      const target = ev.target;
+      if (target && target.classList && target.classList.contains('db-row')) {
+        const r = rows[+target.getAttribute('data-idx')];
+        if (!r) return;
+        rows.forEach(q => { if (q._hit) q._hit.setAttribute('fill', 'transparent'); });
+        target.setAttribute('fill', HOVER_INK);
+        target.setAttribute('fill-opacity', '0.045');
+        const dot = c => '<span style="display:inline-block;width:9px;height:9px;background:' +
+          c + ';border-radius:50%;margin-right:6px"></span>';
+        const dCol = deltaColorBySign
+          ? (r.delta > 0 ? ABOVE_COL : r.delta < 0 ? BELOW_COL : TITLE_COL) : TITLE_COL;
+        tooltip.innerHTML =
+          '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
+            ';margin-bottom:3px">' + esc(r.name) + '</div>' +
+          '<div>' + dot(r.colA) + esc(nameA) + ': <b style="color:' + TITLE_COL + '">' + esc(fmt(r.a)) + '</b></div>' +
+          '<div>' + dot(r.colB) + esc(nameB) + ': <b style="color:' + TITLE_COL + '">' + esc(fmt(r.b)) + '</b></div>' +
+          '<div style="margin-top:3px;color:' + SEC_COL + '">Change: <b style="color:' + dCol + '">' +
+            esc(deltaText(r)) + '</b></div>';
+        tooltip.style.display = 'block';
+        const rect = svg.getBoundingClientRect();
+        const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = px + 14, ty = py - th / 2;
+        if (tx + tw > W - 4) tx = px - tw - 14;
+        if (ty < 4) ty = 4;
+        if (ty + th > H - 4) ty = H - th - 4;
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+      } else clearHover();
+    });
+    svg.addEventListener('mouseleave', clearHover);
+
+    return {
+      getData: () => rows.map(r => ({ name: r.name, a: r.a, b: r.b, delta: r.delta })),
+      redraw: () => Chart(container, opts)
+    };
+  }
+
+    Charts.dumbbell = Chart;
+})();
+
+// ─── histogram ────────────────────────────────────────
+
+/*
+ * Clean-charts-styled HISTOGRAM engine (Charts.histogram and friends).
+ *
+ * The one chart in the library that takes RAW NUMBERS and does the work
+ * itself: hand it a list of measurements and it chooses the bins, counts them,
+ * and draws the distribution. Every other engine wants values you have already
+ * aggregated; asking an author to bin their own data before they can look at
+ * its shape is asking them to do the analysis in order to see whether it is
+ * worth doing.
+ *
+ * Three factories, one per reading of the same bins:
+ *
+ *   Charts.histogram            how MANY fell in each bin      (counts)
+ *   Charts.histogramPercent     what SHARE fell in each bin     (% of total)
+ *   Charts.histogramCumulative  what share fell at or below     (0 -> 100%, an ogive)
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the
+ *    other engines, y-tick labels floating at titleX = 20 with no left spine,
+ *    horizontal gridlines and a thin bottom spine, exactly as Charts.column
+ *  - Theme tokens only (Charts.theme) - no literal colors in the draw code
+ *  - Data labels on by default, dropped individually where they will not fit
+ *  - Hover highlight + tooltip, callouts in a band above the bars
+ *
+ * THE BARS TOUCH. That is not a style choice: a histogram's x-axis is
+ * continuous, so one bin ends exactly where the next begins, and a gap between
+ * them would draw a space in the data that does not exist. `barGap` puts a
+ * hairline between them for legibility and defaults to 1px; set it to 0 for
+ * true adjacency. It never becomes a category gap.
+ *
+ * NAMED CATEGORIES ARE REFUSED, for the reason Charts.line refuses them: bins
+ * are intervals on a number line. If the x values are names, the thing being
+ * drawn is a bar chart of counts, which is Charts.column.
+ */
+(function () {
+  const NS = 'http://www.w3.org/2000/svg';
+
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  function applyTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    TT_BORDER = t.tooltipBorder || '#dcdbd7';
+    DIM_COL = t.dimmed || '#c2c0ba';
+    HOVER_INK = t.hoverInk || '#000000';
+    BG = t.bg || '#f4f3f0';
+    GRID = t.grid || '#dcdbd7';
+    TITLE_COL = t.titleColor || '#111111';
+    SUB_COL = t.subtitleColor || '#666666';
+    LABEL_COL = t.labelColor || '#333333';
+    SEC_COL = t.secondaryColor || '#666666';
+    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
+    DEFAULT_COL = t.defaultColor || '#000000';
+    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
+    // Shared text roles — see the hierarchy comment in theme.js.
+    CAT_COL = t.categoryColor || TITLE_COL;
+    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
+    TICK_COL = t.tickColor || LABEL_COL;
+    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
+    VAL_COL = t.valueColor || TITLE_COL;
+    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
+    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
+    F_TITLE = t.titleSize != null ? t.titleSize : 17;
+    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
+    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
+    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
+    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
+    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
+    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
+    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
+    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
+    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
+    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
+    F_LEG = t.legendSize != null ? t.legendSize : 12;
+    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
+    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
+    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
+    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
+    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
+    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
+    F_VALUE = t.valueSize != null ? t.valueSize : 11;
+  }
+
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
+
+  function el(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+  function txt(t, attrs, parent) {
+    const e = el('text', attrs, parent);
+    e.textContent = t;
+    return e;
+  }
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  function _headW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  }
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  let TITLE_LH, SUB_LH;
+  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+  // Rough advance width. The engines all estimate rather than measure so that
+  // layout is decided before anything is added to the DOM.
+  function textW(str, fontSize, bold) {
+    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
+  }
+  function truncate(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (textW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s + '…';
+  }
+
+  // ---------------- main ----------------
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  function calloutTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return {
+      accent: t.callout || '#B31B38',
+      size: t.calloutSize != null ? t.calloutSize : 10,
+      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
+                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
+      pad: t.calloutPad != null ? t.calloutPad : 8,
+      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
+      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
+      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
+      text: t.labelColor || '#333333',
+      inverse: t.inverseText || '#FFFFFF',
+      bg: t.bg || '#f4f3f0'
+    };
+  }
+
+  function measureCalloutBox(text) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
+    return { w: w, h: h };
+  }
+
+  // Total area of a rect that lands on top of anything it should not.
+  function calloutOverlap(r, rects) {
+    let sum = 0;
+    for (let i = 0; i < rects.length; i++) {
+      const o = rects[i];
+      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
+      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
+      if (dx > 0 && dy > 0) sum += dx * dy;
+    }
+    return sum;
+  }
+
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
+  function drawCalloutBox(g, bx, by, text, edge) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const lh = th.lh, pad = th.pad;
+    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
+    const h = lines.length * lh + pad * 2;
+    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
+      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
+    lines.forEach((ln, i) => {
+      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
+        fill: th.text, 'font-family': FONT }, g);
+    });
+  }
+
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  function drawCalloutLeader(g, ax, ay, box, color, mode) {
+    const th = calloutTheme();
+    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
+    if (mode === 'above' || mode === 'below') {
+      const edgeY = mode === 'above' ? box.y + box.h : box.y;
+      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
+      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
+                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    if (mode === 'right' || mode === 'left') {
+      const edgeX = mode === 'right' ? box.x : box.x + box.w;
+      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
+      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
+      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
+                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
+      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
+        'stroke-linejoin': 'round' }, g);
+      return;
+    }
+    let lx = midX, ly = midY;
+    if (ax < box.x) lx = box.x;
+    else if (ax > box.x + box.w) lx = box.x + box.w;
+    if (ay < box.y) ly = box.y;
+    else if (ay > box.y + box.h) ly = box.y + box.h;
+    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
+  }
+
+  function drawCallouts(g, items, bounds, cfg) {
+    if (!items || !items.length) return;
+    cfg = cfg || {};
+    const mode = cfg.mode || 'auto';
+    const obstacles = (cfg.obstacles || []).slice();
+    const th = calloutTheme();
+    const placed = [];
+    const gutter = cfg.gutter != null ? cfg.gutter : 10;
+
+    // Sorting by the axis the band runs along keeps leaders from crossing.
+    const ordered = items.slice().sort((a, b) =>
+      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
+
+    ordered.forEach(it => {
+      const box = measureCalloutBox(it.text);
+      const color = it.color || th.accent;
+      const blocked = obstacles.concat(placed);
+      let best = null, bestCost = Infinity, leader = mode;
+
+      const consider = (x, y, penalty, leadMode) => {
+        const r = { x: x, y: y, w: box.w, h: box.h };
+        if (!calloutInBounds(r, bounds)) return;
+        const cost = calloutOverlap(r, blocked) + (penalty || 0);
+        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
+      };
+
+      if (mode === 'above' || mode === 'below') {
+        // Band across the top (or bottom): the box keeps to the headroom the
+        // engine reserved, and slides sideways from the anchor until it is
+        // clear. Distance from the anchor is the tie-breaker, so a note stays
+        // over the mark it belongs to whenever the room is there.
+        const bandY = mode === 'above'
+          ? bounds.y + gutter
+          : bounds.y + bounds.h - gutter - box.h;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
+        }
+        // Second row under the first when the band is full.
+        if (bestCost > 0) {
+          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
+                                        : bandY - box.h - CALLOUT_PAD;
+          for (let step = 0; step <= 24; step++) {
+            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
+            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
+          }
+        }
+      } else if (mode === 'right' || mode === 'left') {
+        // Gutter past the ends of the bars, one box per row, aligned with the
+        // row it annotates.
+        const colX = mode === 'right'
+          ? bounds.x + bounds.w - gutter - box.w
+          : bounds.x + gutter;
+        for (let step = 0; step <= 24 && bestCost > 0; step++) {
+          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
+          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
+        }
+      } else if (mode === 'radial' && cfg.center) {
+        // Push out from the middle of the ring or cluster, so the leader reads
+        // as a spoke. Straight out is preferred, but the fan of angles around
+        // it matters: a wedge pointing into a crowded side still has a clear
+        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
+        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
+        const base = Math.atan2(vy, vx);
+        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
+        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
+          const a = base + FAN[f];
+          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
+            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
+            consider(px - box.w / 2, py - box.h / 2,
+              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
+          }
+        }
+      }
+
+      // Ladder of diagonal offsets: the general fallback, and the default for
+      // charts with no obvious free direction (line, scatter).
+      if (bestCost > 0) {
+        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
+          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
+          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
+                   oy < 0 ? it.y + oy - box.h : it.y + oy,
+                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
+        }
+      }
+
+      if (!best) {
+        // Nothing fits: clamp inside and accept the overlap rather than drop a
+        // note the author wrote.
+        best = {
+          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
+          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
+          w: box.w, h: box.h
+        };
+        leader = 'auto';
+      }
+      placed.push(best);
+
+      drawCalloutLeader(g, it.x, it.y, best, color, leader);
+      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
+        stroke: th.inverse, 'stroke-width': 1 }, g);
+      drawCalloutBox(g, best.x, best.y, it.text, color);
+    });
+  }
+
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
+  }
+
+  // ── Tokens beyond the shared block ──────────────────────────────────
+  let AXIS_COL, GRID_W, SPINE_W, F_TICK, F_NOTICE, MUTED, ANNOT;
+  function applyExtraTheme() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    AXIS_COL = t.axis || '#000000';
+    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
+    SPINE_W = t.spineWidth != null ? t.spineWidth : 1.1;
+    F_TICK = t.tickSize != null ? t.tickSize : 11;
+    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
+    MUTED = t.muted || '#8f8d87';
+    ANNOT = t.callout || '#B31B38';
+  }
+
+  function niceTicks(min, max, count) {
+    count = count || 5;
+    if (min === max) { min -= 1; max += 1; }
+    const range = max - min;
+    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
+    const err = (count / range) * step0;
+    let step = step0;
+    if (err <= 0.15) step *= 10;
+    else if (err <= 0.35) step *= 5;
+    else if (err <= 0.75) step *= 2;
+    const lo = Math.floor(min / step) * step;
+    const hi = Math.ceil(max / step) * step;
+    const out = [];
+    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
+    return out;
+  }
+
+  // Round a raw bin width up to something a reader can hold in their head —
+  // 1, 2, 2.5, 5 or 10 times a power of ten. A histogram whose bins are
+  // 3.7194 wide has edges nobody can read off the axis, and the shape it shows
+  // is no more faithful for the extra digits.
+  function niceWidth(raw) {
+    if (!(raw > 0) || !isFinite(raw)) return 1;
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const f = raw / mag;
+    const step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+    return +(step * mag).toPrecision(12);
+  }
+
+  function quantile(sorted, q) {
+    if (!sorted.length) return NaN;
+    const pos = (sorted.length - 1) * q;
+    const lo = Math.floor(pos), hi = Math.ceil(pos);
+    return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  }
+
+  // Refusal / empty panel, same shape as the other engines'.
+  function errorChart(container, W, H, opts, headline, detail) {
+    if (typeof console !== 'undefined' && console.warn) {
+      console.warn('[charts-lib histogram] ' + headline + ' ' + detail);
+    }
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+    let y = 34;
+    if (opts.title) {
+      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+        txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+          fill: TITLE_COL, 'font-family': FONT }, svg);
+        y += TITLE_LH;
+      });
+      y += 10;
+    }
+    const cy = Math.max(y + 20, H / 2 - 10);
+    // The detail sits below however many lines the headline actually took: at a
+    // fixed 26px it lands on top of the second line whenever the headline wraps,
+    // which is exactly when the message is longest and most needed.
+    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+    headLines.forEach((l, i) => {
+      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+        fill: TITLE_COL, 'font-family': FONT }, svg);
+    });
+    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+      txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+    });
+    return { redraw: function () {}, getBins: function () { return []; },
+             getStats: function () { return null; }, error: headline };
+  }
+
+  function Chart(container, opts) {
+    applyTheme();
+    applyExtraTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = BG;
+
+    const W = container.clientWidth || 800;
+    const H = container.clientHeight || 400;
+    const plot = (opts.plotOptions && opts.plotOptions.histogram) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+    const xAxis = opts.xAxis || {};
+    const yAxis = opts.yAxis || {};
+
+    // 'count' (default) | 'percent' | 'cumulative'
+    const mode = plot.mode || 'count';
+    const isPct = mode === 'percent' || mode === 'cumulative';
+
+    // ── Input ───────────────────────────────────────────────────────────
+    // Raw numbers, from `data:` at the top level or the first series. Points
+    // may also be objects/pairs, in which case the numeric field is taken —
+    // so a column of a table can be handed over without reshaping it.
+    if (xAxis.categories && xAxis.categories.length) {
+      return errorChart(container, W, H, opts,
+        'A histogram bins numbers, it cannot use named categories',
+        'Bins are intervals on a number line, so named categories have no width and no order. ' +
+        'Counting how often each name occurs is a bar chart: use Charts.column.');
+    }
+
+    const series = (opts.series && opts.series[0]) || null;
+    const rawList = opts.data != null ? opts.data : (series ? series.data : null);
+    if (!rawList || !rawList.length) {
+      return errorChart(container, W, H, opts, 'No data to chart',
+        'Pass the raw measurements as `data: [ ... ]` (or as the first series’ data) ' +
+        'and the engine bins them for you.');
+    }
+
+    const values = [];
+    let dropped = 0;
+    for (let i = 0; i < rawList.length; i++) {
+      const d = rawList[i];
+      let v;
+      // `null`, `undefined`, `''` and `true`/`false` are held out before any
+      // coercion, because +null and +'' are 0 and +true is 1 — a missing
+      // reading would otherwise be counted as a real measurement of zero,
+      // which puts a spike at the origin that is not in the data. Blanks are
+      // exactly what a column of real measurements is full of.
+      if (d == null || d === '' || typeof d === 'boolean') v = NaN;
+      else if (typeof d === 'number') v = d;
+      else if (Array.isArray(d)) v = +d[d.length - 1];
+      else if (typeof d === 'object') v = +(d.y != null ? d.y : d.value);
+      else v = +d;
+      if (typeof v === 'number' && isFinite(v)) values.push(v);
+      else dropped++;
+    }
+    if (!values.length) {
+      return errorChart(container, W, H, opts, 'No numeric values to bin',
+        'Every value in `data` was blank or non-numeric, so there is no distribution to draw.');
+    }
+    if (dropped && typeof console !== 'undefined' && console.warn) {
+      console.warn('[charts-lib histogram] ' + dropped +
+        ' non-numeric value(s) ignored — a histogram can only bin numbers.');
+    }
+
+    const sorted = values.slice().sort((a, b) => a - b);
+    const n = sorted.length;
+    const dataMin = sorted[0], dataMax = sorted[n - 1];
+    const mean = values.reduce((s, v) => s + v, 0) / n;
+    const median = quantile(sorted, 0.5);
+
+    // ── Bins ────────────────────────────────────────────────────────────
+    // Freedman–Diaconis by default: the width comes from the interquartile
+    // range, so one far-out value widens the axis without also flattening
+    // every bin, which is what happens when the count is driven by the full
+    // range. Sturges takes over for small samples, where the IQR is too noisy
+    // to divide by, and for data with no spread at all.
+    const lo0 = xAxis.min != null ? +xAxis.min : dataMin;
+    const hi0 = xAxis.max != null ? +xAxis.max : dataMax;
+    const span0 = hi0 - lo0;
+
+    let width;
+    if (plot.binWidth > 0) {
+      width = +plot.binWidth;
+    } else if (plot.bins > 0) {
+      width = niceWidth(span0 / Math.max(1, Math.round(plot.bins)));
+    } else {
+      const iqr = quantile(sorted, 0.75) - quantile(sorted, 0.25);
+      const fd = iqr > 0 ? 2 * iqr / Math.pow(n, 1 / 3) : 0;
+      const sturges = span0 > 0 ? span0 / (Math.ceil(Math.log2(n)) + 1) : 1;
+      width = niceWidth((n >= 30 && fd > 0) ? fd : sturges);
+    }
+    if (!(width > 0) || !isFinite(width)) width = 1;
+
+    // Edges start at a multiple of the width, so they read as round numbers.
+    let start = plot.binStart != null ? +plot.binStart : Math.floor(lo0 / width) * width;
+    let count = Math.max(1, Math.ceil((hi0 - start) / width + 1e-9));
+    // A bin narrower than a few px is a hairline, not a bar; widen rather than
+    // draw a comb the reader cannot resolve.
+    const MAX_BINS = Math.max(1, Math.min(plot.maxBins || 120,
+      Math.floor((W - 82) / 3)));
+    while (count > MAX_BINS) {
+      width = niceWidth(width * 1.6);
+      start = plot.binStart != null ? +plot.binStart : Math.floor(lo0 / width) * width;
+      count = Math.max(1, Math.ceil((hi0 - start) / width + 1e-9));
+    }
+
+    const bins = [];
+    for (let i = 0; i < count; i++) {
+      const from = +(start + i * width).toPrecision(12);
+      bins.push({ i: i, from: from, to: +(from + width).toPrecision(12), n: 0 });
+    }
+    // Half-open bins [from, to), except the last, which closes at its top edge
+    // so the largest value has somewhere to land.
+    let outside = 0;
+    for (let k = 0; k < n; k++) {
+      const v = sorted[k];
+      if (v < start || v > start + count * width) { outside++; continue; }
+      let idx = Math.floor((v - start) / width);
+      if (idx >= count) idx = count - 1;
+      if (idx < 0) idx = 0;
+      bins[idx].n++;
+    }
+
+    const total = n - outside;
+    bins.forEach(b => { b.pct = total ? b.n / total * 100 : 0; });
+    let run = 0;
+    bins.forEach(b => { run += b.pct; b.cum = run; });
+
+    const valueOf = b => mode === 'percent' ? b.pct : mode === 'cumulative' ? b.cum : b.n;
+
+    // ── Heading ─────────────────────────────────────────────────────────
+    const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
+    const titleX = HEAD_X;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.background = BG;
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+      'text-anchor': 'start', 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+      fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH,
+      'text-anchor': 'start', 'font-size': F_SUB, 'font-weight': SUB_FW,
+      fill: SUB_COL, 'font-family': FONT }, svg));
+
+    // ── Geometry ────────────────────────────────────────────────────────
+    // Same margins Charts.column uses, so a histogram and a column chart on
+    // one page sit on the same baselines.
+    const showValues = dlEnabled(plot.dataLabels, true);
+    const axisTitleH = xAxis.title ? F_TICK + 12 : 0;
+    const footH = (dropped || outside) ? F_TICK + 10 : 0;
+    const M = {
+      l: 62, r: 20,
+      t: titleBlockH + PLOT_GAP,
+      b: 40 + axisTitleH + footH
+    };
+    const IW = Math.max(40, W - M.l - M.r);
+    const IH = Math.max(40, H - M.t - M.b);
+
+    const fmtV = v => {
+      if (plot.format) return String(plot.format).replace('{y}', addCommas(v));
+      const s = isPct ? addCommas(+v.toFixed(1)) + '%' : addCommas(v);
+      return (plot.valuePrefix || '') + s + (isPct ? '' : (plot.valueSuffix || ''));
+    };
+    const fmtX = v => (plot.xFormat ? String(plot.xFormat).replace('{x}', addCommas(v))
+                                    : (xAxis.prefix || '') + addCommas(+v.toPrecision(12)) +
+                                      (xAxis.suffix || ''));
+
+    // Cumulative always runs to 100; the others get headroom for their labels,
+    // and more of it when a callout band has to sit above the tallest bar.
+    const peak = Math.max.apply(null, bins.map(valueOf));
+    const hasCallouts = !!(opts.callouts && opts.callouts.length);
+    const headroom = 1 + (showValues ? 0.10 : 0.04) + (hasCallouts ? 0.34 : 0);
+    // The mean and median rules label themselves at the top of the plot, which
+    // is exactly where the tallest bar is in a well-behaved distribution. So
+    // the axis makes room for that band rather than letting the labels sit on
+    // the bars — the same bargain the column engine strikes for its callouts.
+    // Reserved in pixels first, because the band is text and does not scale
+    // with the data, then converted into the axis units it costs.
+    const statLabelCount = (plot.mean ? 1 : 0) + (plot.median ? 1 : 0) +
+      ((xAxis.plotLines || []).filter(pl => pl && pl.value != null).length);
+    let yTop = mode === 'cumulative' ? 100 : (peak * headroom || 1);
+    if (statLabelCount && mode !== 'cumulative' && peak > 0) {
+      const bandPx = statLabelCount * (F_TICK + 4) + 10;
+      if (bandPx < IH * 0.6) yTop = Math.max(yTop, peak * IH / (IH - bandPx));
+    }
+    // A count axis is whole numbers or it is lying: "2.5 values fell in this
+    // bin" is not a thing the data can say. So in count mode the tick step is
+    // rounded up to an integer, which for small distributions means 1, 2, 5
+    // rather than the 0.5s a generic nice-number pass produces.
+    function countTicks(max) {
+      const raw = niceTicks(0, max, 5);
+      const step = Math.max(1, Math.ceil(raw[1] - raw[0]));
+      // Round the top UP to a whole step. Stopping at the last tick that is
+      // still <= max leaves the axis ending below the tallest bar, which both
+      // clips the headroom the caller asked for and lets a bar run past the top
+      // gridline as though it had gone off the scale.
+      const hi = Math.ceil(max / step - 1e-9) * step;
+      const out = [];
+      for (let v = 0; v <= hi + step * 1e-9; v += step) out.push(v);
+      if (out.length < 2) out.push(step);
+      return out;
+    }
+    const yTicks = mode === 'cumulative'
+      ? [0, 20, 40, 60, 80, 100]
+      : (mode === 'count' ? countTicks(yTop) : niceTicks(0, yTop, 5));
+    const yMax = yTicks[yTicks.length - 1] || 1;
+    const yScale = v => M.t + IH - (v / yMax) * IH;
+
+    const xLo = start, xHi = start + count * width;
+    const sx = v => M.l + (v - xLo) / (xHi - xLo) * IW;
+
+    // ── Axes ────────────────────────────────────────────────────────────
+    const gGrid = el('g', {}, svg);
+    const gAxes = el('g', {}, svg);
+    yTicks.forEach(v => {
+      const y = yScale(v);
+      el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y,
+        stroke: GRID, 'stroke-width': GRID_W }, gGrid);
+      txt(fmtV(v), { x: titleX, y: y + 4, 'text-anchor': 'start',
+        'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL,
+        'font-family': FONT }, gAxes);
+    });
+    const y0 = yScale(0);
+    el('line', { x1: M.l, y1: y0, x2: M.l + IW, y2: y0,
+      stroke: LABEL_COL, 'stroke-width': SPINE_W }, gAxes);
+
+    // X labels sit at bin EDGES, not bin centres: an edge is a number in the
+    // data's own units that the reader can check a value against, whereas a
+    // centre is an artefact of where the engine happened to cut. Edges thin by
+    // a stride when they will not all fit — a numeric axis can drop ticks and
+    // still say what it measures.
+    const edges = [];
+    for (let i = 0; i <= count; i++) edges.push(+(start + i * width).toPrecision(12));
+    const edgeStride = (function () {
+      for (let s = 1; s <= edges.length; s++) {
+        const kept = edges.filter((_, i) => i % s === 0);
+        const need = kept.reduce((a, e) => a + textW(fmtX(e), F_TICK, false) + 10, 0);
+        if (need <= IW || kept.length <= 2) return s;
+      }
+      return 1;
+    })();
+    edges.forEach((e, i) => {
+      if (i % edgeStride) return;
+      txt(fmtX(e), { x: sx(e), y: M.t + IH + 16, 'text-anchor': 'middle',
+        'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL,
+        'font-family': FONT }, gAxes);
+    });
+    if (xAxis.title) {
+      txt(xAxis.title, { x: M.l + IW / 2, y: M.t + IH + 16 + F_TICK + 10,
+        'text-anchor': 'middle', 'font-size': F_TICK, 'font-weight': CAT_FW,
+        fill: CAT_COL, 'font-family': FONT }, gAxes);
+    }
+
+    // ── Bars ────────────────────────────────────────────────────────────
+    const gBars = el('g', {}, svg);
+    const gText = el('g', {}, svg);
+    const barColor = plot.color || (series && series.color) || DEFAULT_COL;
+    const gap = plot.barGap != null ? plot.barGap : 1;
+    const barRects = [], anchors = [];
+
+    bins.forEach(b => {
+      const v = valueOf(b);
+      const x0 = sx(b.from), x1 = sx(b.to);
+      const w = Math.max(1, x1 - x0 - gap);
+      const y = yScale(v);
+      const h = Math.max(0, y0 - y);
+      b._x = x0; b._w = w;
+      if (h > 0) {
+        const r = el('rect', { x: x0 + gap / 2, y: y, width: w, height: h,
+          fill: b.color || barColor, class: 'hist-bar', 'data-idx': b.i,
+          style: 'cursor:default;transition:opacity .15s' }, gBars);
+        b._node = r;
+      }
+      barRects.push({ x: x0, y: y, w: Math.max(1, x1 - x0), h: h });
+      anchors.push({ i: b.i, from: b.from, to: b.to, x: (x0 + x1) / 2, y: y });
+    });
+
+    // Value labels above the bars, dropped individually where the bin is too
+    // narrow to hold the number or the previous label still occupies the
+    // space. A partly-labelled row of bars is honest here in a way a partly-
+    // labelled category axis is not: the number is also on the y-axis, and the
+    // bar the reader is looking at is one hover away from its exact count.
+    if (showValues) {
+      let lastRight = -Infinity;
+      bins.forEach(b => {
+        const v = valueOf(b);
+        if (!v) return;
+        const s = fmtV(v);
+        const tw = textW(s, F_VALUE, true);
+        const cx = (sx(b.from) + sx(b.to)) / 2;
+        if (tw > b._w + gap + 2) return;             // wider than its own bin
+        if (cx - tw / 2 < lastRight + 3) return;     // would touch its neighbour
+        lastRight = cx + tw / 2;
+        txt(s, { x: cx, y: yScale(v) - 6, 'text-anchor': 'middle',
+          'font-size': F_VALUE, 'font-weight': VAL_FW, fill: VAL_COL,
+          'font-family': FONT }, gText);
+      });
+    }
+
+    // ── Stat rules ──────────────────────────────────────────────────────
+    // Drawn ON the data, so they take the annotation ink, and they are drawn
+    // after the bars for the reason the column engine draws its target lines
+    // last: a mean hidden behind a bar is not a mean.
+    // Mean and median usually sit close together — that closeness is the point
+    // of drawing both — so their labels collide by default. A label that would
+    // land on one already placed steps down a line instead, which keeps both
+    // readable without moving either rule off the value it marks.
+    const statLabels = [];
+    function statRule(value, label, dash) {
+      if (!(value >= xLo && value <= xHi)) return;
+      const x = sx(value);
+      el('line', { x1: x, y1: M.t, x2: x, y2: y0, stroke: ANNOT,
+        'stroke-width': 1.4, 'stroke-dasharray': dash }, gText);
+      // Rounded to the bin width's own precision plus one digit. A mean quoted
+      // to six figures on bins ten wide claims a resolution the chart does not
+      // have, and it is the long number that pushes the label off the plot.
+      const wStr = String(width);
+      const dot = wStr.indexOf('.');
+      const dp = Math.min(4, (dot < 0 ? 0 : wStr.length - dot - 1) + 1);
+      const s = (label ? label + ' ' : '') + fmtX(+value.toFixed(dp));
+      const tw = textW(s, F_TICK, true);
+      const flip = x + 6 + tw > M.l + IW;
+      const lx = flip ? x - 6 : x + 6;
+      const left = flip ? lx - tw : lx, right = flip ? lx : lx + tw;
+      let ly = M.t + F_TICK + 2;
+      const step = F_TICK + 4;
+      while (statLabels.some(p => ly < p.y + step && ly > p.y - step &&
+                                  left < p.right + 4 && right > p.left - 4)) {
+        ly += step;
+        if (ly > M.t + IH - step) { ly = M.t + F_TICK + 2; break; }
+      }
+      statLabels.push({ y: ly, left: left, right: right });
+      txt(s, { x: lx, y: ly, 'text-anchor': flip ? 'end' : 'start',
+        'font-size': F_TICK, 'font-weight': VAL_FW, fill: ANNOT,
+        'font-family': FONT }, gText);
+    }
+    if (plot.mean) statRule(mean, plot.meanLabel || 'Mean', '4 3');
+    if (plot.median) statRule(median, plot.medianLabel || 'Median', '2 3');
+    (xAxis.plotLines || []).forEach(pl => {
+      if (pl && pl.value != null) {
+        statRule(+pl.value, (pl.label && pl.label.text) || '', dashArrayFor(pl.dashStyle));
+      }
+    });
+
+    // ── Footnote ────────────────────────────────────────────────────────
+    // A histogram that silently drops values still looks complete, so the
+    // reader is told — the same bargain the donut strikes over its negatives.
+    if (dropped || outside) {
+      const bits = [];
+      if (dropped) bits.push(dropped + ' non-numeric value' + (dropped > 1 ? 's' : ''));
+      if (outside) bits.push(outside + ' outside the axis range');
+      txt('Not counted: ' + bits.join(' · '), { x: titleX, y: H - 10,
+        'text-anchor': 'start', 'font-size': F_TICK, 'font-weight': TICK_FW,
+        fill: SEC_COL, 'font-family': FONT }, gText);
+    }
+
+    // ── Callouts ────────────────────────────────────────────────────────
+    // `callouts: [{ bin: 3, text }]`, `{ x: 12.5, text }` (the bin holding that
+    // value), or the shared naming key against the bin's own "from–to" label.
+    (function () {
+      const cos = opts.callouts || [];
+      if (!cos.length) return;
+      const gAnnot = el('g', {}, svg);
+      const items = cos.map(co => {
+        let a = null;
+        if (co.bin != null) a = anchors[co.bin | 0];
+        else if (co.x != null) {
+          const idx = Math.min(count - 1, Math.max(0, Math.floor((+co.x - start) / width)));
+          a = anchors[idx];
+        } else {
+          const key = calloutKey(co);
+          if (key != null) a = anchors.filter(q =>
+            (fmtX(q.from) + '–' + fmtX(q.to)) === key)[0];
+          if (!a) a = anchors[0];
+        }
+        return a ? { x: a.x, y: a.y, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      // Headroom above the bars is where a distribution has room, so the band
+      // goes there — and the y-axis was already extended to make it.
+      drawCallouts(gAnnot, items, { x: 4, y: M.t - 4, w: W - 8, h: (y0 - M.t) + 4 },
+        { mode: 'above', obstacles: barRects, gutter: 6 });
+    })();
+
+    // ── Tooltip ─────────────────────────────────────────────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
+      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' +
+      F_TIP + 'px ' + FONT + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    container.appendChild(tooltip);
+
+    function clearHover() {
+      bins.forEach(b => { if (b._node) b._node.style.opacity = '1'; });
+      tooltip.style.display = 'none';
+    }
+    svg.addEventListener('mousemove', ev => {
+      const target = ev.target;
+      if (target && target.classList && target.classList.contains('hist-bar')) {
+        const b = bins[+target.getAttribute('data-idx')];
+        if (!b) return;
+        clearHover();
+        target.style.opacity = '0.85';
+        // The interval is stated the way it is counted: closed on the left,
+        // open on the right, and the last bin closed at both ends.
+        const closed = b.i === count - 1;
+        const range = fmtX(b.from) + ' – ' + fmtX(b.to) + (closed ? '' : ' (exclusive)');
+        tooltip.innerHTML =
+          '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
+            ';margin-bottom:2px">' + esc(range) + '</div>' +
+          '<div>' + esc(addCommas(b.n)) + ' of ' + esc(addCommas(total)) +
+            ' <span style="color:' + SEC_COL + '">(' + esc(addCommas(+b.pct.toFixed(1))) + '%)</span></div>' +
+          (mode === 'cumulative'
+            ? '<div style="color:' + SEC_COL + '">' + esc(addCommas(+b.cum.toFixed(1))) +
+              '% at or below ' + esc(fmtX(b.to)) + '</div>' : '');
+        tooltip.style.display = 'block';
+        const rect = svg.getBoundingClientRect();
+        const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+        const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+        let tx = px + 14, ty = py - th - 12;
+        if (tx + tw > W - 4) tx = px - tw - 14;
+        if (ty < 4) ty = py + 16;
+        tooltip.style.left = tx + 'px';
+        tooltip.style.top = ty + 'px';
+      } else clearHover();
+    });
+    svg.addEventListener('mouseleave', clearHover);
+
+    return {
+      getBins: () => bins.map(b => ({ from: b.from, to: b.to, count: b.n,
+                                      percent: b.pct, cumulative: b.cum })),
+      getStats: () => ({ n: n, min: dataMin, max: dataMax, mean: mean,
+                         median: median, binWidth: width, bins: count,
+                         dropped: dropped, outside: outside }),
+      redraw: () => Chart(container, opts)
+    };
+  }
+
+  function dashArrayFor(style) {
+    switch (style) {
+      case 'Dash': return '6 4';
+      case 'ShortDot': return '1 3';
+      case 'Dot': return '2 4';
+      case 'LongDash': return '10 4';
+      case 'DashDot': return '6 3 2 3';
+      case 'Solid': return '';
+      default: return '4 2';
+    }
+  }
+
+    Charts.histogram = Chart;
+})();
+
+
+Charts.histogramPercent = function (container, opts) {
+  opts = opts || {}; opts.plotOptions = opts.plotOptions || {};
+  opts.plotOptions.histogram = Object.assign({}, opts.plotOptions.histogram, { mode: 'percent' });
+  return Charts.histogram(container, opts);
+};
+Charts.histogramCumulative = function (container, opts) {
+  opts = opts || {}; opts.plotOptions = opts.plotOptions || {};
+  opts.plotOptions.histogram = Object.assign({}, opts.plotOptions.histogram, { mode: 'cumulative' });
+  return Charts.histogram(container, opts);
+};
+
 // ─── panels ─────────────────────────────────────────
 
 /*
@@ -8225,7 +11360,13 @@ Charts.packedBubble = function (container, opts) {
   // Panels that grow their own container to fit their content. Forcing a
   // height on these either clips a long list or leaves a gap under a short
   // one, so they are left alone.
-  const AUTO_HEIGHT = { barList: 1, barInsightTable: 1, waffle: 1 };
+  // Engines that size themselves to their content when left alone. In a panel
+  // row they are told the row's height instead: a row of panels whose bottoms
+  // land at four different heights reads as four separate exhibits, which is
+  // the one thing this compositor exists to prevent. Each of these engines
+  // fills a given height by opening the space between its rows (or, for the
+  // waffle, by growing its dots), so being told a height costs them nothing.
+  const AUTO_HEIGHT = { barList: 1, dumbbell: 1, barInsightTable: 1, waffle: 1 };
 
   const MAX_COLUMNS = 4;   // past four, panels are too narrow to read
 
@@ -8317,10 +11458,8 @@ Charts.packedBubble = function (container, opts) {
           row.appendChild(sep);
         }
         const cell = document.createElement('div');
-        const auto = AUTO_HEIGHT[spec.type];
         const h = spec.height != null ? spec.height : panelH;
-        cell.style.cssText = 'flex:1 1 0;min-width:0;position:relative;' +
-          (auto ? '' : `height:${h}px;`);
+        cell.style.cssText = `flex:1 1 0;min-width:0;position:relative;height:${h}px;`;
         row.appendChild(cell);
         panelEls.push(cell);
         return cell;
@@ -8342,6 +11481,15 @@ Charts.packedBubble = function (container, opts) {
         // so a panel is configured exactly as it would be standalone.
         const cfg = {};
         for (const k in spec) if (k !== 'type' && k !== 'height') cfg[k] = spec[k];
+        // A self-sizing engine is told to fill the cell it was given, unless
+        // the panel asked for the opposite explicitly — in which case it grows
+        // and that panel's own bottom edge is the author's decision, not ours.
+        if (AUTO_HEIGHT[type]) {
+          const po = cfg.plotOptions = Object.assign({}, cfg.plotOptions);
+          const own = Object.assign({}, po[type]);
+          if (own.autoHeight == null) own.autoHeight = false;
+          po[type] = own;
+        }
         made.push(factory(cell, cfg));
       });
     }
@@ -8351,3 +11499,428 @@ Charts.packedBubble = function (container, opts) {
 
     Charts.panels = Chart;
 })();
+
+
+// --- meta / validate ----------------------------------------------
+// Generated from charts.manifest.json by _build.js. Do not edit here.
+Charts.meta = {
+  "version": 1,
+  "plotBox": {
+    "left": 62,
+    "right": 20
+  },
+  "grid": {
+    "minCellWidth": 480,
+    "recommendedGap": 16,
+    "alignItems": "stretch",
+    "spanRule": "Use `grid-column: span 2` for the wide families. Never `1 / -1`: that means 'every track', which reads as 2-of-2 on a two-column grid and silently becomes 3-of-3 when a third column appears.",
+    "heightRule": "A height on the container is an instruction to fill it; no height means grow to content. Be consistent across a grid or rows will not align.",
+    "preferPanels": "When charts belong to one exhibit, use Charts.panels instead of a hand-rolled grid: one shared title, up to 4 across, and every panel gets the same height."
+  },
+  "charts": {
+    "line": {
+      "purpose": "A value over a continuous or temporal x.",
+      "data": "series[].data as [x, y] pairs, or bare numbers indexed 0..n",
+      "requires": [],
+      "refuses": [
+        "named xAxis.categories — a line across names implies an order and a distance that do not exist; use column, or give each category its own series over a date/numeric x"
+      ],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 260,
+      "gridSpan": 1,
+      "gridSpanWhen": "2 with 5+ series or a 12+ point category axis",
+      "keyOptions": [
+        "type: line|spline|step",
+        "xAxis.type: datetime",
+        "yAxis.type: logarithmic",
+        "lineLabels",
+        "chart.zoomType"
+      ],
+      "notes": "Dates as categories are accepted; names are not."
+    },
+    "column": {
+      "purpose": "Compare a value across named categories.",
+      "data": "series[].data as numbers + xAxis.categories",
+      "requires": [],
+      "refuses": [],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 260,
+      "gridSpan": 1,
+      "keyOptions": [
+        "plotOptions.column.stacking: normal|percent",
+        "series[].scenario",
+        "yAxis.plotLines",
+        "chart.options3d"
+      ],
+      "notes": "Category labels are never dropped; crowding is solved by wrapping, staggering then rotating."
+    },
+    "bar": {
+      "purpose": "Column chart on its side; use when category names are long.",
+      "data": "series[].data as numbers + xAxis.categories",
+      "requires": [],
+      "refuses": [],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 260,
+      "gridSpan": 1,
+      "keyOptions": [
+        "plotOptions.bar.stacking",
+        "tooltip.absoluteX for population pyramids"
+      ],
+      "notes": "Its value axis is labelled ABOVE the plot, so it reserves topAxisBand and its left gutter is sized to its row labels. Its plot therefore starts lower and further right than the other axis charts."
+    },
+    "barList": {
+      "purpose": "A ranked list. No axis, category label above each bar.",
+      "data": "one series of [name, value] pairs or [{name, y}]",
+      "requires": [],
+      "refuses": [],
+      "selfSizing": true,
+      "aspect": "free",
+      "minWidth": 360,
+      "minHeight": 200,
+      "gridSpan": 1,
+      "keyOptions": [
+        "sort: desc|asc",
+        "colorByPoint",
+        "valueSuffix",
+        "barHeight",
+        "rowGap"
+      ],
+      "notes": "Long category names are free here — they are not squeezed into a left gutter."
+    },
+    "dumbbell": {
+      "purpose": "The gap between two states, per category.",
+      "data": "exactly two series over the same categories, in the same order",
+      "requires": [
+        "exactly 2 series"
+      ],
+      "refuses": [
+        "1 series — use barList or bar",
+        "3+ series — use bar with grouped series; a third dot reads as a range with a midpoint"
+      ],
+      "selfSizing": true,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 240,
+      "gridSpan": 1,
+      "keyOptions": [
+        "sort: desc|asc|delta",
+        "showDelta",
+        "deltaFormat: percent",
+        "connectorBySign",
+        "connectorArrow"
+      ],
+      "notes": "Rows pair up by position, not by name."
+    },
+    "histogram": {
+      "purpose": "The shape of a distribution. Bins raw numbers itself.",
+      "data": "data: [ ...numbers ] at the top level, or the first series' data",
+      "requires": [
+        "raw measurements, not pre-aggregated counts"
+      ],
+      "refuses": [
+        "named xAxis.categories — counting how often each name occurs is a bar chart; use column"
+      ],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 280,
+      "gridSpan": 1,
+      "keyOptions": [
+        "bins",
+        "binWidth",
+        "mean",
+        "median",
+        "barGap",
+        "xAxis.title"
+      ],
+      "notes": "null, '' and booleans are counted out rather than coerced, and named in a footnote. Bars touch because the axis is continuous."
+    },
+    "histogramPercent": {
+      "purpose": "The same bins as a share of the total.",
+      "data": "data: [ ...numbers ]",
+      "requires": [
+        "raw measurements"
+      ],
+      "refuses": [
+        "named xAxis.categories"
+      ],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 280,
+      "gridSpan": 1,
+      "keyOptions": [
+        "bins",
+        "binWidth",
+        "mean",
+        "median"
+      ],
+      "notes": "Identical to histogram except the y-axis."
+    },
+    "histogramCumulative": {
+      "purpose": "What share fell at or below each value (an ogive).",
+      "data": "data: [ ...numbers ]",
+      "requires": [
+        "raw measurements"
+      ],
+      "refuses": [
+        "named xAxis.categories"
+      ],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 280,
+      "gridSpan": 1,
+      "keyOptions": [
+        "bins",
+        "binWidth"
+      ],
+      "notes": "Y-axis always runs 0 to 100%."
+    },
+    "barInsightTable": {
+      "purpose": "One row read as a sentence: label, bars, what it means, the number to remember.",
+      "data": "series + a parallel rows[] of {insight, description, stat}, or points carrying those keys",
+      "requires": [],
+      "refuses": [],
+      "selfSizing": true,
+      "aspect": "free",
+      "minWidth": 640,
+      "minHeight": 260,
+      "gridSpan": 2,
+      "keyOptions": [
+        "autoStat",
+        "statColorBySign",
+        "columns",
+        "descriptionLines"
+      ],
+      "notes": "Four columns of content need the width; with 2+ series the stat writes itself as the change from first to last."
+    },
+    "waffle": {
+      "purpose": "Make a proportion countable — 'x in 100'.",
+      "data": "[{name, y, description}] — one panel per statistic",
+      "requires": [],
+      "refuses": [
+        "negative values — clamped to zero; a part-of-whole grid cannot show them"
+      ],
+      "selfSizing": true,
+      "aspect": "grid",
+      "minWidth": 300,
+      "minHeight": 240,
+      "gridSpan": 1,
+      "keyOptions": [
+        "rows",
+        "cols",
+        "total",
+        "fillDirection",
+        "dotSize"
+      ],
+      "notes": "Spare height grows the DOT, not the gaps — the value is the number of dots, and a dot is one unit at any size."
+    },
+    "radar": {
+      "purpose": "One profile per series across the same named axes — the SHAPE is the reading.",
+      "data": "series[].data as numbers, one per xAxis.categories entry, in that order",
+      "requires": [
+        "3+ xAxis.categories",
+        "every axis in the same unit, on one shared scale"
+      ],
+      "refuses": [
+        "fewer than 3 axes — the polygon collapses to a line or a spoke; use column, or dumbbell for two states"
+      ],
+      "selfSizing": false,
+      "aspect": "radial",
+      "minWidth": 360,
+      "minHeight": 320,
+      "gridSpan": 1,
+      "gridSpanWhen": "2 with 9+ axes or long axis names",
+      "keyOptions": [
+        "yAxis.min/max",
+        "plotOptions.radar.shape: polygon|circle",
+        "plotOptions.radar.fillOpacity",
+        "plotOptions.radar.startAngle",
+        "plotOptions.radar.markers",
+        "series[].dashStyle"
+      ],
+      "notes": "The scale starts at zero and is shared by every axis — on a radial scale a cropped baseline multiplies the AREA of a difference, and per-axis scales make the shape meaningless. Mixed units want normalising to a common index first. Past ~4 series the polygons overlap into mush; use panels of small radars instead."
+    },
+    "donut": {
+      "purpose": "Parts of one whole, few categories.",
+      "data": "one series of [name, value] pairs",
+      "requires": [],
+      "refuses": [
+        "negative values — dropped from the ring, the total and the legend, and named in a footnote; use a bar chart"
+      ],
+      "selfSizing": false,
+      "aspect": "radial",
+      "minWidth": 320,
+      "minHeight": 300,
+      "gridSpan": 1,
+      "keyOptions": [
+        "innerSize",
+        "startAngle/endAngle",
+        "variableRadius",
+        "centerText",
+        "showPercentages"
+      ],
+      "notes": "The ring grows until the narrower axis binds, so it is safe in any cell. Auto-shows a legend at 2+ wedges, which makes it start lower than a legend-less neighbour."
+    },
+    "pie": {
+      "purpose": "Donut with no hole.",
+      "data": "one series of [name, value] pairs",
+      "requires": [],
+      "refuses": [
+        "negative values"
+      ],
+      "selfSizing": false,
+      "aspect": "radial",
+      "minWidth": 320,
+      "minHeight": 300,
+      "gridSpan": 1,
+      "keyOptions": [
+        "startAngle/endAngle",
+        "centerText",
+        "showPercentages"
+      ],
+      "notes": "Alias of donut with innerSize 0."
+    },
+    "scatter": {
+      "purpose": "Relationship between two numeric variables.",
+      "data": "series[].data as [x, y] pairs",
+      "requires": [],
+      "refuses": [],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 280,
+      "gridSpan": 1,
+      "keyOptions": [
+        "series[].regression",
+        "series[].showLabels",
+        "marker.symbol",
+        "xAxis.min/max"
+      ],
+      "notes": "Point labels only draw for points that carry a name."
+    },
+    "bubble": {
+      "purpose": "Scatter with a third value as area.",
+      "data": "series[].data as [x, y, z] triples",
+      "requires": [],
+      "refuses": [],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 300,
+      "gridSpan": 1,
+      "keyOptions": [
+        "plotOptions.bubble.minSize/maxSize"
+      ],
+      "notes": "z maps to AREA, not radius."
+    },
+    "packedBubble": {
+      "purpose": "Relative magnitudes with no axes; one cluster per series.",
+      "data": "series[].data as [name, value] pairs",
+      "requires": [],
+      "refuses": [],
+      "selfSizing": false,
+      "aspect": "radial",
+      "minWidth": 320,
+      "minHeight": 300,
+      "gridSpan": 1,
+      "keyOptions": [],
+      "notes": "Cluster positions are settled by simulation and move slightly between renders."
+    },
+    "geofacet": {
+      "purpose": "One tile per region, positioned to approximate a map.",
+      "data": "{CODE: value} | [[code, value]] | [{code, value, name}]",
+      "requires": [
+        "chart.grid — 'us' by default, or an array of {code, row, col}"
+      ],
+      "refuses": [
+        "the name/y point shape every other engine takes — it needs code/value"
+      ],
+      "selfSizing": false,
+      "aspect": "grid",
+      "minWidth": 460,
+      "minHeight": 420,
+      "gridSpan": 1,
+      "keyOptions": [
+        "chart.variant: bar|heat|gauge",
+        "max",
+        "min",
+        "showEmpty",
+        "borderRadius"
+      ],
+      "notes": "Tiles stay square and cap at maxTileSize, centring the leftover as margin, so it fits a single cell at 480px and does not need extra width."
+    },
+    "panels": {
+      "purpose": "Several charts as ONE exhibit under one shared title.",
+      "data": "charts: [ { type, ...that chart's own config } ]",
+      "requires": [
+        "each entry names a factory on the Charts namespace"
+      ],
+      "refuses": [],
+      "selfSizing": true,
+      "aspect": "free",
+      "minWidth": 640,
+      "minHeight": 300,
+      "gridSpan": 2,
+      "maxColumns": 4,
+      "keyOptions": [
+        "columns",
+        "panelHeight",
+        "gap",
+        "rowGap",
+        "separators"
+      ],
+      "notes": "Prefer this over a hand-rolled grid when charts belong together. panelHeight reaches the self-sizing types too, so a row's panels end on one line."
+    }
+  }
+};
+
+/**
+ * Check a config against the manifest BEFORE rendering.
+ * Returns { ok, errors[], warnings[] }. The messages match what the engine
+ * would draw in its refusal panel, so a caller gets the same answer either way.
+ */
+Charts.validate = function (type, config) {
+  var meta = Charts.meta.charts[type];
+  var errors = [], warnings = [];
+  if (!meta) return { ok: false, warnings: warnings,
+    errors: ["Unknown chart type: " + type + ". Available: " + Object.keys(Charts.meta.charts).join(", ")] };
+  config = config || {};
+  var series = config.series || [];
+  var cats = (config.xAxis && config.xAxis.categories) || null;
+  if (type === "dumbbell" && series.length !== 2) {
+    errors.push("A dumbbell needs exactly 2 series, got " + series.length +
+      ". One value per category is barList or bar; three or more states is bar with grouped series.");
+  }
+  if (type === "radar" && (!cats || cats.length < 3)) {
+    errors.push("A radar needs at least three axes, got " + ((cats && cats.length) || 0) +
+      ". With fewer the polygon collapses to a line or a spoke. Use column, or dumbbell for two states.");
+  }
+  if ((type === "line" || type.indexOf("histogram") === 0) && cats && cats.length) {
+    var named = cats.filter(function (c) {
+      return !(c instanceof Date) && isNaN(Date.parse(c)) && isNaN(Number(c));
+    });
+    if (named.length) errors.push(type === "line"
+      ? "A line chart needs a continuous or temporal x-axis, but xAxis.categories holds named categories. Use column, or give each category its own series over a date/numeric x."
+      : "A histogram bins numbers and cannot use named categories. Counting how often each name occurs is a bar chart: use column.");
+  }
+  if (type.indexOf("histogram") === 0) {
+    var raw = config.data || (series[0] && series[0].data) || [];
+    if (!raw.length) errors.push("A histogram needs the raw measurements as data: [ ... ].");
+  }
+  if ((type === "donut" || type === "pie") && series[0]) {
+    var neg = (series[0].data || []).filter(function (d) {
+      var y = Array.isArray(d) ? d[1] : (d && typeof d === "object" ? d.y : d);
+      return typeof y === "number" && y < 0;
+    });
+    if (neg.length) warnings.push(neg.length + " negative value(s) will be dropped: a donut shows parts of a whole. Use a bar chart.");
+  }
+  return { ok: errors.length === 0, errors: errors, warnings: warnings };
+};

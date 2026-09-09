@@ -50,7 +50,7 @@
     // the opposite direction of travel from s2 — bars below the threshold, the
     // mirrored half of a pyramid. Neither means "something is wrong".
     annotation: '#B31B38',   // callout leaders, boxes, threshold rules
-    counter: '#D1107A'    // the against-the-grain direction, paired with s2
+    counter: '#9a0060'    // the against-the-grain direction, paired with s2
   };
 
   Charts.palette = c;
@@ -96,6 +96,8 @@
     headingSubGap: 8,
     headingGap: 18,
     headingGutter: 20,
+    plotGap: 16,
+    topAxisBand: 20,
 
     // Callout box
     calloutPad: 8,
@@ -258,6 +260,19 @@
      headingSubGap: m.headingSubGap,
      headingGap: m.headingGap,
      headingGutter: m.headingGutter,
+     // Clearance between the heading band — title, subtitle, and the legend
+     // when there is one — and the top of the plot. This was a literal in every
+     // engine and it had drifted to three values: 8 in line/column/scatter/
+     // donut/geofacet/histogram, 34 in the horizontal bar, and 0 in the
+     // row-based engines, plus another 18 that only existed when a legend was
+     // present. So the gap under a subtitle was cramped on a chart with no
+     // legend and no two chart types in a grid started their plots on the same
+     // line. One token now, applied whether or not a legend is drawn.
+     plotGap: m.plotGap,
+     // Extra band above the plot for an axis whose labels sit on TOP of it —
+     // the horizontal bar is the only engine that does this. Named rather than
+     // folded into plotGap so it is clear why that one chart differs.
+     topAxisBand: m.topAxisBand,
 
      // ── Callout / annotation box ────────────────────────────────────────
      calloutPad: m.calloutPad,

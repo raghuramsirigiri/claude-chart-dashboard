@@ -90,9 +90,10 @@
     background:var(--card); border:1px solid var(--hair); border-radius:10px;
     padding:10px; box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
   .fig .chart { flex:1; }
-  /* The self-sizing chart types (barList, barInsightTable, waffle) grow to
-     their rows instead of filling. Give their .fig this class so the card wraps
-     the chart rather than stretching it to the bottom of the cell. */
+  /* The row-based chart types (barList, dumbbell, barInsightTable, waffle) fill
+     a container that has a height and grow to their own rows when it has none.
+     Give their .fig this class to take the height away, so the card wraps the
+     rows rather than stretching them to the bottom of the cell. */
   .fig.auto { align-self:start; justify-content:flex-start; }
   .fig.auto .chart { flex:0 0 auto; }
 

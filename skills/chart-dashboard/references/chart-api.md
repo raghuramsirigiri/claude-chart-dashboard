@@ -7,12 +7,16 @@
   - [Line (`Charts.line`)](#line-chartsline)
   - [Column & bar (`Charts.column`, `Charts.bar`)](#column--bar-chartscolumn-chartsbar)
   - [Bar list (`Charts.barList`)](#bar-list-chartsbarlist)
+  - [Dumbbell (`Charts.dumbbell`)](#dumbbell-chartsdumbbell)
   - [Bar insight table (`Charts.barInsightTable`)](#bar-insight-table-chartsbarinsighttable)
+  - [Histogram (`Charts.histogram`, `Charts.histogramPercent`, `Charts.histogramCumulative`)](#histogram-chartshistogram-chartshistogrampercent-chartshistogramcumulative)
   - [Waffle (`Charts.waffle`)](#waffle-chartswaffle)
   - [Panels (`Charts.panels`)](#panels-chartspanels)
+  - [Radar (`Charts.radar`)](#radar-chartsradar)
   - [Donut & pie (`Charts.donut`, `Charts.pie`)](#donut--pie-chartsdonut-chartspie)
   - [Scatter / bubble / packed (`Charts.scatter`, `Charts.bubble`, `Charts.packedBubble`)](#scatter--bubble--packed-chartsscatter-chartsbubble-chartspackedbubble)
   - [Geofacet (`Charts.geofacet`)](#geofacet-chartsgeofacet)
+- [Sizing (all charts)](#sizing-all-charts)
 - [Titles and subtitles wrap](#titles-and-subtitles-wrap)
 - [Interactions (all charts)](#interactions-all-charts)
 - [Live examples](#live-examples)
@@ -22,7 +26,7 @@ A tiny, self-contained SVG chart library styled to the clean-charts theme
 (cream background, Inter typography, black + blue gradient palette,
 top-left title, thin dark spines).
 
-Zero dependencies. Drop `charts.js` into your page and call one of thirteen
+Zero dependencies. Drop `charts.js` into your page and call one of eighteen
 factory functions. Every chart is inline SVG with native tooltip, hover, and
 legend interactions — no canvas, no external framework.
 
@@ -53,9 +57,14 @@ legend interactions — no canvas, no external framework.
 | `Charts.column`       | Vertical columns: grouped, stacked, percent-stacked, range, pyramid, 3D.    |
 | `Charts.bar`          | Horizontal bars — same options as `column`, including population pyramid.   |
 | `Charts.barList`      | Axis-free horizontal bars; category label sits above each bar.              |
+| `Charts.dumbbell`     | Two dots joined by a rod, one row per category — the **gap** between two states. Exactly two series. |
 | `Charts.barInsightTable` | One row per category: label · bars · insight headline + description · a large stat. |
+| `Charts.histogram`    | Takes **raw numbers** and bins them itself; y-axis is counts.               |
+| `Charts.histogramPercent` | Same bins, y-axis as a share of the total.                             |
+| `Charts.histogramCumulative` | Same bins, y-axis running 0 → 100%.                                 |
 | `Charts.waffle`       | Part-of-whole dot grids; one panel per statistic, headline stat + caption.  |
 | `Charts.panels`       | Compositor: up to 4 charts of any type side by side under one shared title. |
+| `Charts.radar`        | One closed polygon per series over the same named axes; the reading is the shape. Three axes minimum. |
 | `Charts.donut`        | Donut (default 60% hole) — variable radius, semi-circle, gradient, sliced. |
 | `Charts.pie`          | Full pie (donut with `innerSize:0`).                                        |
 | `Charts.scatter`      | 2D scatter + optional linear regression + point labels.                     |
@@ -214,12 +223,58 @@ Charts.barList('container', {
 
 - **Sorting**: `sort: 'desc' | 'asc'` — off by default, so source order is kept
 - **Bar metrics**: `barHeight` (26), `rowGap` (22) — the label→bar gap is deliberately tighter than the row→row gap, which is what lets the pairs read without a separating rule
-- **Height**: the container **grows to fit the rows** by default. Pass `autoHeight: false` to fit the rows into the container's own height instead (bars shrink).
+- **Height**: a height on the container is an instruction to **fill it**; the chart grows to fit its own rows only when the container has no height. `autoHeight: true` asks for the growing behaviour back. See [Sizing](#sizing-all-charts).
 - **Color**: one theme color for all bars by default; `colorByPoint: true` walks the series palette; `color` on any point overrides
 - **Value labels**: always outside the bar end. `valueSuffix`, `format: '{y}%'`, `valueColor: 'series'` to tint each value to its bar.
 - **Negative values**: fully supported — bars run left from a shared zero baseline in the theme's negative color, with gutter space reserved on both ends so a negative label can't clip
 - **Long names**: truncated with an ellipsis rather than wrapped, keeping rows equal height
 - Hover highlight + shared tooltip, same as the other engines
+
+### Dumbbell (`Charts.dumbbell`)
+
+One row per category, two dots joined by a rod. Reach for it when the story is
+the **gap between two states** — before/after, 2019/2024, plan/actual, ours
+against theirs. A grouped bar pair carries the same two numbers but asks the
+reader to compute the difference by comparing two lengths against a shared
+baseline; the dumbbell draws that difference directly, as the thing between the
+marks, and on a fraction of the ink — twenty categories still fit on a slide.
+
+```js
+Charts.dumbbell('container', {
+  title: 'Cycling share of commuter trips',
+  xAxis: { categories: ['Copenhagen', 'Amsterdam', 'Helsinki'] },
+  plotOptions: { dumbbell: { sort: 'desc', valueSuffix: '%' } },
+  series: [
+    { name: '2019', data: [29, 34, 22] },
+    { name: '2024', data: [46, 41, 39] }
+  ]
+});
+```
+
+- **Exactly two series** — the chart type *is* the pair. One or three-plus draws
+  a refusal panel naming the chart that does fit (`barList`/`bar` for one value
+  per category, grouped `bar` for three states). Rows pair **by position**, so
+  both series must list the same categories in the same order.
+- **Sorting**: `sort: 'desc' | 'asc'` ranks by the **second** series — the
+  "after" state. `sort: 'delta'` / `'delta-asc'` ranks by the size of the
+  change. Off by default, so source order is kept.
+- **The change writes itself**: a right-aligned column carries the delta per
+  row. `showDelta: false` drops it; `deltaFormat: 'percent'` states it as a
+  percentage of the first value; `deltaFormat: fn(delta, row)` takes over.
+  `deltaColorBySign` (on) tints it with the above/below-threshold roles.
+- **Value labels** sit *outside* the pair — lower value left of the left dot,
+  higher right of the right dot — so neither lands on the rod however close the
+  two states are. Each takes its own dot's color (`valueColor: 'series'`).
+- **Rod**: `connectorWidth` (4), `connectorColor` (the theme's `muted` neutral —
+  the rod is the space between two marks, not a third category),
+  `connectorBySign`, `connectorArrow`.
+- **Dots & rows**: `dotSize` (12), `rowGap` (18). Height behaves like the other
+  row-based engines — see [Sizing](#sizing-all-charts).
+- **Value axis**: `yAxis: { min, max, suffix }`, `tickCount` (5),
+  `gridlines: false`, `valuePrefix` / `valueSuffix` / `format: '{y}%'`.
+- **Legend** is on whenever the chart draws — with two states it is the only
+  thing saying which dot is which — and does **not** toggle, since hiding one
+  series leaves a rod with one end.
 
 ### Bar insight table (`Charts.barInsightTable`)
 
@@ -279,8 +334,61 @@ Charts.barInsightTable('container', {
   (`dataLabels: false` removes them); the row's *stat* is the readout that
   carries the finding. `valueSuffix` and `format: '{y}%'` work as elsewhere.
 - **Dividers** are hairlines between rows only; `dividers: false` removes them.
-- **Height**: the container grows to fit the rows; `autoHeight: false` keeps the
-  container's own height.
+- **Height**: the container's height is filled when it has one, and the table
+  grows to fit its rows when it does not; `autoHeight: true` forces growing.
+  See [Sizing](#sizing-all-charts).
+
+### Histogram (`Charts.histogram`, `Charts.histogramPercent`, `Charts.histogramCumulative`)
+
+The one engine that takes **raw numbers** and does the aggregation itself. Every
+other type wants values you have already aggregated; asking an author to bin
+their own data before they can look at its shape is asking them to do the
+analysis in order to find out whether it is worth doing.
+
+```js
+Charts.histogram('container', {
+  title: 'API response time',
+  subtitle: '900 requests sampled over one hour',
+  data: latencies,                       // just the measurements
+  xAxis: { title: 'Response time (ms)' },
+  plotOptions: { histogram: { mean: true, median: true } }
+});
+```
+
+Three factories, one per reading of the same bins — the mode is the chart, not a
+flag to remember:
+
+| Function | y-axis | The question it answers |
+| :-- | :-- | :-- |
+| `Charts.histogram` | counts | How many fell in each bin? |
+| `Charts.histogramPercent` | % of total | What share fell in each bin? |
+| `Charts.histogramCumulative` | 0 → 100% | What share fell at or below this value? |
+
+- **Data**: `data: [ … numbers ]` at the top level, or the first series' `data`.
+  Points may also be `[x, y]` pairs or `{y}` / `{value}` objects, so a column
+  lifted straight out of a table works without reshaping.
+- **`null`, `''`, `undefined` and booleans are held out** before any coercion —
+  `+null` is `0`, which would count a missing reading as a real measurement of
+  zero and put a spike at the origin that is not in the data. They are counted
+  out in a footnote, as is anything outside an explicit `xAxis.min`/`max`.
+- **Bins choose themselves** by Freedman–Diaconis, falling back to Sturges under
+  30 samples, then rounded to 1 / 2 / 2.5 / 5 / 10 × a power of ten so the edges
+  are numbers a reader can check a value against. Override with `bins: 12` (a
+  target count), `binWidth: 10` (exact), `binStart`, or `maxBins`.
+- **Bin edges are half-open** — `[from, to)` — except the last, which closes at
+  its top edge so the largest value has somewhere to land.
+- **The bars touch**: the x-axis is continuous, so `barGap` (default `1`) is a
+  hairline for legibility, never a category gap. **X labels sit at bin edges**,
+  not centres, and a count axis ticks in whole numbers.
+- **Stat rules**: `mean: true`, `median: true` draw labelled rules in the
+  annotation ink above the bars; `xAxis.plotLines: [{ value, label, dashStyle }]`
+  adds your own.
+- **Named categories are refused**, for the reason `Charts.line` refuses them —
+  bins are intervals on a number line. Counting how often each *name* occurs is
+  `Charts.column`.
+- **Returns** `{ getBins(), getStats(), redraw() }`; `getStats()` gives
+  `{ n, min, max, mean, median, binWidth, bins, dropped, outside }`, so the
+  numbers behind the picture are available to the prose without recomputing.
 
 ### Waffle (`Charts.waffle`)
 
@@ -339,8 +447,56 @@ Charts.panels('chart', {
 - **Columns**: `columns` (default: the number of charts, capped at **4** — past four a panel is too narrow to read). Extra charts wrap onto further rows, so a 2×2 is just `columns: 2`.
 - **Separators**: hairlines between panels, on by default; `separators: false` turns them off.
 - **Heading**: the group title is a size up from a panel's own title (`titleSize`, `subtitleSize` override).
-- **Sizing**: `panelHeight` (default 320) applies to every panel except the self-sizing types (`barList`, `barInsightTable`, `waffle`), which grow to their content. `gap` between panels, `rowGap` between rows.
+- **Sizing**: `panelHeight` (default 320) is handed to every panel, the row-based types (`barList`, `dumbbell`, `barInsightTable`, `waffle`) included — they fill it rather than growing, unless that panel sets `autoHeight: true`. `gap` between panels, `rowGap` between rows.
 - **Returns**: `{ charts: [...], panels: [...] }` — each engine's handle, and the panel `<div>`s.
+
+### Radar (`Charts.radar`)
+
+One closed polygon per series over the same named axes. The reading is the
+**shape** — how far out a profile reaches and where it caves in — which only
+works if every axis shares one scale measured from a common centre.
+
+```js
+Charts.radar('container', {
+  title: 'Platform scorecard, two quarters apart',
+  xAxis: { categories: ['Reliability','Latency','Documentation','Onboarding','Cost control','Test coverage'] },
+  yAxis: { max: 10 },
+  series: [
+    { name: 'Q1', data: [6, 4, 3, 5, 7, 4] },
+    { name: 'Q3', data: [8, 7, 6, 6, 7, 8] }
+  ]
+});
+```
+
+- **Data**: `series[].data` is a flat list of numbers, one per
+  `xAxis.categories` entry, **in that order** — the axes belong to the chart,
+  not to one series.
+- **Three axes minimum.** With two the polygon collapses to a line through the
+  centre, so the shape carries nothing; fewer than three draws the refusal panel
+  naming `column` or `dumbbell`.
+- **The centre is zero and the scale is shared.** `yAxis.min` defaults to `0`,
+  and is *not* inferred from the data the way a cartesian y-axis is: on a radial
+  scale a cropped baseline multiplies a difference's **area**. Axes in different
+  units want normalising to a common index before they get here, or they want
+  separate charts.
+- **Scale**: `yAxis.min`, `max`, `suffix`, `decimals`; `tickCount` (4) sets the
+  rings. **Grid shape**: `shape: 'polygon'` (default) or `'circle'` — a circular
+  ring behind an angular series reads as a second, contradicting geometry.
+- **Fill**: `fillOpacity` (0.16), overridable per series; `0` gives outlines
+  only, which is the right choice for a benchmark line and for any chart with
+  more than about three profiles.
+- **Also**: `startAngle`, `markers: false`, `axisLabels: false`;
+  `series[].dashStyle` and `series[].color` behave as everywhere else.
+- **A missing value opens the ring** rather than being bridged — a polygon
+  closed over a missing axis claims a value nobody measured.
+- **Hover targets the axis, not the dot**: pointing anywhere in a spoke's sector
+  shows every visible series on that axis, because "who is furthest out on
+  *this* axis" is the question the chart exists to answer.
+- **Callouts**: `callouts: [{ category, series, text }]` — `category` names the
+  axis, `series` the profile. Boxes are pushed out from the centre so the leader
+  reads as one more spoke.
+- **Past three or four profiles, stop.** Overlapping translucent polygons stop
+  being separable; use `Charts.panels` with one small radar each instead.
 
 ### Donut & pie (`Charts.donut`, `Charts.pie`)
 
@@ -438,6 +594,50 @@ Charts.geofacet('chart', {
 - **Spacing is not configurable**: cells are always square with a derived gap, so the tiles stay one block at any container aspect ratio
 - Hover a tile for a tooltip with the region name and value
 
+## Sizing (all charts)
+
+Every engine draws into the box it is given. **A height on the container is an
+instruction to fill it**, and the four row-based engines — `barList`,
+`dumbbell`, `barInsightTable` and `waffle` — grow to fit their own content only
+when the container has no height of its own. `plotOptions.<type>.autoHeight:
+true` asks for the growing behaviour back.
+
+That default used to be the other way round, and a container's height was
+quietly ignored: a 30-row `barList` dropped into a 300px dashboard cell wrote
+2022px into it and pushed the layout around it out of shape. **Any page written
+against the older library that relied on `autoHeight: false` should drop that
+flag** — filling is now what happens without it.
+
+**Filling moves the spacing, not the marks.** A bar encodes its value in
+*length*; once its thickness approaches that length the eye reads area instead,
+and the shortest bars gain weight they have not earned. So bar thickness is
+fixed and the row gap absorbs the difference, capped at 2.5× its own value,
+after which the block is centred rather than stretched further. Too *little*
+room reverses the order: gaps close to a floor before any mark is thinned. The
+`waffle` is the exception that proves the rule — there the value is the *number*
+of dots and a dot is one unit at any size, so the dot grows and the gaps hold
+their proportion.
+
+The charts with a fixed form still fill their box but keep their shape inside
+it: a `donut` grows its ring until the narrower axis binds, a `radar` grows its
+web the same way, a `geofacet` grows its square tiles until they hit their cap
+and centres the leftover as margin.
+
+**The plot box.** Every axis engine draws its plot 62px in from the left and
+20px from the right, with the y-tick labels floating in that left margin and no
+left spine — so a line chart beside a column chart in a grid has its gridlines
+starting and ending on the same pixels. Two engines differ, and should: a
+horizontal `Charts.bar` sizes its left gutter to its own row labels, and
+`Charts.barInsightTable` is a table whose rules span the full content width.
+
+**The heading band.** Every engine starts its plot at exactly
+`titleBlockH + legendZone + plotGap`, so two chart types with the same title and
+subtitle begin drawing on the same line — which is what makes a grid of mixed
+charts read as one exhibit rather than several. The clearance does not depend on
+whether a legend happens to be shown. `Charts.bar` is the one documented
+exception: its value axis is labelled *above* the plot, so it reserves
+`topAxisBand` on top of the shared clearance.
+
 ## Titles and subtitles wrap
 
 Every engine measures the heading against the container width and wraps it:
@@ -514,8 +714,8 @@ The full list of theme tokens lives in
 | `highlight` | `#243E63` | Zoom / plot-band accent |
 | `callout` | `#B31B38` | Callout leaders, boxes, threshold rules |
 | `aboveThreshold` | `#2323FF` | Value on the upper side of the threshold — see `annotation.md` § Threshold shift |
-| `belowThreshold` | `#D1107A` | Value on the lower side. Named for the threshold, **not** for good/bad |
-| `positive` / `negative` | `#2323FF` / `#D1107A` | Aliases of the two above, kept for existing configs |
+| `belowThreshold` | `#9a0060` | Value on the lower side. Named for the threshold, **not** for good/bad. Darkened from `#D1107A`, which collapsed onto `muted` under red-green colour blindness |
+| `positive` / `negative` | `#2323FF` / `#9a0060` | Aliases of the two above, kept for existing configs |
 | `trend` | `#2323FF` | Regression line color |
 | `connectorLabel` | `#555555` | Donut connector label text |
 | `connectorLine` / `connectorWidth` | `#333333` / `1.4` | Donut callout rule |
@@ -533,6 +733,7 @@ The full list of theme tokens lives in
 | `gridWidth` | `0.8` | Gridline stroke width |
 | `titleLineHeight` / `subtitleLineHeight` | `1.24` / `1.34` | Leading, as **ratios** of the matching size — so a bigger title does not collide with itself |
 | `headingPadTop` / `headingSubGap` / `headingGap` / `headingGutter` | `17` / `8` / `18` / `20` | The title-and-subtitle band above every plot. One set of values across all engines, which is why headings line up across a grid |
+| `plotGap` / `topAxisBand` | `16` / `20` | Clearance from the heading band (title, subtitle, and the legend when there is one) to the top of the plot, applied whether or not a legend is drawn. `topAxisBand` is the extra band `Charts.bar` reserves because its value axis is labelled above the plot |
 | `calloutSize` / `calloutPad` / `calloutMaxWidth` / `calloutLeaderWidth` / `calloutAnchorRadius` | `10` / `8` / `220` / `1.2` / `4.5` | The annotation box and its leader |
 | `legendSize` / `legendWeight` / `legendRowHeight` / `legendGap` | `12` / `600` / `20` / `18` | Legend type and rhythm |
 | `tooltipSize` / `tooltipBorder` | `12` / `#dcdbd7` | Tooltip type and hairline |

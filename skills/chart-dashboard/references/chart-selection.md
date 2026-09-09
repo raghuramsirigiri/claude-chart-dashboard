@@ -30,6 +30,9 @@ mismatch. Check the row before you write the config.
 | `column`, `bar` | Named categories (the normal case), or any ordered labels | Numbers, may be negative; `[low, high]` pairs for `columnrange` | Nothing breaks; this is the permissive engine |
 | `barList` | Named categories | Numbers, one per row | — |
 | `barInsightTable` | Named categories, each with an `insight` and/or `stat` | Numbers, one per row | Collapsed empty columns — a slower `barList` |
+| `dumbbell` | Named categories, **paired by position** across both series | Numbers — **exactly two series**, no more, no fewer | A refusal panel naming `barList`/`bar` (one state) or grouped `bar` (three or more) |
+| `histogram` (and `Percent`, `Cumulative`) | **Raw unaggregated numbers** — the engine bins them itself | n/a — the y-axis *is* the count/share it computes | Named categories are refused outright, as in `line` |
+| `radar` | Named axes, **three minimum**, shared by every series | Numbers on **one scale from a common centre** | Fewer than three axes draws a refusal panel naming `column`/`dumbbell` |
 | `waffle` | Named categories, each a share of the *same* whole | Non-negative numbers ≤ `total` | Negatives silently clamped to zero |
 | `donut`, `pie` | Named categories that sum to a whole | Positive numbers only | Negative/non-finite wedges dropped, console warning, footnote |
 | `scatter`, `bubble` | **A numeric measure** — `xAxis.categories` is ignored | A numeric measure (`bubble`: plus a numeric `z`) | Points plotted against a meaningless 0,1,2… index axis |
@@ -96,6 +99,9 @@ loses data. Use a column chart with `negativeColor` instead.
 | Comparison across >12 categories, or long labels | horizontal bars | `Charts.bar` |
 | A ranked list, or very long category names | bar list (no axis) | `Charts.barList` + `sort:'desc'` |
 | Each row needs a comparison **and** a sentence **and** a headline number | bar insight table | `Charts.barInsightTable` |
+| The **gap between two states** per category — before/after, plan/actual, ours/theirs | dumbbell | `Charts.dumbbell` — exactly two series; `sort:'delta'` ranks by the size of the change |
+| The **distribution** of a raw measurement — where values pile up, how long the tail is | histogram | `Charts.histogram` (or `histogramPercent` / `histogramCumulative`) — hand it the raw numbers, it bins them |
+| A **profile across 3+ named dimensions**, compared as a shape | radar | `Charts.radar` — only when every axis shares one scale from zero; ≤3 profiles |
 | A proportion the reader should *feel* ("29 in 100") | waffle | `Charts.waffle` — survey shares, adoption rates; a bar compares lengths, a waffle counts units |
 | Composition over time | stacked columns | `Charts.column` + `plotOptions.column.stacking:'normal'` |
 | Share-of-total over time | 100% stacked | `stacking:'percent'` |
@@ -124,6 +130,7 @@ row has to say:
 | A length, nothing else | `Charts.bar` / `Charts.column` | An axis and gridlines let the reader compare precisely across many categories |
 | A length and a long name | `Charts.barList` | The name sits above its own bar at full width instead of being squeezed into a left gutter |
 | A length, a sentence, and a headline number | `Charts.barInsightTable` | All three sit in one row, so the reader gets the comparison, the meaning, and the takeaway without looking anywhere else |
+| **Two** lengths whose *difference* is the point | `Charts.dumbbell` | A grouped pair makes the reader subtract two lengths off a shared baseline; the rod draws the difference directly, and on a fraction of the ink |
 
 `barInsightTable` is the one to reach for on **income statements, KPI reviews,
 before/after comparisons, and scorecards** — anywhere you would otherwise build a
