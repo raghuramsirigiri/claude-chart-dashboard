@@ -311,6 +311,12 @@ how a page ends up technically correct and useless. Override them on purpose:
   bars are data too, which is why `muted` is derived at 3:1 against the canvas
   rather than picked for how quiet it looks.
 
+  **In a deck, emphasis mode is the exception and the plain ramp is the
+  default.** Not a different rule — the same one, biting harder: a deck is where
+  the urge to make the point is strongest, and a grey supporting bar stops
+  saying anything by the third slide that has one. Write no `color` unless the
+  chart's own title names the points it means.
+
   Three standing rules that apply whether or not the chart is in emphasis mode:
   residual categories ("Other", "Don't know", a rolled-up tail) always take
   `muted`, since they can never be the finding; several context series take one

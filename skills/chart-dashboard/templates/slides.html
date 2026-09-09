@@ -638,6 +638,10 @@ fit();
      · data labels on, so a value can be read from the back of the room
      · the title carries the claim, complementing the slide's h2, not repeating it
      · no frame of your own — .fig is the card the chart sits in
+     · colours come from the theme as they come — the ramp assigns them in
+       series order and you write no `color` at all. Greying the supporting
+       points is emphasis mode, and a slide earns it only when the chart's own
+       title names which points it means (one example below, and only one).
    Every chart is drawn once at load: every slide is laid out on the page with a
    real size, so nothing needs deferring or redrawing. The slides are scaled by
    a CSS transform, which does not change the pixel size a chart measures, so a
@@ -654,21 +658,27 @@ Charts.line('c-trend', {
 });
 
 /* barList suits a deck: no axis furniture, long names cost nothing, and the
-   value always sits outside the bar end where it stays readable. Emphasis only
-   exists while there is something to de-emphasise — grey the supporting rows
-   and leave the leader on the theme's own accent rather than a custom colour;
-   charts-lib picks a data label's colour from its point colour, and an
-   off-theme fill can make the label disappear. */
+   value always sits outside the bar end where it stays readable. This is what
+   a deck chart normally looks like in code — a title, the data, and no colour
+   at all. Sorted descending, the ranking already says which row leads, so
+   greying the other three would spend emphasis on something the sort has
+   already done. */
 Charts.barList('c-rank', {
   title: 'Seconds spent per step',
   plotOptions: { barList: { sort: 'desc', valueSuffix: 's' } },
   series: [{ name: 'Seconds', data: [
     { name: 'Sign in', y: 48 },
-    { name: 'Verify',  y: 31, color: T.muted },
-    { name: 'Recover', y: 22, color: T.muted },
-    { name: 'Browse',  y: 9,  color: T.muted } ] }]
+    { name: 'Verify',  y: 31 },
+    { name: 'Recover', y: 22 },
+    { name: 'Browse',  y: 9 } ] }]
 });
 
+/* The one chart in this deck that overrides a colour, and what has to be true
+   before you copy it: the title names *which* points it means, so the picture
+   has to agree with the sentence. Everything not named takes T.muted — the
+   theme's own de-emphasis, never a custom grey, because charts-lib picks a data
+   label's colour from its point colour and an off-theme fill can make the label
+   disappear. If your title does not name specific points, write no colour. */
 Charts.column('c-full', {
   title: 'Self-serve and small team account for the whole gain',
   subtitle: 'Change in activation · percentage points',

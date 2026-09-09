@@ -156,6 +156,15 @@ across a room, for about thirty seconds:
 - Two charts read as a comparison must share a y scale — set the same `max` on
   both. Left to themselves each fits its own data and the smaller option looks
   taller than it is.
+- **Colour is the theme's job, not the slide's.** Write no `color` and the ramp
+  assigns one per series, in order, consistently across the deck — which is what
+  lets a reader carry "the blue one is last quarter" from slide four to slide
+  eleven. Deck charts are especially easy to over-colour, because a deck is
+  where the urge to *make the point* is strongest: hand-greying the supporting
+  points is emphasis mode, and it is earned only where the chart's own title
+  names which points it means (§ Emphasis in `chart-selection.md`). A deck with
+  emphasis on every chart has emphasis on none of them — the first grey bar
+  stops meaning anything by the third slide.
 
 ## All three
 
@@ -165,11 +174,11 @@ across a room, for about thirty seconds:
   load, so charts sit flush with their surface and one `Charts.applyPalette`
   call reskins everything. Don't hand-edit the color literals in `:root` —
   change the palette. Method in `theming.md`.
-- The page-level choices the theme does not set are `--radius`, and `--bg` — the
-  ground behind the cards or the paper. Keep `--bg` a small step from
-  `Charts.theme.bg`. The deck has no `--bg` at all: its ground is the slide
-  colour itself, which is what makes it read as a document rather than a
-  viewer.
+- The page-level choices the theme does not set are `--radius`, and the ground
+  behind the cards or the paper — `--bg` in the dashboard and report, `--ground`
+  in the deck. Keep it a small step from `Charts.theme.bg`: the charts paint
+  themselves in `theme.bg`, so that step is what makes a figure read as a card
+  sitting on the page rather than as ink bleeding into it.
 - **Legend position is fixed**: charts-lib draws it at the top under the
   subtitle, on every chart type. Never reposition it per panel or rebuild it in
   HTML — a legend that moves between panels makes the reader search for it each
