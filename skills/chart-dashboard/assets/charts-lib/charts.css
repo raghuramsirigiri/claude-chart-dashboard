@@ -5,8 +5,14 @@
  * Charts.theme.bg is sufficient — this CSS is a progressive-enhancement
  * fallback for the brief moment before the script executes.
  */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
-
+/* No @import here on purpose. A remote font is a network dependency, and this
+ * file is inlined into pages whose whole promise is that they open over file://
+ * with nothing fetched — an offline reader or an air-gapped review would get a
+ * page that blocks on fonts.googleapis.com. It also arrives late: the swap
+ * changes text metrics after the charts have measured their containers, which
+ * leaves an already-drawn SVG at a stale height. Name the family and let it
+ * fall back to the system face, which is what the page templates already do.
+ */
 .charts-body {
     font-family: 'Inter', 'Segoe UI', Arial, Helvetica, sans-serif;
 }

@@ -151,8 +151,14 @@ if (refs.length && !isFinal) {
 // Same rule, wider net: a CDN font or icon set breaks the page for an offline
 // reader just as thoroughly as a missing chart library, and is easier to add
 // by reflex.
+// Attributes are the obvious half. The half that actually shipped was a CSS
+// `@import url(https://fonts.googleapis.com/...)` inside the inlined library:
+// no src, no href, invisible to an attribute scan, and fetched on every open.
+// Any absolute url() in CSS counts — fonts, background images, @import alike.
 const external = [...html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)]
   .map(m => m[1])
+  .concat([...html.matchAll(/@import\s+(?:url\()?['"]?(https?:\/\/[^'")\s;]+)/g)].map(m => m[1]))
+  .concat([...html.matchAll(/url\(\s*['"]?(https?:\/\/[^'")\s]+)/g)].map(m => m[1]))
   .filter(u => !/^https?:\/\/(www\.)?w3\.org/.test(u));   // schema URLs are not fetched
 if (external.length) {
   bad('no network dependencies', [...new Set(external)].slice(0, 4).join(', ') +
