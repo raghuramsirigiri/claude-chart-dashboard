@@ -345,15 +345,25 @@
 </head>
 <body>
 <div class="deck">
-  <!-- THE SLIDE ORDER IS NOT A TEMPLATE — BUILD IT FROM YOUR STORY.
-       What follows is one worked example of each layout, so the markup for all
-       eighteen is visible in one place. Delete the ones the deck does not need
-       and repeat the ones it does. A typical deck is a cover, an agenda, two or
-       three l-section dividers, then mostly l-split / l-media / l-list, with an
-       l-statement at each turn in the argument. Rules that matter:
+  <!-- WHAT FOLLOWS IS A CATALOGUE, NOT A RUNNING ORDER — one worked example of
+       each layout, so the markup for all eighteen is visible in one place.
+       Delete the ones the deck does not need and repeat the ones it does.
+
+       THE SPINE IS FIXED, THE EVIDENCE IS NOT. Every deck this skill builds
+       opens with l-cover then l-agenda, carries an l-section divider before
+       each section when it has two or more, and ends on an l-statement holding
+       the recap and the ask. Those four are not judgment calls — they are what
+       makes two decks built from the same findings come out the same deck, and
+       scripts/check-page.js fails the build when one is missing. What the
+       findings decide is the middle: which claims, in which sections, on which
+       evidence layouts. Full procedure in references/layout.md § Compose the
+       sequence. Rules that matter:
          · One claim per slide, written as the h2 — never a topic label.
+         · The agenda's .toc .part entries and the l-section dividers are the
+           same list in the same order; an index that promises three parts and
+           delivers two loses the reader by the second.
          · A chart appears once, arguing one point on one slide.
-         · Charts are unframed: no panel, no border, no fill behind them.
+         · Charts sit in .fig cards; don't add a frame of your own.
          · Slide count follows the argument, not a target number. -->
 
   <!-- 1 · Cover -->

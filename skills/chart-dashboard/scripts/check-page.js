@@ -7,8 +7,8 @@
  * These are the failures that survive a confident-looking build, because none
  * of them throws: a panel whose chart was never wired renders as an empty box,
  * a line over unordered categories renders an error panel *inside* the chart,
- * and a page that still links `charts-lib/` looks perfect right up until it is
- * emailed to someone. Each one reads as a styling problem rather than the
+ * a deck that lost its agenda just starts, and a page that still links
+ * `charts-lib/` looks perfect right up until it is emailed to someone. Each one reads as a styling problem rather than the
  * missing wiring it is, which is why they need a checker rather than a glance.
  *
  * Run it during the build to catch wiring mistakes, and again with `--final`
@@ -159,6 +159,70 @@ if (external.length) {
     '  → inline it as a data: URI, or drop it and use a system fallback');
 } else {
   ok('no network dependencies', 'nothing is fetched at open time');
+}
+
+// ── 5. a deck has its spine ──────────────────────────────────────────
+// Only runs on a page that is a deck. The middle of a deck is the author's to
+// compose, but the four structural slides are not: they are what makes two
+// decks built from the same findings come out as the same deck, and each one
+// fails silently in its own way. A deck with no agenda simply starts, and the
+// audience spends the first third working out how long this is. A deck whose
+// index promises three parts and delivers two loses the reader at the second
+// divider, because they are tracking the list they were shown. A deck that
+// stops on its last chart leaves the ask unstated — the one job a chart cannot
+// do for the presenter. None of these throw, none look broken, and all of them
+// are invisible to whoever built the deck and already knows the argument.
+const slides = [...html.matchAll(/<section[^>]*class="slide([^"]*)"/g)]
+  .map(m => m[1].trim().split(/\s+/).filter(Boolean));
+const layouts = new Set(slides.flat().filter(c => c.startsWith('l-')));
+if (!slides.length) {
+  ok('deck spine', 'not a deck — no slides on this page');
+} else if (layouts.size >= 15) {
+  // The unedited template: one worked example of every layout. It is a
+  // catalogue, so the spine rules do not apply to it — but shipping it as a
+  // deck is its own mistake, and worth saying out loud.
+  note('deck spine', 'this is the template catalogue (' + layouts.size +
+    ' different layouts, one slide each), not a deck — build the deck from it first');
+} else {
+  const has = (i, cls) => slides[i] && slides[i].includes(cls);
+  const problems = [];
+  if (!has(0, 'l-cover')) problems.push('slide 1 is not an l-cover');
+  if (!has(1, 'l-agenda')) problems.push('slide 2 is not an l-agenda');
+  const last = slides.length - 1;
+  if (!has(last, 'l-statement')) {
+    problems.push('the last slide is not an l-statement carrying the recap and the ask');
+  }
+  // The agenda is a contract: its parts and the dividers are the same list.
+  const dividers = slides.filter(c => c.includes('l-section')).length;
+  const agenda = (html.match(/<section[^>]*class="slide[^"]*l-agenda[^"]*"[\s\S]*?<\/section>/) || [''])[0];
+  const parts = (agenda.match(/class="part"/g) || []).length;
+  if (dividers === 1) {
+    problems.push('exactly one l-section divider — a divider announcing a single ' +
+      'section is furniture; drop it, or split the argument properly');
+  }
+  if (dividers > 5) {
+    problems.push(dividers + ' l-section dividers — past five the deck is answering ' +
+      'more questions than an audience can hold; merge the closest pair');
+  }
+  // Compared in both directions on purpose. An agenda that lists parts the
+  // deck never divides is the same broken contract as dividers the agenda
+  // never announced — and the first is the easier one to ship, since the
+  // agenda gets written from the plan and the dividers get forgotten.
+  if (parts >= 2 && dividers !== parts) {
+    problems.push('the agenda lists ' + parts + ' part(s) but the deck has ' +
+      dividers + ' l-section divider(s) — they must be the same list in the ' +
+      'same order' + (dividers === 0 ? ': the dividers were never added' : ''));
+  }
+  if (parts < 2 && dividers > 0) {
+    problems.push('the deck has ' + dividers + ' l-section divider(s) but the agenda ' +
+      'lists no parts — the agenda and the dividers are the same list');
+  }
+  if (problems.length) {
+    bad('deck spine', problems.join(' | '));
+  } else {
+    ok('deck spine', slides.length + ' slides: cover, agenda, ' +
+      (dividers ? dividers + ' section(s), ' : 'one section, ') + 'closing');
+  }
 }
 
 // ── report ───────────────────────────────────────────────────────────

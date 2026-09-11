@@ -68,11 +68,20 @@ slide deck.
 4. **Derive the structure from the findings, not from the template.** The
    dashboard template deliberately ships with a placeholder two-cell grid,
    because any arrangement shipped there would end up on every page this skill
-   produces. *(Building a deck? The same rule, applied to slide order rather
-   than grid cells: `references/layout.md` § Deck. The template shows one
-   example of each of its eighteen layouts so the markup is visible in one
-   place — that sequence is a catalogue, never a running order. Delete what the
-   argument does not need.)*
+   produces.
+
+   *(Building a deck? A deck derives its **evidence** from the findings the same
+   way, but its **spine** is fixed, and `references/layout.md` § Compose the
+   sequence has the four passes — read it before writing slides. In short: write
+   the claims, group them into sections (one section per question the data
+   answers), then lay the spine before any evidence slide — `l-cover` first,
+   `l-agenda` second, an `l-section` divider before each section when there are
+   two or more, and an `l-statement` last carrying the recap and the ask. Only
+   then choose a layout per claim. The reason the spine goes down first is that
+   scaffolding added at the end is scaffolding that gets forgotten: the same
+   findings would otherwise produce a deck with an agenda one run and none the
+   next. The template's eighteen example slides are a catalogue of the available
+   layouts, never a running order.)*
    Before writing markup, answer: what is the dominant shape of this analysis
    (one trend / a head-to-head comparison / a ranking / a funnel / a
    distribution / parallel equal measures / geography)? Is there genuinely one

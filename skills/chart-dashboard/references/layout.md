@@ -129,17 +129,62 @@ The template ships one example of each layout so the markup is visible in one
 place. That order is a catalogue, not a running order — a deck built by keeping
 all nineteen example slides is a deck that argues nothing.
 
-Write the claims first, one sentence each, in the order you would say them out
-loud. That list *is* the deck: each claim becomes a slide's `h2`, and the layout
-follows from what the claim needs to be believed — a chart and its reading
-(`l-split`), a chart that carries the whole point (`l-full`, `l-media`), a
-number (`l-stat`), a comparison on identical terms (`l-compare`), a sequence
-(`l-steps`, `l-timeline`), a verbatim (`l-quote`). A claim needing no evidence
-is an `l-statement`, and there should be only three or four of those in a deck
-or the emphasis stops meaning anything.
+Build it in four passes, in this order. The order is the point: a deck assembled
+claim-by-claim ends up with whatever scaffolding its author happened to remember
+at the end, which is how the same data produces a deck with an agenda one time
+and none the next. The spine is not decoration applied afterwards — it is what
+the claims hang on, so it goes down first.
 
-Then: a cover, an `l-agenda` if the deck runs past a dozen slides, and an
-`l-section` divider at each turn in the argument.
+**1 · Write the claims.** One sentence each, in the order you would say them out
+loud. Nothing about slides yet. This list is the deck's content and everything
+below is derived from it, which is what makes two runs over the same findings
+land on the same deck.
+
+**2 · Group the claims into sections.** A section is *one question the data
+answers* — claims that answer the same question belong together, and a claim
+that answers a different one starts a new section. Group by that test alone, not
+by how many slides each group ends up with. Two ways this can come out, both
+fine and both determined by the data rather than by preference:
+
+- **One section** — every claim answers the same question. Common in a short
+  deck. No dividers (a divider announcing a single section is furniture), and
+  the agenda lists the claims themselves.
+- **Two to five sections** — a divider before each. If the grouping yields more
+  than five, the deck is answering more questions than an audience can hold;
+  merge the closest pair until five or fewer, rather than shipping seven
+  dividers.
+
+**3 · Lay the spine.** Before writing a single evidence slide, place these:
+
+| Position | Layout | Carries | When |
+|:--|:--|:--|:--|
+| first | `l-cover` | the claim the whole deck exists to make | always |
+| second | `l-agenda` | one `.toc .part` per section (or the claims, if there is one section) | always |
+| before each section | `l-section` | the section number and its name | only when there are 2+ sections |
+| last | `l-statement` | the recap — the claim restated — and the ask | always |
+
+Two of these are load-bearing in ways that are easy to miss. The **agenda** is a
+contract: an audience that has seen it is tracking where they are in it, so the
+`.toc .part` entries and the `l-section` dividers must be the same list in the
+same order — a deck whose index promises three parts and delivers two has lost
+the reader by the second. The **closing** is what a deck is *for*: a deck that
+stops on its last chart leaves the audience to infer the ask, which is the one
+job the presenter cannot delegate to a chart. Restate the claim in the same
+words as the cover — the repetition is the point, not a redundancy to edit out.
+
+**4 · Choose a layout per claim.** Now fill the sections. Each claim becomes a
+slide's `h2`, and the layout follows from what that claim needs to be believed —
+a chart and its reading (`l-split`), a chart that carries the whole point
+(`l-full`, `l-media`), a number (`l-stat`), a comparison on identical terms
+(`l-compare`), a sequence (`l-steps`, `l-timeline`), a verbatim (`l-quote`). A
+claim needing no evidence is an `l-statement`; counting the closing, keep those
+to three or four in a deck or the emphasis stops meaning anything.
+
+What varies between two decks built from the same findings should be the
+evidence slides in pass 4 and nothing else. `scripts/check-page.js` checks the
+spine on any page it recognises as a deck — cover first, agenda second, closing
+last, and the agenda's parts matching the dividers — so a missing one fails the
+build instead of shipping.
 
 ### Deck charts are not dashboard charts
 
