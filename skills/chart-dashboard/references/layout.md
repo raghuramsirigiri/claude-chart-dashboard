@@ -167,7 +167,21 @@ Two of these are load-bearing in ways that are easy to miss. The **agenda** is a
 contract: an audience that has seen it is tracking where they are in it, so the
 `.toc .part` entries and the `l-section` dividers must be the same list in the
 same order — a deck whose index promises three parts and delivers two has lost
-the reader by the second. The **closing** is what a deck is *for*: a deck that
+the reader by the second.
+
+It is also a real table of contents, which means:
+
+- **One `.toc .row` per slide in that section**, carrying that slide's own claim
+  and its slide number. A single row summarising four slides ("Growth and
+  revenue mix") tells the audience nothing they could not guess from the part
+  heading, and it makes the deck look shorter than it is — the reader is
+  counting what is coming, so under-listing it is a promise you then break.
+- **A single-section deck has no `.part` entries at all** — just the rows. A part
+  heading labelled "One part" is the layout admitting it had nothing to divide;
+  if the deck has one section, the agenda is simply the list of claims.
+- **Keep the row titles short enough to sit on one line** beside their number.
+  The claim on the slide can be a full sentence; its agenda row is the shortest
+  phrase that still names it. The **closing** is what a deck is *for*: a deck that
 stops on its last chart leaves the audience to infer the ask, which is the one
 job the presenter cannot delegate to a chart. Restate the claim in the same
 words as the cover — the repetition is the point, not a redundancy to edit out.
@@ -201,6 +215,17 @@ across a room, for about thirty seconds:
 - Two charts read as a comparison must share a y scale — set the same `max` on
   both. Left to themselves each fits its own data and the smaller option looks
   taller than it is.
+- **Say the magnitude once.** A number already expressed in thousands does not
+  also take a `k` suffix — 4820 with `suffix: 'k'` renders "4,820k", which asks
+  the reader to do the conversion the label was supposed to do for them. Scale
+  the numbers to the unit you are labelling and say it once: 4.82 with an `m`
+  suffix, or the raw 4,820,000 with the subtitle carrying "USD". The subtitle is
+  the right place for the unit; the axis suffix is for the symbol.
+- **In a grouped chart, series order is the reading order of the dimension.** For
+  periods that means chronological — prior quarter first, this quarter second,
+  so every group runs left-to-right in time the way the reader already expects.
+  Getting this backwards makes the eye read improvement as decline, which no
+  amount of legend fixes.
 - **Colour is the theme's job, not the slide's.** Write no `color` and the ramp
   assigns one per series, in order, consistently across the deck — which is what
   lets a reader carry "the blue one is last quarter" from slide four to slide
@@ -209,7 +234,11 @@ across a room, for about thirty seconds:
   points is emphasis mode, and it is earned only where the chart's own title
   names which points it means (§ Emphasis in `chart-selection.md`). A deck with
   emphasis on every chart has emphasis on none of them — the first grey bar
-  stops meaning anything by the third slide.
+  stops meaning anything by the third slide. When a chart does earn emphasis,
+  the subject takes a **hue** (`T.colors[1]`), not the default: the ramp's first
+  step is black, and black bars beside `T.muted` grey bars are two neutrals
+  separated only by lightness, which at projector distance reads as "some bars
+  are darker" rather than as "these are the ones I mean".
 
 ## All three
 

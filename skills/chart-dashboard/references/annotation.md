@@ -150,7 +150,7 @@ Charts.column('c3', {
   subtitle: 'Attainment · % of quota · bars at or above the 100 target in blue',
   xAxis: { categories: rows.map(r => r.name) },
   yAxis: { plotLines: [{ value: 100, dashStyle: 'ShortDash', width: 1.5,
-                         color: T.axis, label: { text: 'Target 100' } }] },
+                         color: T.callout, label: { text: 'Target 100' } }] },
   plotOptions: { series: { dataLabels: { enabled: true } } },
   legend: { enabled: false },
   series: [{ name: 'Attainment', data: rows.map(r => ({
@@ -159,6 +159,14 @@ Charts.column('c3', {
   })) }]
 });
 ```
+
+**A reference line never takes `T.axis`.** `axis` is the ink the marks
+themselves are drawn in — on a chart of black bars, a black target line crosses
+them and disappears, which is the one thing a target line cannot afford to do.
+`T.callout` is the annotation ink and exists for exactly this: things drawn *on*
+the data rather than things that *are* the data. The same goes for the line's
+label. Where the threshold also recolours the bars, `T.callout` still reads,
+because it is a third colour against the above/below pair.
 
 `plotLines` work the same way on `column`, `bar`, and `line`; on bars the label
 rides the end of the rule inside the plot area. They also carry prior-year,

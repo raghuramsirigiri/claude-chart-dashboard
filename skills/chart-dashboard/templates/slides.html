@@ -89,7 +89,11 @@
   .fig { display:flex; flex-direction:column; min-height:0; min-width:0;
     background:var(--card); border:1px solid var(--hair); border-radius:10px;
     padding:10px; box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
-  .fig .chart { flex:1; }
+  /* min-height:0 is load-bearing, not tidiness: a flex item refuses to shrink
+     below its content height without it, so a chart whose labels wrap grew past
+     the card, and overflow:hidden clipped it — which reads as a card with no
+     bottom padding. */
+  .fig .chart { flex:1; min-height:0; }
   /* The row-based chart types (barList, dumbbell, barInsightTable, waffle) fill
      a container that has a height and grow to their own rows when it has none.
      Give their .fig this class to take the height away, so the card wraps the
@@ -144,7 +148,15 @@
   .toc .part { font-size:25px; font-weight:700; letter-spacing:-0.4px;
     border-bottom:1px solid var(--hair); padding-bottom:12px; margin-top:14px; }
   .toc .part:first-child { margin-top:0; }
-  .toc .row { font-size:15px; color:var(--muted); }
+  /* A rule under every row, not just under the part headings: the agenda is a
+     list the audience reads down, and without the rules a long title and the
+     slide number beside it stop looking like one line. */
+  .toc .row { font-size:15px; color:var(--muted);
+    border-bottom:1px solid var(--hair); }
+  .toc .row:last-child { border-bottom:0; }
+  /* The number never wraps and never shrinks; the title is what reflows when it
+     is long, which is the behaviour that keeps a wordy agenda readable. */
+  .toc .num { flex:0 0 auto; white-space:nowrap; }
 
   /* Section divider — a breath between parts. Number, name, nothing else. */
   .l-section { display:flex; flex-direction:column; justify-content:center; }
@@ -298,8 +310,11 @@
   .l-stat .f { text-align:center; }
   .l-stat .f b { display:block; font-size:110px; line-height:1; font-weight:700;
     letter-spacing:-4px; font-variant-numeric:tabular-nums; }
+  /* margin-inline:auto matters because of the max-width: without it the caption
+     is an 11em block pinned to the left of a much wider number, which reads as a
+     misalignment rather than as a caption. */
   .l-stat .f span { display:block; font-size:19px; color:var(--muted);
-    margin-top:14px; max-width:11em; }
+    margin-top:14px; max-width:11em; margin-inline:auto; }
   .l-stat .arrow { text-align:center; color:var(--muted); }
   .l-stat .arrow hr { border:0; border-top:1px solid currentColor; width:130px; margin:0 0 8px; }
 
@@ -374,17 +389,27 @@
     <div class="meta micro">Author · Team · DATE</div>
   </section></div>
 
-  <!-- 2 · Agenda -->
+  <!-- 2 · Agenda. A real contents list, not a summary: one .row per slide in
+       the section, carrying that slide's claim and its number, so the count the
+       audience sees matches the deck they get. The .part headings and the
+       l-section dividers are the same list in the same order.
+       A ONE-SECTION DECK USES .row ENTRIES ONLY — no .part headings at all. A
+       heading reading "One part" is the layout admitting it had nothing to
+       divide. Keep each row to a phrase that fits on one line beside its
+       number; the full sentence belongs on the slide. -->
   <div class="page"><section class="slide l-agenda" data-title="Agenda">
     <div><h1>Agenda</h1></div>
     <div class="toc">
       <div class="part">Where we are <span class="num">Part 1</span></div>
-      <div class="row">What the data says <span class="num">04</span></div>
-      <div class="row">What it costs us <span class="num">06</span></div>
+      <div class="row">Adoption tripled <span class="num">04</span></div>
+      <div class="row">Where the time goes <span class="num">05</span></div>
+      <div class="row">Growth by segment <span class="num">06</span></div>
       <div class="part">What we propose <span class="num">Part 2</span></div>
+      <div class="row">The quarter in four numbers <span class="num">08</span></div>
       <div class="row">The two options <span class="num">09</span></div>
-      <div class="row">Sequencing <span class="num">12</span></div>
+      <div class="row">Sequencing <span class="num">10</span></div>
       <div class="part">The ask <span class="num">Part 3</span></div>
+      <div class="row">What we need to decide <span class="num">12</span></div>
     </div>
   </section></div>
 
@@ -418,7 +443,7 @@
       <div class="chart" id="c-rank"></div>
     </figure>
     <div class="words">
-      <h3>Sign-in costs more than the other three steps together</h3>
+      <h3>Sign-in takes half again as long as the next slowest step</h3>
       <p class="body">A narrow annotation column. Keep it short — the picture is
         doing the arguing here.</p>
     </div>
@@ -685,10 +710,17 @@ Charts.barList('c-rank', {
 
 /* The one chart in this deck that overrides a colour, and what has to be true
    before you copy it: the title names *which* points it means, so the picture
-   has to agree with the sentence. Everything not named takes T.muted — the
-   theme's own de-emphasis, never a custom grey, because charts-lib picks a data
-   label's colour from its point colour and an off-theme fill can make the label
-   disappear. If your title does not name specific points, write no colour. */
+   has to agree with the sentence.
+
+   Note which colours. The subject takes T.colors[1] — a HUE from the ramp — and
+   everything else takes T.muted. It is tempting to leave the subject on the
+   default and just grey the rest, but the default is the ramp's first step,
+   which is black: black bars beside grey bars are two neutrals differing only
+   in lightness, and across a room that reads as "some bars are darker", not as
+   "these are the ones I mean". A hue against a neutral survives the projector.
+   Never a custom grey for the de-emphasis either — charts-lib takes a data
+   label's colour from its point colour, so an off-theme fill can make the label
+   vanish. If your title does not name specific points, write no colour at all. */
 Charts.column('c-full', {
   title: 'Self-serve and small team account for the whole gain',
   subtitle: 'Change in activation · percentage points',
@@ -696,7 +728,8 @@ Charts.column('c-full', {
   legend: { enabled: false },
   plotOptions: { series: { dataLabels: { enabled: true } } },
   series: [{ name: 'Change', data: [
-    { y: 31 }, { y: 24 }, { y: 3, color: T.muted }, { y: -1, color: T.muted } ] }]
+    { y: 31, color: T.colors[1] }, { y: 24, color: T.colors[1] },
+    { y: 3, color: T.muted }, { y: -1, color: T.muted } ] }]
 });
 
 Charts.line('c-kpi', {

@@ -121,6 +121,15 @@ slide deck.
    state it without editorializing), and if the page has a filter or dropdown,
    read `references/controls.md` before wiring it.
 
+   **Check any claim that does arithmetic.** Titles reach for comparative
+   shapes — "more than the next two combined", "half of all", "double the
+   nearest" — because they are satisfying to write, and they are the easiest
+   sentences in a deck to get wrong: the shape sounds right while the numbers
+   say otherwise, and nobody re-adds the column before presenting. Add up the
+   numbers you are claiming about before you write the sentence, and if the
+   arithmetic does not hold, state the comparison that does. A chart that
+   contradicts its own title is worse than a chart with a dull title.
+
    **When a panel marks something up** — an intervention, a projection, a
    target, a labelled anomaly — read `references/annotation.md` for the cue and
    its mechanics. Colour and stroke are per-series on a line, so actual-vs-
