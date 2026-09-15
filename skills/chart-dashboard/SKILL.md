@@ -97,6 +97,13 @@ slide deck.
    right only when a single trend really does lead and composition really is the
    second thing the reader needs.
 
+   One sizing rule the grid doesn't enforce for you: **tables size themselves.**
+   `table`, `reportTable` and `barInsightTable` are as tall as their rows, so
+   they go in a content-sized `<div class="bento flow">` row, never in a fixed
+   cell or an `.h2`. A fixed cell leaves a blank band under the last row. Give a
+   `reportTable` chart column a `width` that fits its data, and choose the
+   smallest span that holds the table (`layout.md` § Tables size themselves).
+
 5. **Choose a chart per panel** using `references/chart-selection.md`, then write
    the config against `references/chart-api.md` (the full charts-lib API: every
    factory, option, and theme token). Read that file before writing chart code —

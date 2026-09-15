@@ -82,6 +82,30 @@ if (!ids.length && !calls.length) {
   ok('panels wired to charts', ids.length + ' panels, all wired');
 }
 
+// ── 1b. content-sized tables are not boxed into fixed grid rows ───────
+// table, reportTable and barInsightTable grow to their rows only when the
+// container has no height. In a .bento cell (340px rows, 696px with .h2) they
+// get a height instead, stretch each row by a capped amount, and leave the
+// rest as a blank band under the last row — a panel that looks padded, not
+// broken. They belong in a `.bento.flow` row, whose cells take their content's
+// height.
+const GROWS = ['table', 'reportTable', 'barInsightTable'];
+const boxed = [...code.matchAll(/Charts\.(\w+)\(\s*'([^']+)'/g)]
+  .filter(m => GROWS.includes(m[1]))
+  .filter(m => {
+    const at = code.indexOf('id="' + m[2] + '"');
+    if (at < 0) return false;
+    const grid = code.lastIndexOf('class="bento', at);
+    return grid >= 0 && !/^class="bento[^"]*\bflow\b/.test(code.slice(grid, grid + 60));
+  })
+  .map(m => m[2] + ' (' + m[1] + ')');
+if (boxed.length) {
+  bad('tables sized to content', boxed.join(', ') +
+    ' in a fixed-height grid row  → move the cell into <div class="bento flow">');
+} else {
+  ok('tables sized to content', 'no content-sized table in a fixed-height row');
+}
+
 // ── 2. line charts have an x-axis the engine will accept ─────────────
 // Mirrors the guard in the line engine: a category axis is drawable when every
 // label parses as a date, or when the labels form a strictly rising sequence
@@ -155,10 +179,13 @@ if (refs.length && !isFinal) {
 // `@import url(https://fonts.googleapis.com/...)` inside the inlined library:
 // no src, no href, invisible to an attribute scan, and fetched on every open.
 // Any absolute url() in CSS counts — fonts, background images, @import alike.
-const external = [...html.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)]
+// Comments are stripped first: charts.css documents how to load Inter from
+// Google Fonts inside a block comment, and a URL nobody fetches is not a dependency.
+const live = code.replace(/<!--[\s\S]*?-->/g, ' ');
+const external = [...live.matchAll(/(?:src|href)="(https?:\/\/[^"]+)"/g)]
   .map(m => m[1])
-  .concat([...html.matchAll(/@import\s+(?:url\()?['"]?(https?:\/\/[^'")\s;]+)/g)].map(m => m[1]))
-  .concat([...html.matchAll(/url\(\s*['"]?(https?:\/\/[^'")\s]+)/g)].map(m => m[1]))
+  .concat([...live.matchAll(/@import\s+(?:url\()?['"]?(https?:\/\/[^'")\s;]+)/g)].map(m => m[1]))
+  .concat([...live.matchAll(/url\(\s*['"]?(https?:\/\/[^'")\s]+)/g)].map(m => m[1]))
   .filter(u => !/^https?:\/\/(www\.)?w3\.org/.test(u));   // schema URLs are not fetched
 if (external.length) {
   bad('no network dependencies', [...new Set(external)].slice(0, 4).join(', ') +

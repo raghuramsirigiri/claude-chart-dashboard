@@ -79,6 +79,35 @@ Charts fill their cell (`.chart {width:100%;height:100%}`) and charts-lib
 re-reads the container size on render, so a panel that looks cramped needs a
 bigger span, not a chart-level width.
 
+### Tables size themselves — don't box them into grid rows
+
+`table`, `reportTable` and `barInsightTable` are as tall as their rows. They
+grow to fit only when their container has **no** height. The bento's fixed
+row height (340px, or 696px with `.h2`) gives them one, so the engine stretches
+each row by a capped amount and leaves the rest as a blank band under the last
+row. Picking `h2` because "a table needs room" is the reflex that causes it.
+
+- Put them in a **separate content-sized row**, after (or between) the fixed
+  grids:
+  ```html
+  <div class="bento flow">
+    <div class="cell w8"><div class="chart" id="c6"></div></div>
+  </div>
+  ```
+  Never `.h2` on these, and never a cell in a normal `.bento`. `check-page.js`
+  fails the page if you do.
+- **Pick the span from the table's natural width, not from "full width".** In
+  `reportTable` the text and KPI columns stop growing at their preferred width
+  (insight ≈ 240px) and a chart column absorbs *all* the remaining width. A
+  `w12` table with a 3-point mini-chart gets a 1,200px plot of three bars. Size
+  the chart column to its data with the column's `width` (≈ 80–100px per bar or
+  category, 240–320px for a sparkline), then choose the smallest span that holds
+  the table — usually `w8` or `w6`. Reach for `w12` only when there are many
+  columns or a chart column really has many points.
+- `dumbbell`, `barList` and `waffle` are also marked self-sizing, but they fill
+  a fixed cell sensibly; keep them in the normal grid and choose the cell height
+  for the number of rows.
+
 ## Report (`templates/report.html`)
 
 An 880px "paper" column: kicker, h1, deck, byline, abstract, then numbered `h2`

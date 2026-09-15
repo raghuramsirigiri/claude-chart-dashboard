@@ -12,11 +12,14 @@
   - [Bar insight table (`Charts.barInsightTable`)](#bar-insight-table-chartsbarinsighttable)
   - [Histogram (`Charts.histogram`, `Charts.histogramPercent`, `Charts.histogramCumulative`)](#histogram-chartshistogram-chartshistogrampercent-chartshistogramcumulative)
   - [Waffle (`Charts.waffle`)](#waffle-chartswaffle)
+  - [Report table (`Charts.reportTable`)](#report-table-chartsreporttable)
   - [Panels (`Charts.panels`)](#panels-chartspanels)
   - [Radar (`Charts.radar`)](#radar-chartsradar)
   - [Donut & pie (`Charts.donut`, `Charts.pie`)](#donut--pie-chartsdonut-chartspie)
   - [Scatter / bubble / packed (`Charts.scatter`, `Charts.bubble`, `Charts.packedBubble`)](#scatter--bubble--packed-chartsscatter-chartsbubble-chartspackedbubble)
   - [Geofacet (`Charts.geofacet`)](#geofacet-chartsgeofacet)
+  - [Waterfall (`Charts.waterfall`)](#waterfall-chartswaterfall)
+  - [Sankey (`Charts.sankey`)](#sankey-chartssankey)
 - [Sizing (all charts)](#sizing-all-charts)
 - [Titles and subtitles wrap](#titles-and-subtitles-wrap)
 - [Interactions (all charts)](#interactions-all-charts)
@@ -27,7 +30,7 @@ A tiny, self-contained SVG chart library styled to the clean-charts theme
 (cream background, Inter typography, black + blue gradient palette,
 top-left title, thin dark spines).
 
-Zero dependencies. Drop `charts.js` into your page and call one of eighteen
+Zero dependencies. Drop `charts.js` into your page and call one of the
 factory functions. Every chart is inline SVG with native tooltip, hover, and
 legend interactions — no canvas, no external framework.
 
@@ -64,6 +67,7 @@ legend interactions — no canvas, no external framework.
 | `Charts.histogramPercent` | Same bins, y-axis as a share of the total.                             |
 | `Charts.histogramCumulative` | Same bins, y-axis running 0 → 100%.                                 |
 | `Charts.waffle`       | Part-of-whole dot grids; one panel per statistic, headline stat + caption.  |
+| `Charts.reportTable`  | Table whose columns are `text`, `insight`, `kpi` or `chart` cells (a real chart per row). |
 | `Charts.panels`       | Compositor: up to 4 charts of any type side by side under one shared title. |
 | `Charts.radar`        | One closed polygon per series over the same named axes; the reading is the shape. Three axes minimum. |
 | `Charts.donut`        | Donut (default 60% hole) — variable radius, semi-circle, gradient, sliced. |
@@ -72,6 +76,10 @@ legend interactions — no canvas, no external framework.
 | `Charts.bubble`       | Scatter with third dimension mapped to bubble radius (and color gradient).  |
 | `Charts.packedBubble` | Bubbles clustered via physics relaxation; per-series clusters when >1.      |
 | `Charts.geofacet`     | Small multiples on a geographic grid — bar, heat, or gauge tiles.           |
+| `Charts.waterfall`    | Bridge: opening value, signed steps each starting where the last ended, computed totals. |
+| `Charts.sankey`       | Flows between nodes in left-to-right columns; band thickness is the amount moved. |
+
+Also on the namespace: `Charts.meta` (the manifest — data shape, refusals, sizing, `gridSpan` per chart) and `Charts.validate(type, config)` — see [The manifest](#the-manifest-chartsmanifestjson--chartsmeta).
 
 All functions take `(container, config)` where `container` is a DOM element
 or its id, and `config` is a Highcharts-compatible options object.
@@ -455,6 +463,38 @@ Charts.waffle('chart', {
 - **Negative values are clamped to zero** — a part-of-whole grid can't show them honestly, same rule as the donut.
 - **Other**: `dividers: false` drops the vertical rules, `panelPadding` sets the gutter inside each panel.
 
+### Report table (`Charts.reportTable`)
+
+A table whose cells are not only numbers. Every column needs a `kind`:
+`text` (wrapping paragraph), `insight` (`{ head, body }`), `kpi` (one large stat — a number or `{ value, note, fill }`) or `chart` (a real chart per row). There is **no `number` kind** — put figures in a `kpi` column.
+
+```js
+Charts.reportTable('container', {
+  title: 'Q3 business review',
+  columns: [
+    { key: 'trend', kind: 'chart',   name: 'Last six months', group: 'Performance', chart: { type: 'line' } },
+    { key: 'why',   kind: 'insight', name: 'What happened',   group: 'Outcome' },
+    { key: 'yoy',   kind: 'kpi',     name: 'YoY', suffix: '%', decimals: 1, colorBySign: true, group: 'Outcome' },
+    { key: 'note',  kind: 'text',    name: 'Owner notes',     group: 'Context' }
+  ],
+  rows: [
+    { group: 'Income', name: 'Revenue', trend: [41, 44, 43, 48, 51, 55],
+      why: { head: 'Topline growth', body: 'Renewals landed early.' },
+      yoy: { value: 12.4, note: 'vs 9.0% plan' }, note: 'Expect a softer October.' }
+  ]
+});
+```
+
+- **Chart cells**: `column.chart` holds defaults (`type` required); each row's value is laid over it — a full config or a bare data array. Refused types: `panels`, `table`, `barInsightTable`, `reportTable`. Cell titles/legends are dropped; 2+ series names show once as a legend above the table. Cells are `compact: true` by default (column `compact: false` keeps axes).
+- **Shared scale**: `line`, `column`, `bar`, `dumbbell` cells in one column share `yAxis.min/max`; opt out with `sharedScale: false` when rows differ in unit.
+- **Colour**: `kpi` columns take `colorBySign: true`, or `colorByScale: true` (+ a `scale` id to share one domain across columns). Any `kpi`/`text`/`insight` cell may carry its own `fill`. One colour per series name across the whole table.
+- **Row labels**: `row.name` as text or `{ head, body }`; contiguous `row.group` headings.
+- **Column groups are all or nothing** — if one column has a `group`, every column needs one.
+- **Pie/donut cells** are ≥220px wide; past 4 slices (`sliceKeyAt`) they show a key instead of callouts.
+- **Sizing — height**: as tall as its rows (chart rows `rowHeight`, default 140; they grow rather than clip). It grows only in a container **without** a height; given one (a fixed bento cell, `.h2`), it stretches each row by a capped amount and leaves the rest blank. Put it in a `<div class="bento flow">` row — see `layout.md` § Tables size themselves.
+- **Sizing — width**: text, insight (≤240px) and kpi columns stop at their preferred width; a **chart column takes all the remaining width**. Set the chart column's `width` from its data (≈80–100px per bar/category, 240–320px for a sparkline) and pick the smallest grid span that holds the table (often `w8`), not `w12` by default.
+- **Other options**: `striped`, `dividers`, `labelHeader`, `threshold`, `blank`; type sizes `insightSize`, `descriptionSize`, `descriptionLines` (3), `statSize`. Otherwise behaves like a table (width allocation, horizontal scroll, same refusals).
+
 ### Panels (`Charts.panels`)
 
 Not an engine — a compositor. One shared title/subtitle, the width split into up
@@ -631,6 +671,52 @@ Charts.geofacet('chart', {
 - **Spacing is not configurable**: cells are always square with a derived gap, so the tiles stay one block at any container aspect ratio
 - Hover a tile for a tooltip with the region name and value
 
+### Waterfall (`Charts.waterfall`)
+
+How a total got from one value to another: an opening balance, signed steps that each start where the last ended, and totals measured from zero.
+
+```js
+Charts.waterfall('container', {
+  title: 'Operating profit bridge, FY25 → FY26',
+  series: [{ data: [
+    { name: 'FY25', y: 120 },
+    { name: 'Price', y: 18 },
+    { name: 'Volume', y: 9 },
+    { name: 'Input costs', y: -22 },
+    { name: 'FY26', isSum: true }
+  ] }]
+});
+```
+
+- **Data**: `series[0].data` as numbers or `{ name, y }` steps; `{ name, isSum: true }` for a total the engine computes (omit `y`).
+- **Exactly one series**, numeric value on every step (a blank shifts every bar after it). Two bridges → `column` with grouped series, or one waterfall per panel in `panels`.
+- **Refuses** a declared total that doesn't match its steps (the gap is named, not drawn) and data with only totals (that's `column`/`bar`).
+- **Options**: `plotOptions.waterfall.connectors`, `showSign`, `upColor` / `downColor` / `sumColor`; `yAxis.plotLines`.
+- **The value axis always includes zero.**
+- **Sizing**: free aspect, min 480×280; span 2 grid tracks with 8+ steps or slanted names. **Returns** `getSteps()`, `getTotal()`.
+
+### Sankey (`Charts.sankey`)
+
+Where an amount goes: nodes in left-to-right columns joined by bands whose thickness is the amount moved — splits, merges and losses are the reading.
+
+```js
+Charts.sankey('container', {
+  title: 'Signup funnel, September',
+  stages: ['Source', 'Signup', 'Plan'],
+  series: [{
+    data: [
+      ['Organic', 'Signed up', 4200], ['Paid', 'Signed up', 2600],
+      ['Signed up', 'Free', 5100], ['Signed up', 'Pro', 1300]
+    ]
+  }]
+});
+```
+
+- **Data**: `series[0].data` as `[from, to, weight]` or `{ from, to, weight }`; optional `series[0].nodes: [{ id, name?, color?, column? }]`.
+- **Exactly one series of links**; weights ≥ 0; flow forward only. Refuses multiple series, negative/non-numeric weights (signed net flow → `waterfall`), self-links and loops.
+- **One pixels-per-unit scale** across all columns; a node is as tall as the larger of its in/outflow. Whatever a stage receives but doesn't pass on flows into a counter-coloured **"Unaccounted"** node with its amount and share (`dropLabel`, `dropoff`).
+- **Options**: `stages` (a header per column); `plotOptions.sankey.linkColor: 'source'|'target'|'gradient'|'neutral'|<css>`, `colorBy: 'level'|'source'|'node'|'none'`, `nodeWidth`, `nodePadding`, `align: 'justify'|'left'`, `valuePrefix` / `valueSuffix`; `nodes[].column` pins a node.
+- **Sizing**: free aspect, min 480×300; **span 2 grid tracks** (1 only for 2–3 short-named columns). **Returns** `getLinks()`, `getNodes()`.
 ## Sizing (all charts)
 
 Every engine draws into the box it is given. **A height on the container is an

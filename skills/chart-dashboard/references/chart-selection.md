@@ -6,6 +6,7 @@ Which chart the data allows, and which one shows the finding.
 
 - [Input contract — check this before the table](#input-contract--check-this-before-the-table)
 - [Choosing between the three bar treatments](#choosing-between-the-three-bar-treatments)
+- [Choosing among the specialist charts](#choosing-among-the-specialist-charts)
 - [Anti-patterns](#anti-patterns)
 - [Emphasis](#emphasis)
   - [The three heuristics](#the-three-heuristics)
@@ -38,6 +39,9 @@ table to see them against each other.
 | `dumbbell` | Named categories, **paired by position** across both series | Numbers — **exactly two series**, no more, no fewer | A refusal panel naming `barList`/`bar` (one state) or grouped `bar` (three or more) |
 | `histogram` (and `Percent`, `Cumulative`) | **Raw unaggregated numbers** — the engine bins them itself | n/a — the y-axis *is* the count/share it computes | Named categories are refused outright, as in `line` |
 | `radar` | Named axes, **three minimum**, shared by every series | Numbers on **one scale from a common centre** | Fewer than three axes draws a refusal panel naming `column`/`dumbbell` |
+| `waterfall` | Named steps, in order, one series | Signed numbers; `{isSum:true}` totals the engine computes | Refusal panel on 2+ series or a declared total that doesn't match its steps; a blank step shifts every later bar |
+| `sankey` | `[from, to, weight]` links, one series, forward-only | Weights ≥ 0 | Refusal panel on negative weights, self-links, loops |
+| `reportTable` | Rows, with typed columns (`text`/`insight`/`kpi`/`chart`) | Per column kind | Refusal panel on a missing `kind`, a `number` kind, or an exhibit-type chart column |
 | `waffle` | Named categories, each a share of the *same* whole | Non-negative numbers ≤ `total` | Negatives silently clamped to zero |
 | `donut`, `pie` | Named categories that sum to a whole | Positive numbers only | Negative/non-finite wedges dropped, console warning, footnote |
 | `scatter`, `bubble` | **A numeric measure** — `xAxis.categories` is ignored | A numeric measure (`bubble`: plus a numeric `z`) | Points plotted against a meaningless 0,1,2… index axis |
@@ -107,6 +111,9 @@ loses data. Use a column chart with `negativeColor` instead.
 | The **gap between two states** per category — before/after, plan/actual, ours/theirs | dumbbell | `Charts.dumbbell` — exactly two series; `sort:'delta'` ranks by the size of the change |
 | The **distribution** of a raw measurement — where values pile up, how long the tail is | histogram | `Charts.histogram` (or `histogramPercent` / `histogramCumulative`) — hand it the raw numbers, it bins them |
 | A **profile across 3+ named dimensions**, compared as a shape | radar | `Charts.radar` — only when every axis shares one scale from zero; ≤3 profiles |
+| Many rows, each needing a mini-chart, a sentence **and** a number | report table | `Charts.reportTable` — the scorecard/QBR page in one exhibit |
+| How a total moved from A to B through signed contributions | waterfall | `Charts.waterfall` + `{isSum:true}` for the closing total |
+| Where an amount flows — splits, merges, drop-off across stages | sankey | `Charts.sankey` (`stages` for column headers); give it 2 grid tracks |
 | A proportion the reader should *feel* ("29 in 100") | waffle | `Charts.waffle` — survey shares, adoption rates; a bar compares lengths, a waffle counts units |
 | Composition over time | stacked columns | `Charts.column` + `plotOptions.column.stacking:'normal'` |
 | Share-of-total over time | 100% stacked | `stacking:'percent'` |
@@ -157,6 +164,36 @@ Skip it when the rows have nothing to say: with no `insight` or `stat`, the
 columns collapse and you have a slower `barList`. Never use it for a time series —
 rows are categories, not periods.
 
+Two neighbours cover what it can't:
+
+- **Two values per row, and the change is the point** → `Charts.dumbbell`. A
+  grouped bar pair makes the reader subtract two lengths; the dumbbell draws
+  the gap and writes the delta in its own column.
+- **A row needs a trend, not a single length** — a sparkline per metric, a
+  donut per segment — or more than one number → `Charts.reportTable`. Figures go
+  in `kpi` columns, commentary in `insight`, and chart columns share a value
+  scale so rows still compare. It sizes to its rows, so it goes in a `bento flow` row (layout.md § Tables size themselves).
+
+## Choosing among the specialist charts
+
+These answer one question each; reach for them only when that question is the
+title.
+
+- **Histogram vs. column.** Raw measurements (latencies, order values, ages) →
+  histogram, and let it bin. Counts you already have per *name* → column. Never
+  hand-bin data into columns to fake a histogram.
+- **Radar vs. column / panels.** Radar earns its place when the *profile shape*
+  is the finding ("strong on reliability, weak on docs") and every axis is on
+  one scale. For exact per-axis comparison use grouped columns; past 3–4
+  profiles, use `Charts.panels` of small radars.
+- **Waterfall vs. stacked column.** Waterfall explains *one change* between two
+  totals by its signed contributions (price, volume, cost). Composition that
+  persists across periods is stacked columns.
+- **Sankey vs. ranked bars.** Use sankey when flows *split or merge* between
+  stages, or the drop-off per stage is the story — its "Unaccounted" node shows
+  loss for free. A single linear conversion path with no branching reads faster
+  as a ranked `barList`.
+
 ## Anti-patterns
 
 - **A line over named categories** — browsers, regions, departments, SKUs.
@@ -179,6 +216,12 @@ rows are categories, not periods.
 - A waffle for anything that isn't a share of a whole — negatives are clamped
   to zero, and comparing two waffles is worse than comparing two bars.
 - Truncated y-axis on a column chart (bar length must encode the value).
+- A radar whose axes are in different units, or that crams 5+ overlapping
+  profiles — normalise to an index, or split into panels.
+- A histogram fed pre-aggregated counts — it will bin the counts themselves.
+- A waterfall of independent totals with no steps between them — that's columns.
+- A sankey with a loop, negative weights, or two networks in separate series.
+- A dumbbell with three states — a third dot reads as a range with a midpoint.
 - Bubbles sized by radius rather than area — charts-lib already scales by area
   via `plotOptions.bubble:{minSize,maxSize}`; don't fight it.
 

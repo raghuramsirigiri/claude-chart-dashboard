@@ -64,6 +64,12 @@
   .cell { background:var(--card); border-radius:var(--radius); padding:6px;
     box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
   .cell .chart { width:100%; height:100%; }
+  /* A row sized by its content, for charts whose height is their row count —
+     table, reportTable, barInsightTable. A fixed 340/696px cell makes them
+     stretch rows and leave a blank band; here they take their natural height.
+     Use it as a separate grid: <div class="bento flow"><div class="cell w8">… */
+  .bento.flow { grid-auto-rows:auto; align-items:start; margin-top:16px; }
+  .flow .chart { height:auto; }
   .w4{grid-column:span 4}.w6{grid-column:span 6}.w8{grid-column:span 8}.w12{grid-column:span 12}
   .h2{grid-row:span 2}
 

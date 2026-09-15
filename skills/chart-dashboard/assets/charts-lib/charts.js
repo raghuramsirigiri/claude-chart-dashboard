@@ -12,6 +12,10 @@
  *   Charts.histogram(container, config)           — raw numbers binned and counted
  *   Charts.histogramPercent(container, config)    — the same bins as a share of the total
  *   Charts.histogramCumulative(container, config) — the same bins as a running share (ogive)
+ *   Charts.waterfall(container, config)         — a bridge: opening balance, signed steps, closing total
+ *   Charts.sankey(container, config)            — where an amount goes: nodes in columns, bands as thick as the flow
+ *   Charts.table(container, config)             — exact numbers in rows and columns, grouped, cells coloured by value
+ *   Charts.reportTable(container, config)       — a table whose columns are numbers, prose, insights, KPIs or charts
  *   Charts.panels(container, config)            — up to 4 charts of any type side by side under one shared title
  *   Charts.radar(container, config)             — one closed polygon per series over shared named axes
  *   Charts.donut(container, config)             — donut, semi-circle, variable-radius, gradient, sliced
@@ -24,95 +28,561 @@
  * Override Charts.theme properties before calling a chart factory to re-skin all charts.
  * See ../charts-lib-demo/index.html for a live catalog of every variation.
  *
+ * Helpers common to every engine (el/txt/esc, heading wrapping, the whole
+ * callout placement subsystem) live once in engines/_shared.js and are
+ * emitted at the top of this bundle as window.ChartsShared.
+ *
  * Load theme.js BEFORE this file in the page so Charts.theme exists.
  * Edits to theme.js take effect on next page load — no rebuild needed.
  */
-// ─── line / spline / step ────────────────────────────────────────────
+// --- shared helpers ---
 
-/*
- * Clean-charts-styled line chart engine.
- * Match tokens from clean_charts.config: cream bg, Inter, black+blue palette,
- * top-left title, y-axis on the right, only-bottom spine, x-ticks at boundaries
- * with labels centered between, inline line-end labels, no legend by default.
- * Interactive: crosshair, shared tooltip, marker hover, zoom.
+/*!
+ * _shared.js — helpers every chart engine used to carry its own copy of.
+ *
+ * Before this file existed each engine in this directory declared its own
+ * `el`, `txt`, `esc`, heading wrapper and — verbatim, eleven times over — the
+ * whole callout placement subsystem. The copies were byte-identical, so a fix
+ * to callout placement had to be applied eleven times or it silently was not.
+ *
+ * _build.js emits this file once at the top of charts.js and each engine
+ * destructures what it needs out of `window.ChartsShared`. Engines are never
+ * loaded standalone (every page loads the built bundle), so this is a build
+ * input, not a second script for a page to remember.
+ *
+ * Everything here must stay free of engine-local state. The one thing that was
+ * not — the font `drawCalloutBox` drew its text in — now comes from
+ * `calloutTheme().font`, the same theme token the engine-local FONT it used to
+ * read was itself set from.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
 
-  // --- theme tokens (populated from window.Charts.theme at render time) ---
-  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, HIGHLIGHT, CALLOUT_C, INV_TEXT, COLORS;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
-  let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_POINT_LBL, F_NOTICE, F_VALUE;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    AXIS = t.axis || '#000000';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    HIGHLIGHT = t.highlight || '#243E63';
-    CALLOUT_C = t.callout || '#B31B38';
-    INV_TEXT = t.inverseText || '#FFFFFF';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
-    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_TICK = t.tickSize != null ? t.tickSize : 11;
-    F_INLINE = t.inlineSize != null ? t.inlineSize : 11;
-    AXIS_W = t.axisWidth != null ? t.axisWidth : 1.8;
-    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
-    LINE_W = t.lineWidth != null ? t.lineWidth : 3;
-    TICK_L = t.tickLength != null ? t.tickLength : 6;
-    TICK_W = t.tickWidth != null ? t.tickWidth : 1.5;
+  const NS = 'http://www.w3.org/2000/svg';
+  const CALLOUT_PAD = 6;
+  const CALLOUT_OFFSETS = [
+    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
+    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
+    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
+  ];
+
+  // ── theme resolution ───────────────────────────────────────────────────
+  // Theme tokens used to be module-level variables inside each engine IIFE,
+  // set by an applyTheme() that ran once per chart. Two consequences, both
+  // wrong: a page could not hold two differently-themed charts, because the
+  // second chart's tokens overwrote the first's; and a redraw or a tooltip
+  // hover painted with whichever theme was applied last rather than the one
+  // its own chart was built with.
+  //
+  // The tokens now live inside Chart(), so each chart closes over its own set.
+  // This function is what fills them: defaults, then the page-wide
+  // Charts.theme, then a per-chart opts.theme, each overriding the last.
+  //
+  // The defaults below were the `|| '#333333'` tail of every token read, in
+  // all twelve engines — 488 literals for 58 tokens. Changing one meant
+  // finding twelve copies, and they had already drifted: the engines said the
+  // background was #f4f3f0 while theme.js said #f4f4f0, so the CSS painted a
+  // slightly different shade than the charts until the script ran.
+  const CHART_DEFAULTS = {
+    aboveThreshold: '#2323FF',
+    belowThreshold: '#9a0060',
+    axis: '#000000',
+    axisWidth: 1.8,
+    bg: '#f4f4f0',
+    callout: '#B31B38',
+    categoryWeight: 600,
+    centerSize: 14,
+    colors: ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'],
+    connectorLabel: '#555555',
+    connectorWidth: 1.4,
+    defaultColor: '#000000',
+    dimmed: '#c2c0ba',
+    font: "'Inter','Segoe UI',Arial,Helvetica,sans-serif",
+    gradientEnd: '#2323FF',
+    gradientStart: '#000000',
+    grid: '#dcdbd7',
+    gridWidth: 0.8,
+    headingGap: 18,
+    headingGutter: 20,
+    headingPadTop: 17,
+    headingSubGap: 8,
+    highlight: '#243E63',
+    hoverInk: '#000000',
+    inlineSize: 11,
+    inverseText: '#FFFFFF',
+    labelColor: '#333333',
+    labelSize: 11.5,
+    legendGap: 18,
+    legendIconGap: 6,
+    legendIconSize: 12,
+    legendRowHeight: 20,
+    legendSize: 12,
+    legendWeight: 600,
+    lineWidth: 3,
+    muted: '#8f8d87',
+    noticeSize: 13,
+    plotGap: 16,
+    pointLabelSize: 10,
+    secondaryColor: '#666666',
+    spineWidth: 1.1,
+    subtitleColor: '#666666',
+    subtitleSize: 12,
+    subtitleWeight: 400,
+    tickLength: 6,
+    tickSize: 11,
+    tickWeight: 400,
+    tickWidth: 1.5,
+    tileSurface: '#eae8e4',
+    tileTrack: '#f4f4f0',
+    titleColor: '#111111',
+    titleSize: 17,
+    titleWeight: 700,
+    tooltipBorder: '#dcdbd7',
+    tooltipSize: 12,
+    topAxisBand: 20,
+    trend: '#2323FF',
+    valueSize: 11,
+    valueWeight: 700,
+  };
+
+  // Tokens whose default is another token rather than a literal: ticks read
+  // like labels, categories and values read like the title. Derived after the
+  // merge so that setting labelColor alone still moves the tick color.
+  const DERIVED_DEFAULTS = {
+    tickColor: 'labelColor',
+    categoryColor: 'titleColor',
+    valueColor: 'titleColor',
+    connectorLine: 'labelColor'
+  };
+
+  // Older names for two tokens, still accepted. `positive` and `negative` read
+  // as a judgement the chart is not making: `aboveThreshold` and
+  // `belowThreshold` say which side of a line a bar sits on, which is all the
+  // color means.
+  const TOKEN_ALIASES = { aboveThreshold: 'positive', belowThreshold: 'negative' };
+
+  function resolveTheme(opts) {
+    const page = (window.Charts && window.Charts.theme) || {};
+    const per = (opts && opts.theme) || {};
+    const t = Object.assign({}, CHART_DEFAULTS, page, per);
+    for (const key in TOKEN_ALIASES) {
+      if (per[key] == null && page[key] == null) {
+        const alias = per[TOKEN_ALIASES[key]] != null ? per[TOKEN_ALIASES[key]] : page[TOKEN_ALIASES[key]];
+        if (alias != null) t[key] = alias;
+      }
+    }
+    for (const key in DERIVED_DEFAULTS) {
+      if (t[key] == null) t[key] = t[DERIVED_DEFAULTS[key]];
+    }
+    return t;
   }
 
-  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
-  // an `{enabled}` object, and falls back to the engine's default when the
-  // option says nothing.
-  function dlEnabled(opt, dflt) {
-    if (opt === false) return false;
-    if (opt === true) return true;
-    if (opt && opt.enabled != null) return !!opt.enabled;
-    return dflt;
+  // ── chart lifecycle ────────────────────────────────────────────────────
+  // Every engine draws into a container it clears first, so the SVG, the
+  // tooltip and every listener bound to a node inside it are released when the
+  // container is emptied. The exception is a listener bound somewhere else:
+  // line.js binds mouseup on `window` to finish a zoom drag, and that one
+  // outlives the chart entirely, holding the SVG, the series data and the
+  // tooltip through its closure. In an app that re-renders a dashboard those
+  // accumulate for as long as the page is open.
+  //
+  // createLifecycle gives an engine one place to register listeners and one
+  // destroy() that undoes them.
+  //
+  // Register chart-lifetime listeners here — the ones bound once per chart to
+  // the svg, to a control, or to window. Do NOT register listeners bound to
+  // nodes that render() recreates, such as legend items: those are rebound on
+  // every redraw, so remembering them would grow this array on each legend
+  // toggle and pin the detached nodes it names. Their nodes are dropped with
+  // the old drawing and collected normally, which is already correct.
+  function createLifecycle(container) {
+    const listeners = [];
+    let destroyed = false;
+    return {
+      container: container,
+      /** addEventListener, remembered so destroy() can undo it. */
+      on: function (target, type, handler, options) {
+        target.addEventListener(type, handler, options);
+        listeners.push([target, type, handler, options]);
+        return handler;
+      },
+      /** Drop every listener but leave the drawing alone (used before a redraw). */
+      release: function () {
+        for (const [target, type, handler, options] of listeners) {
+          target.removeEventListener(type, handler, options);
+        }
+        listeners.length = 0;
+      },
+      destroy: function () {
+        if (destroyed) return;      // destroy() twice is a no-op, not an error
+        destroyed = true;
+        this.release();
+        if (container) container.innerHTML = '';
+      },
+      get destroyed() { return destroyed; }
+    };
+  }
+
+  // ── responding to a resized container ──────────────────────────────────
+  // W and H are read once, at construction, and the svg carries them as fixed
+  // width/height attributes — so a chart kept its first size for the life of
+  // the page. Resizing the window left every chart at the width it happened to
+  // be built at.
+  //
+  // The second half of the same bug is worse, because it fails silently:
+  // clientWidth is 0 inside a display:none container — an inactive tab, a
+  // collapsed panel, a modal that has not opened — so the `|| 800` fallback
+  // meant a chart built while hidden was 800x500 forever, at whatever size it
+  // was later shown. An observer fixes both, because becoming visible is a
+  // resize like any other.
+  //
+  // Re-running the factory is what re-measures: W and H feed geometry derived
+  // at construction, not just inside render(), so there is no smaller thing to
+  // recompute.
+
+  // Carried across a re-render. A reader who has switched three series off in
+  // the legend should not have them come back because the window was resized,
+  // so the live visibility is written into the config the re-run will read.
+  // Only series-level visibility travels: donut toggles individual slices,
+  // whose config entries are often bare numbers with nowhere to record it.
+  function carryStateForward(inner, opts) {
+    if (!inner || typeof inner.getSeries !== 'function') return;
+    if (!opts || !Array.isArray(opts.series)) return;
+    const live = inner.getSeries();
+    if (!Array.isArray(live)) return;
+    live.forEach(function (s, i) {
+      if (opts.series[i] && typeof opts.series[i] === 'object') {
+        opts.series[i].visible = s.visible !== false;
+      }
+    });
+  }
+
+  // Guards against wrapping a factory twice. Charts.pie calls Charts.donut and
+  // Charts.bar calls the column engine, so the public factory a caller reaches
+  // for may run another one underneath; only the outermost gets an observer.
+  let insideFactory = false;
+  function runFactory(factory, container, opts) {
+    const prev = insideFactory;
+    insideFactory = true;
+    try { return factory(container, opts); } finally { insideFactory = prev; }
+  }
+
+  /**
+   * Wrap a factory so its chart follows the size of its container.
+   *
+   * The handle returned here stays valid across re-renders: it forwards to
+   * whichever chart is current, so a caller can hold it, resize the window
+   * twice, and still call destroy() on the thing that is actually on screen.
+   * Returning the inner handle directly would go stale on the first resize.
+   *
+   * Opt out with `chart.responsive: false`.
+   */
+  function makeResponsive(factory, container, opts) {
+    if (insideFactory) return factory(container, opts);
+
+    let inner = runFactory(factory, container, opts);
+
+    const el = typeof container === 'string'
+      ? (typeof document !== 'undefined' ? document.getElementById(container) : null)
+      : container;
+    const wants = !(opts && opts.chart && opts.chart.responsive === false);
+    if (!wants || !el || typeof ResizeObserver === 'undefined') return inner;
+
+    // The size the chart was actually drawn at. A ResizeObserver fires once on
+    // observe(), and again for the height a self-sizing chart gave itself, so
+    // re-rendering on every callback would loop.
+    let drawnW = Math.round(el.clientWidth);
+    let drawnH = Math.round(el.clientHeight);
+    let frame = 0;
+    let destroyed = false;
+
+    const ro = new ResizeObserver(function () {
+      const w = Math.round(el.clientWidth);
+      const h = Math.round(el.clientHeight);
+      // A hidden container reports 0. Re-rendering into it would only bake in
+      // the fallback size, so wait until it is on screen again.
+      if (w === 0 || h === 0) return;
+      // Sub-pixel jitter, and the height a chart gave itself, are not resizes.
+      if (Math.abs(w - drawnW) < 2 && Math.abs(h - drawnH) < 2) return;
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(function () {
+        frame = 0;
+        if (destroyed) return;
+        drawnW = Math.round(el.clientWidth);
+        drawnH = Math.round(el.clientHeight);
+        carryStateForward(inner, opts);
+        inner.destroy();
+        inner = runFactory(factory, container, opts);
+      });
+    });
+    ro.observe(el);
+
+    // A chart drawn before its webfont arrives was laid out with the fallback
+    // font's metrics, which are narrower: wrapped text then paints past the
+    // width it was wrapped to. When the fonts settle (the text cache is cleared
+    // by then, see measureText), draw once more so the layout measures the
+    // font that is actually on screen.
+    const fonts = typeof document !== 'undefined' ? document.fonts : null;
+    if (fonts && fonts.status !== 'loaded' && fonts.ready && typeof fonts.ready.then === 'function') {
+      fonts.ready.then(function () {
+        if (destroyed) return;
+        carryStateForward(inner, opts);
+        inner.destroy();
+        inner = runFactory(factory, container, opts);
+        drawnW = Math.round(el.clientWidth);
+        drawnH = Math.round(el.clientHeight);
+      });
+    }
+
+    const handle = {
+      redraw: function () { return inner.redraw(); },
+      getData: function () { return inner.getData(); },
+      destroy: function () {
+        if (destroyed) return;
+        destroyed = true;
+        if (frame) cancelAnimationFrame(frame);
+        ro.disconnect();     // the observer holds the container and the chart
+        inner.destroy();
+      }
+    };
+
+    // Forward whatever else this engine exposes — getSeries, addPoint,
+    // getBins, panels, error — through to the current chart rather than the
+    // one that happened to exist when the handle was made.
+    Object.keys(inner).forEach(function (k) {
+      if (k in handle) return;
+      if (typeof inner[k] === 'function') {
+        handle[k] = function () { return inner[k].apply(inner, arguments); };
+      } else {
+        Object.defineProperty(handle, k, { get: function () { return inner[k]; }, enumerable: true });
+      }
+    });
+    return handle;
+  }
+
+  // ── accessibility ──────────────────────────────────────────────────────
+  // A chart was an unlabelled <svg> full of <path> and <text>: to a screen
+  // reader an anonymous graphic, and every hover affordance was mouse-only.
+  //
+  // Two things fix most of that without inventing an interaction model. The
+  // svg becomes role="img" with a title and description, so it announces as
+  // one labelled image rather than a bag of shapes — role="img" also stops the
+  // individual marks being read out, which is what makes the axis labels and
+  // value labels inside it noise rather than content. And the numbers are
+  // published as a real table next to it, visually hidden, because a sighted
+  // reader gets the values off the chart and a screen-reader user has no way
+  // to. The table is the accessible version of the data, not a summary of it.
+
+  /** The clip-rect idiom: off-screen for eyes, present for assistive tech. */
+  const VISUALLY_HIDDEN =
+    'position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;' +
+    'clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0;';
+
+  let _a11yId = 0;
+
+  /**
+   * A point's x as a label a person would read.
+   * On a datetime axis the x is an epoch, and "1767225600000" is not something
+   * anyone can hear. ISO dates are unambiguous and read predictably.
+   */
+  function axisLabel(x, isTime) {
+    if (x instanceof Date) return x.toISOString().slice(0, 10);
+    if (isTime && typeof x === 'number' && isFinite(x)) {
+      const d = new Date(x);
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+    return String(x);
+  }
+
+  /** Pull a comparable [label, value] list out of the documented point shapes. */
+  function pointsOf(series, isTime) {
+    const data = (series && series.data) || [];
+    return data.map(function (d, i) {
+      if (d == null) return { label: String(i), value: '' };
+      if (Array.isArray(d)) return { label: axisLabel(d[0], isTime), value: d[1] };
+      if (typeof d === 'object') {
+        return { label: d.name != null ? String(d.name) : axisLabel(d.x != null ? d.x : i, isTime),
+                 value: d.y != null ? d.y : (d.value != null ? d.value : '') };
+      }
+      return { label: String(i), value: d };
+    });
+  }
+
+  /**
+   * Label the chart and publish its numbers for assistive technology.
+   * Called once per render from chartAPI, so a redraw re-describes the chart
+   * it actually drew.
+   */
+  /**
+   * Everything describeChart needs to say, worked out as strings.
+   *
+   * Split from the DOM wiring below because this is where the decisions are —
+   * which label a point gets, what the description says, which fields of a
+   * computed row are data — and strings can be checked without pretending to
+   * be a browser.
+   */
+  function chartDescription(opts, typeName, getData) {
+    opts = opts || {};
+    const title = opts.title != null ? String(opts.title) : (typeName || 'Chart');
+    const series = Array.isArray(opts.series) ? opts.series : [];
+    const cats = (opts.xAxis && opts.xAxis.categories) || null;
+
+    const shape = [];
+    if (typeName) shape.push(typeName);
+    if (series.length) shape.push(series.length + ' series');
+    if (cats && cats.length) shape.push(cats.length + ' categories');
+    const desc = [opts.subtitle != null ? String(opts.subtitle) : '', shape.join(', ')]
+      .filter(Boolean).join('. ');
+
+    const caption = '<caption>' + esc(title) + (desc ? '. ' + esc(desc) : '') + '</caption>';
+    let body = null;
+
+    if (series.length) {
+      const isTime = !!(opts.xAxis && opts.xAxis.type === 'datetime');
+      const rows = series.map(function (sr) { return pointsOf(sr, isTime); });
+      const labels = cats && cats.length
+        ? cats.map(function (c) { return axisLabel(c, isTime); })
+        : (rows[0] || []).map(function (p) { return p.label; });
+      if (labels.length) {
+        let html = '<thead><tr><th scope="col">Category</th>';
+        series.forEach(function (s, i) {
+          html += '<th scope="col">' + esc(s.name != null ? s.name : 'Series ' + (i + 1)) + '</th>';
+        });
+        html += '</tr></thead><tbody>';
+        labels.forEach(function (label, r) {
+          html += '<tr><th scope="row">' + esc(label) + '</th>';
+          rows.forEach(function (pts) {
+            const p = pts[r];
+            const v = p && p.value != null ? p.value : '';
+            html += '<td>' + esc(typeof v === 'number' ? addCommas(v) : v) + '</td>';
+          });
+          html += '</tr>';
+        });
+        body = html + '</tbody>';
+      }
+    }
+
+    // Charts whose data is not in opts.series — a histogram takes raw numbers
+    // and publishes bins, geofacet takes cells — describe what they actually
+    // drew instead. getData() is the same answer for every engine since the
+    // handles were unified, so this needs no per-engine knowledge.
+    if (!body && typeof getData === 'function') {
+      let rows = null;
+      try { rows = getData(); } catch (e) { rows = null; }
+      if (Array.isArray(rows) && rows.length && typeof rows[0] === 'object' && rows[0] !== null) {
+        const cols = Object.keys(rows[0]).filter(function (k) {
+          const v = rows[0][k];
+          return k[0] !== '_' && (v == null || typeof v !== 'object');
+        });
+        if (cols.length) {
+          let html = '<thead><tr>';
+          cols.forEach(function (c) { html += '<th scope="col">' + esc(c) + '</th>'; });
+          html += '</tr></thead><tbody>';
+          rows.forEach(function (row) {
+            html += '<tr>';
+            cols.forEach(function (c) {
+              // These are values the engine computed — bin shares, running
+              // totals — not numbers the author wrote, so they arrive at full
+              // binary precision: a screen reader would otherwise hear "zero
+              // point two two two two two two two two two two". Four decimals
+              // is finer than any label the chart draws.
+              const raw = row[c];
+              const v = typeof raw === 'number'
+                ? addCommas(Number.isInteger(raw) ? raw : +raw.toFixed(4)) : raw;
+              html += '<td>' + esc(raw == null ? '' : v) + '</td>';
+            });
+            html += '</tr>';
+          });
+          body = html + '</tbody>';
+        }
+      }
+    }
+
+    return { title: title, desc: desc, table: body ? '<table>' + caption + body + '</table>' : null };
+  }
+
+  function describeChart(container, opts, typeName, getData) {
+    if (!container || !container.querySelector) return;
+    // Scoped to this container's own level throughout. A compositor's
+    // container holds its panels' containers, so a descendant search finds the
+    // first child chart's svg and table rather than its own — and the removal
+    // below would then delete a child's table on the way past.
+    const svg = container.querySelector(':scope > svg') || container.querySelector('svg');
+    if (!svg) return;
+
+    const info = chartDescription(opts, typeName, getData);
+    const id = 'chart-a11y-' + (++_a11yId);
+
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-labelledby', id + '-t' + (info.desc ? ' ' + id + '-d' : ''));
+    // Prepended so they are the first thing encountered inside the graphic.
+    const titleEl = el('title', { id: id + '-t' });
+    titleEl.textContent = info.title;
+    svg.insertBefore(titleEl, svg.firstChild);
+    if (info.desc) {
+      const descEl = el('desc', { id: id + '-d' });
+      descEl.textContent = info.desc;
+      svg.insertBefore(descEl, titleEl.nextSibling);
+    }
+
+    // The tooltip is a mouse affordance duplicating what the table already
+    // says; announcing it as live content would just repeat the numbers.
+    container.querySelectorAll('div').forEach(function (d) {
+      if (d.style && d.style.position === 'absolute') d.setAttribute('aria-hidden', 'true');
+    });
+
+    const old = container.querySelector(':scope > [data-charts-a11y]');
+    if (old) old.remove();
+    if (!info.table) return;
+
+    // The table goes inside a wrapper rather than carrying the hiding styles
+    // itself: `display: table` shrink-wraps to its content and ignores the
+    // 1px box, so a bare table is laid out at full size and merely clipped.
+    const holder = document.createElement('div');
+    holder.setAttribute('data-charts-a11y', '');
+    holder.style.cssText = VISUALLY_HIDDEN;
+    holder.innerHTML = info.table;
+    container.appendChild(holder);
+  }
+
+  /**
+   * Assemble the object a factory hands back.
+   *
+   * The twelve engines returned nine different shapes: some had `redraw` and
+   * some did not, the data accessor was `getSeries` on four and `getData` on
+   * five, and none had `destroy`. A caller holding a Charts.* handle could not
+   * write anything generic against it.
+   *
+   * Every chart now answers to redraw / destroy / getData. `getSeries` stays
+   * as an alias on the engines that already had it, because callers use it and
+   * removing a working method is not an improvement. `extras` carries what is
+   * genuinely particular to one engine — line's addPoint, histogram's getBins.
+   */
+  function chartAPI(life, parts) {
+    // The chart has finished drawing by the time a factory calls this, so it
+    // is the one point every engine passes through with a rendered svg in
+    // hand. Doing it here rather than in twelve engines means a new engine is
+    // accessible by default instead of by remembering.
+    describeChart(life.container, parts.opts, parts.typeName, parts.getData);
+    const getData = parts.getData || function () { return null; };
+    const api = {
+      redraw: parts.redraw || function () {},
+      destroy: function () {
+        // The lifecycle's own guard is not enough here: it runs inside
+        // life.destroy(), so children hung off this handle would be torn down
+        // again on a second call. Check it before doing any work.
+        if (life.destroyed) return;
+        // A compositor owns what it made: panels holds real charts, each with
+        // its own listeners, and clearing the container would orphan them.
+        if (parts.children) {
+          parts.children.forEach(function (c) { if (c && c.destroy) c.destroy(); });
+        }
+        life.destroy();
+      },
+      getData: getData
+    };
+    if (parts.getSeries) api.getSeries = parts.getSeries;
+    if (parts.extras) for (const k in parts.extras) api[k] = parts.extras[k];
+    return api;
   }
 
   function el(tag, attrs, parent) {
@@ -121,48 +591,190 @@
     if (parent) parent.appendChild(e);
     return e;
   }
+
   function txt(t, attrs, parent) {
     const e = el('text', attrs, parent);
     e.textContent = t;
     return e;
   }
 
-  // ── Heading wrapping ────────────────────────────────────────────────
-  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
-  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
-  // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
+  // Tooltips are built as HTML strings and assigned with innerHTML, so
+  // anything interpolated into one is markup. The quotes matter as much as the
+  // angle brackets: most of these values land inside a style="..." attribute,
+  // and a value carrying a double quote closes the attribute and starts a new
+  // one. Escaping them here rather than in a separate escAttr means a caller
+  // cannot pick the wrong one. In text content a browser renders &quot; and
+  // &#39; as the characters themselves, so nothing is lost by over-escaping.
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
+
+  // CSS colors reach the tooltip from the caller's own config — series[].color
+  // and the theme — and go into a style attribute. Escaping is not enough on
+  // its own: `red;position:fixed;top:0` needs no quotes or brackets to move
+  // the tooltip somewhere it does not belong. So a value has to look like a
+  // color to be used as one.
+  //
+  // Accepts hex, the rgb/hsl function forms, a bare CSS keyword, and url(#id)
+  // for a gradient or pattern defined in the chart's own defs.
+  const COLOR_OK = /^(#[0-9a-f]{3,8}|(rgb|hsl)a?\([0-9.,%\s/-]*\)|[a-z]{3,20}|url\(#[\w-]+\))$/i;
+
+  function cssColor(value, fallback) {
+    const s = String(value == null ? '' : value).trim();
+    return COLOR_OK.test(s) ? s : (fallback || 'currentColor');
   }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
+
+  // ── canvas ─────────────────────────────────────────────────────────────
+  // The colour painted behind a chart: the theme's bg, or nothing at all when
+  // the chart is asked to be transparent — `chart.transparent: true` on one
+  // chart, or `transparent: true` in its theme or the page theme. Only the
+  // canvas goes: tooltips, label halos and colour scales still use bg as
+  // their paper, because each needs an opaque colour to be read against.
+  function isTransparent(opts) {
+    const chart = (opts && opts.chart) || {};
+    if (chart.transparent != null) return !!chart.transparent;
+    const per = (opts && opts.theme) || {};
+    if (per.transparent != null) return !!per.transparent;
+    const page = (window.Charts && window.Charts.theme) || {};
+    return !!page.transparent;
+  }
+  function canvasColor(opts, bg) {
+    return isTransparent(opts) ? 'transparent' : bg;
+  }
+
+  /** A size or a weight. Anything that is not a bare number is not one. */
+  function cssNumber(value, fallback) {
+    // Number('') and Number(null) are both 0, which would let an empty token
+    // through as a real size. Only something that was already a number, or a
+    // string that is entirely one, counts.
+    const ok = typeof value === 'number'
+      || (typeof value === 'string' && value.trim() !== '');
+    const n = ok ? Number(value) : NaN;
+    return isFinite(n) ? String(n) : String(fallback == null ? 0 : fallback);
+  }
+
+  /**
+   * A font-family list, which unlike the others legitimately contains quotes
+   * and commas — so it cannot be pattern-matched the way a color can. What it
+   * must not contain is anything that ends a declaration or opens a tag.
+   */
+  function cssFont(value, fallback) {
+    const s = String(value == null ? '' : value);
+    return /[;{}<>]/.test(s) ? (fallback || 'sans-serif') : s;
+  }
+
+  function addCommas(n) {
+    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
+    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
+    // fed a computed share or a summed column, and String() renders every
+    // artefact digit. 12 significant figures sits well inside double
+    // precision, so genuine values are untouched while accumulated ~1e-15
+    // error rounds away.
+    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
+    const s = String(n);
+    const neg = s.startsWith('-') ? '-' : '';
+    const abs = neg ? s.slice(1) : s;
+    const dot = abs.indexOf('.');
+    const intPart = dot < 0 ? abs : abs.slice(0, dot);
+    const fracPart = dot < 0 ? '' : abs.slice(dot);
+    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
+  }
+
+  // ── locale ─────────────────────────────────────────────────────────────
+  // addCommas above groups with "," and keeps "." as the decimal separator,
+  // which is one convention out of several: most of Europe writes 1.234.567,89
+  // and India groups as 12,34,567. Nothing in the library called
+  // toLocaleString, so those readers got numbers in a shape they do not use.
+  //
+  // Both of these are built per chart from the resolved theme, so they follow
+  // the same defaults → Charts.theme → config.theme layering as everything
+  // else. With neither token set they return exactly what was there before —
+  // the default output is unchanged, not "changed to the system locale",
+  // which would make a chart render differently on a colleague's machine.
+
+  /**
+   * The number formatter for a chart.
+   * `theme.numberFormat` may be a function (the caller formats it themselves)
+   * or Intl.NumberFormat options; `theme.locale` picks the convention.
+   */
+  function makeNumberFormatter(t) {
+    const locale = t && t.locale;
+    const fmt = t && t.numberFormat;
+    if (typeof fmt === 'function') return fmt;
+    if (!locale && !fmt) return addCommas;
+    const cache = new Map();
+    try {
+      // Callers reach addCommas with numbers and with numeric strings alike —
+      // an axis tick arrives as (v / 1e3).toFixed(1), so "500.0". Those have
+      // to be formatted too, or the locale would apply to the data labels and
+      // not to the axis beside them.
+      //
+      // Where the caller has not said how many decimals they want, the input's
+      // own are kept: "500.0" was written that way deliberately and must not
+      // come back as "500". Intl otherwise defaults to 3 maximum and 0
+      // minimum, which would both round precision away and drop trailing
+      // zeros the chart chose.
+      // Mirror the input's decimals only when the caller expressed no opinion.
+      // Someone who asked for `{ style: 'percent' }` wants Intl's idea of a
+      // percent, not one decimal because the input happened to have one.
+      const caller = fmt && Object.keys(fmt).length ? fmt : null;
+      const formatter = function (decimals) {
+        let nf = cache.get(decimals);
+        if (!nf) {
+          nf = new Intl.NumberFormat(locale || undefined, caller ||
+            { minimumFractionDigits: decimals, maximumFractionDigits: Math.max(decimals, 20) });
+          cache.set(decimals, nf);
+        }
+        return nf;
+      };
+      // Construct one up front: an unknown locale or a bad option throws here,
+      // where it can still fall back, rather than on the first label drawn.
+      formatter(0).format(0);
+      return function (n) {
+        const isNum = typeof n === 'number';
+        const str = String(n == null ? '' : n);
+        if (!isNum && (str.trim() === '' || !/^-?\d*\.?\d+(e[+-]?\d+)?$/i.test(str.trim()))) {
+          return addCommas(n);              // not a number: leave it alone
+        }
+        const num = isNum ? n : Number(str);
+        if (!isFinite(num)) return addCommas(n);
+        const clean = +num.toPrecision(12);
+        // Where the decimals come from differs by input. A string was written
+        // that way on purpose — "500.0" keeps its one place. A number carries
+        // whatever binary precision it happens to have, so its places come
+        // from the noise-stripped value: otherwise 0.1 + 0.2 would ask for
+        // seventeen decimals and be rendered as 0.30000000000000000.
+        const src = isNum ? String(clean) : str.trim();
+        const dot = src.indexOf('.');
+        const decimals = dot < 0 || /e/i.test(src) ? 0 : Math.min(20, src.length - dot - 1);
+        try {
+          return formatter(decimals).format(clean);
+        } catch (e) {
+          return addCommas(n);   // a bad option should cost a label, not a chart
+        }
+      };
+    } catch (e) {
+      return addCommas;      // an unknown locale is not worth failing a chart over
     }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
   }
-  const TITLE_LINES = 2, SUB_LINES = 3;
-  // Heading metrics are derived in applyTheme() from the size + line-height
-  // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  const EN_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  /** Short month names for the date-axis label thinner. */
+  function monthNames(t) {
+    const locale = t && t.locale;
+    if (!locale) return EN_MONTHS;
+    try {
+      const f = new Intl.DateTimeFormat(locale, { month: 'short', timeZone: 'UTC' });
+      return EN_MONTHS.map(function (_, i) {
+        return f.format(new Date(Date.UTC(2020, i, 1)));
+      });
+    } catch (e) {
+      return EN_MONTHS;
+    }
+  }
 
   function niceTicks(min, max, count) {
     count = count || 5;
@@ -181,31 +793,143 @@
     return out;
   }
 
-  function logTicks(min, max) {
-    const lo = Math.floor(Math.log10(min));
-    const hi = Math.ceil(Math.log10(max));
-    const out = [];
-    for (let e = lo; e <= hi; e++) out.push(Math.pow(10, e));
-    return out;
+  // ── text measurement ───────────────────────────────────────────────────
+  // Every truncation, heading wrap, legend column and callout box is sized
+  // from this. It used to be a per-character constant — length * size * 0.53 —
+  // which is accurate only for lower-case English prose in Inter, because that
+  // is what the constant was fitted to. Measured against the real font it is
+  // out by -47% on CJK and on runs of W or M (the text then overflows its box)
+  // and by +119% on runs of i or l (the text is clipped with an ellipsis it
+  // did not need).
+  //
+  // A canvas measures the same glyphs the SVG will paint, so it is exact for
+  // any script and any font. Results are cached because the callers are hot —
+  // wrapHeading binary-searches a line, and every render re-measures every
+  // label.
+  const _measureCtx = (function () {
+    try {
+      return document.createElement('canvas').getContext('2d');
+    } catch (e) {
+      return null;   // no DOM (Node, a worker) — the estimate below still runs
+    }
+  })();
+
+  const _measureCache = new Map();
+  const _MEASURE_CACHE_MAX = 8000;   // a streaming chart must not grow it forever
+
+  function themeFont() {
+    const t = (window.Charts && window.Charts.theme) || {};
+    return t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
   }
 
-  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  function pad(n) { return n < 10 ? '0' + n : '' + n; }
-  function fmtDateFull(ms) {
-    const d = new Date(ms);
-    return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + d.getUTCFullYear()
-      + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+  /**
+   * Width in px of `str` as it will actually be painted.
+   * Falls back to the old per-character estimate where no canvas exists, so
+   * the library still lays out (approximately) outside a browser.
+   */
+  function measureText(str, fontSize, bold, font) {
+    str = String(str == null ? '' : str);
+    if (!str) return 0;
+    font = font || themeFont();
+    const weight = bold ? 700 : 400;
+    if (!_measureCtx) return str.length * fontSize * (bold ? 0.58 : 0.53);
+    const key = weight + '|' + fontSize + '|' + font + '|' + str;
+    let w = _measureCache.get(key);
+    if (w === undefined) {
+      _measureCtx.font = weight + ' ' + fontSize + 'px ' + font;
+      w = _measureCtx.measureText(str).width;
+      if (_measureCache.size >= _MEASURE_CACHE_MAX) _measureCache.clear();
+      _measureCache.set(key, w);
+    }
+    return w;
   }
 
+  // A webfont that arrives after the first render changes the metrics of
+  // everything already measured. Dropping the cache means any later render —
+  // a redraw, a zoom, a legend toggle — measures against the font that is now
+  // really there. Charts already on screen keep the layout they were given;
+  // fixing those needs a redraw hook the engines do not all have yet.
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.ready &&
+      typeof document.fonts.ready.then === 'function') {
+    document.fonts.ready.then(function () { _measureCache.clear(); });
+  }
 
-  // ── dense-axis tick thinning ───────────────────────────────────────────
-  // With many categories every label would be drawn, so they collide and the
-  // axis looks squeezed. When the labels parse as dates we keep only the ones
-  // that open a calendar period (hour → day → week → month → quarter → year),
-  // stepping up to a coarser period until the kept labels fit the available
-  // pixels; otherwise we fall back to an even stride. Called from render(), so
-  // a chart whose data keeps growing re-thins itself on every update.
-  const TMONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function _headW(str, fontSize, bold) {
+    return measureText(str, fontSize, bold);
+  }
+
+  function _clipLine(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (_headW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s.replace(/[\s.,;:]+$/, '') + '…';
+  }
+
+  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
+    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
+    if (!words.length) return [];
+    const lines = [];
+    let cur = words[0];
+    for (let i = 1; i < words.length; i++) {
+      const next = cur + ' ' + words[i];
+      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
+      else cur = next;
+    }
+    lines.push(cur);
+    if (lines.length > maxLines) {
+      const tail = lines.slice(maxLines - 1).join(' ');
+      lines.length = maxLines - 1;
+      lines.push(_clipLine(tail, fontSize, maxW, bold));
+    }
+    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
+  }
+
+  // textW and _headW were two estimates of one quantity, with two different
+  // constants (0.55 and 0.53). Now that both are measured they are the same
+  // function; textW is kept because four engines call it by that name.
+  function textW(str, fontSize, bold) {
+    return measureText(str, fontSize, bold);
+  }
+
+  function truncate(str, fontSize, maxW, bold) {
+    let s = String(str);
+    if (textW(s, fontSize, bold) <= maxW) return s;
+    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
+    return s + '…';
+  }
+
+  function ellipsize(s, maxChars) {
+    s = String(s);
+    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + '…';
+  }
+
+  function wrapAxisLabel(label, lines) {
+    const s = String(label);
+    const words = s.split(/\s+/);
+    if (lines < 2 || words.length <= 1) return [s];
+    let best = null;
+    for (let k = 1; k < words.length; k++) {
+      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
+      const score = Math.max(a.length, b.length);
+      if (!best || score < best.score) best = { score, out: [a, b] };
+    }
+    if (lines <= 2 || words.length === 2) return best.out;
+    return [best.out[0]].concat(wrapAxisLabel(best.out[1], lines - 1));
+  }
+
+  // ── category-axis planning ──────────────────────────────────────────────
+  // Deciding how a row of category names can be drawn under an axis — whether
+  // they fit upright, need a smaller size, a second line, a staggered pair of
+  // baselines, or a slant — is the same problem for every chart with a
+  // category x-axis, and it was solved identically in line.js and bar.js. It
+  // lives here so a third engine (waterfall) does not become a third copy.
+  //
+  // layoutCategoryAxis() returns { ticks, font, rotate, stagger, lines, count,
+  // height }: which labels survived, how to draw them, and how deep a band the
+  // caller must reserve. Nothing is dropped from a list of unrelated names —
+  // only dates and numbered sequences may be thinned, because only those let a
+  // reader fill in the gap.
+
   function tpad(n) { return n < 10 ? '0' + n : '' + n; }
 
   function parseAxisDate(v) {
@@ -270,17 +994,17 @@
   // Coarsest-last ladder of calendar periods.
   const AXIS_PERIODS = [
     { key: ms => Math.floor(ms / 3600000),
-      fmt: (d) => tpad(d.getUTCHours()) + ':' + tpad(d.getUTCMinutes()) },
+      fmt: (d, first, M) => tpad(d.getUTCHours()) + ':' + tpad(d.getUTCMinutes()) },
     { key: ms => Math.floor(ms / 86400000),
-      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
+      fmt: (d, first, M) => M[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
     { key: ms => Math.floor((ms / 86400000 - 4) / 7),
-      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
+      fmt: (d, first, M) => M[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
     { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 12 + d.getUTCMonth(); },
-      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + (first || d.getUTCMonth() === 0 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
+      fmt: (d, first, M) => M[d.getUTCMonth()] + (first || d.getUTCMonth() === 0 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
     { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3); },
-      fmt: (d, first) => 'Q' + (Math.floor(d.getUTCMonth() / 3) + 1) + (first || d.getUTCMonth() < 3 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
+      fmt: (d, first, M) => 'Q' + (Math.floor(d.getUTCMonth() / 3) + 1) + (first || d.getUTCMonth() < 3 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
     { key: ms => new Date(ms).getUTCFullYear(),
-      fmt: (d) => String(d.getUTCFullYear()) }
+      fmt: (d, first, M) => String(d.getUTCFullYear()) }
   ];
 
   // Does this label set fit in `avail` px of axis length? Only x-axes need this:
@@ -315,7 +1039,8 @@
   // wrapped lines, two staggered rows, 45° slant, then 90° vertical. An
   // ellipsis is the last resort, used only after wrapping has been tried.
   // Returns { ticks:[{i, lines:[...]}], font, rotate, stagger, lines, height }.
-  function layoutCategoryAxis(cats, avail, baseFont, maxBand) {
+  function layoutCategoryAxis(cats, avail, baseFont, maxBand, months) {
+    months = months || monthNames(null);
     const n = cats.length;
     const CW = 0.62;                       // avg glyph width / font-size
     const base = baseFont || 11;
@@ -352,7 +1077,7 @@
           const opens = (prev === null)
             ? (withHead || k !== period.key(times[i] - 1))
             : k !== prev;
-          if (opens) picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
+          if (opens) picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0, months) });
           prev = k;
         }
         return picked;
@@ -428,322 +1153,273 @@
   function maxLineChars(ticks) {
     return ticks.reduce((a, t) => Math.max(a, t.lines.reduce((b, l) => Math.max(b, l.length), 0)), 0);
   }
-  function ellipsize(s, maxChars) {
-    s = String(s);
-    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + '…';
-  }
-  // Word wrap into at most `lines` lines, split where the longest line comes
-  // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
-  function wrapAxisLabel(label, lines) {
-    const s = String(label);
-    const words = s.split(/\s+/);
-    if (lines < 2 || words.length <= 1) return [s];
-    let best = null;
-    for (let k = 1; k < words.length; k++) {
-      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
-      const score = Math.max(a.length, b.length);
-      if (!best || score < best.score) best = { score, out: [a, b] };
+
+  // ── colour arithmetic (table, reportTable) ────────────────────────────────────────────────
+  // Theme tokens are hex by default but may be rgb(); anything else cannot be
+  // mixed, and a scale drawn from it falls back to the unmixed target.
+  function parseColor(s) {
+    s = String(s || '').trim();
+    let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s);
+    if (m) {
+      let h = m[1];
+      if (h.length === 3) h = h.split('').map(ch => ch + ch).join('');
+      return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
     }
-    if (lines <= 2 || words.length === 2) return best.out;
-    return [best.out[0]].concat(wrapAxisLabel(best.out[1], lines - 1));
+    m = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(s);
+    return m ? [+m[1], +m[2], +m[3]] : null;
+  }
+  function mix(from, to, t) {
+    const a = parseColor(from), b = parseColor(to);
+    if (!a || !b) return to;
+    const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+    return '#' + c.map(v => (v < 16 ? '0' : '') + v.toString(16)).join('');
+  }
+  function luminance(rgb) {
+    const lin = rgb.map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+  }
+  function contrast(x, y) {
+    const a = parseColor(x), b = parseColor(y);
+    if (!a || !b) return 1;
+    const la = luminance(a), lb = luminance(b);
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
   }
 
-  // Draw one planned axis label. `x` is the slot centre, `yTop` the first
-  // baseline. Rotated labels hang from the axis anchored at their end, with
-  // wrapped lines stepping along the rotated frame's own y so they stay
-  // perpendicular to the axis.
-  function drawCategoryLabel(g, layout, tick, k, x, yTop, color, weight) {
-    const a = { 'font-size': layout.font, 'font-weight': weight, fill: color, 'font-family': FONT };
-    const lh = layout.font * 1.25;
-    const y0 = yTop + (layout.stagger && k % 2 ? lh : 0);
-    tick.lines.forEach((ln, li) => {
-      const t = txt(ln, Object.assign({ x, y: y0 + li * lh,
-        'text-anchor': layout.rotate ? 'end' : 'middle' }, a), g);
-      if (layout.rotate) t.setAttribute('transform', `rotate(-${layout.rotate} ${x} ${yTop})`);
+  // ── reportTable refusals ───────────────────────────────────────────────
+  // A report table is a table whose cells may also be prose, a headline stat
+  // or a real chart. Everything a table refuses it refuses too — the number
+  // columns go through tableProblems unchanged — plus the things only a
+  // mixed table can get wrong: a kind it does not know, a chart cell with no
+  // chart named, and a chart that is itself a table or a composition, which
+  // would put a whole exhibit, title and all, inside one cell.
+  // No plain number kind: beside charts and large stats, a table-sized number
+  // reads as a footnote. A figure worth a column is a kpi.
+  const REPORT_KINDS = ['text', 'insight', 'kpi', 'chart'];
+  const REPORT_EXCLUDED = ['panels', 'reportTable', 'table', 'barInsightTable'];
+
+  function reportTableProblems(config) {
+    config = config || {};
+    const cols = Array.isArray(config.columns) ? config.columns : [];
+    // A kpi column coloured by scale is held to the table's scale rules — it
+    // must hold numbers, and columns sharing a scale must share a unit — so it
+    // goes through tableProblems as a `highlight: 'scale'` column, with its
+    // { value, note } cells read down to the value. Nothing else in a report
+    // table is coloured by value, so any other highlight is ignored.
+    const asTable = cols.map(function (c) {
+      if (!c) return c;
+      const copy = Object.assign({}, c);
+      delete copy.highlight;
+      if (c.kind === 'kpi' && c.colorByScale) copy.highlight = 'scale';
+      return copy;
     });
-  }
-
-  const UNIT_MS = { second: 1000, minute: 60000, hour: 3600000, day: 86400000,
-    week: 604800000, month: 2629800000, quarter: 7889400000, year: 31557600000 };
-
-  // Ladder of (unit, multiple) tick intervals, finest first. `auto` walks it
-  // from the top and stops at the first interval whose labels fit the axis, so
-  // a denser dataset simply lands on a coarser rung instead of cramming ticks.
-  const DATE_LADDER = [
-    ['second', 1], ['second', 5], ['second', 15], ['second', 30],
-    ['minute', 1], ['minute', 5], ['minute', 15], ['minute', 30],
-    ['hour', 1], ['hour', 3], ['hour', 6], ['hour', 12],
-    ['day', 1], ['day', 2], ['week', 1], ['week', 2],
-    ['month', 1], ['quarter', 1], ['month', 6],
-    ['year', 1], ['year', 2], ['year', 5], ['year', 10], ['year', 25],
-    ['year', 50], ['year', 100]
-  ];
-
-  // Period-start boundaries at `mult` × unit, covering [minMs, maxMs].
-  function genBoundaries(freq, mult, minMs, maxMs) {
-    mult = mult || 1;
-    const out = [];
-    const first = new Date(minMs);
-    const LIMIT = 4000;
-    if (freq === 'year') {
-      let y = Math.floor(first.getUTCFullYear() / mult) * mult;
-      while (out.length < LIMIT) {
-        const t = Date.UTC(y, 0, 1);
-        out.push(t);
-        if (t > maxMs) break;
-        y += mult;
-      }
-    } else if (freq === 'quarter' || freq === 'month') {
-      const step = freq === 'quarter' ? 3 * mult : mult;
-      let idx = Math.floor((first.getUTCFullYear() * 12 + first.getUTCMonth()) / step) * step;
-      while (out.length < LIMIT) {
-        const t = Date.UTC(Math.floor(idx / 12), idx % 12, 1);
-        out.push(t);
-        if (t > maxMs) break;
-        idx += step;
-      }
-    } else {
-      let step, t;
-      if (freq === 'week') {
-        step = 7 * 86400000 * mult;
-        const dow = (first.getUTCDay() + 6) % 7; // 0 = Mon
-        t = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate()) - dow * 86400000;
-      } else {
-        step = (UNIT_MS[freq] || 86400000) * mult;
-        t = Math.floor(minMs / step) * step;
-      }
-      while (out.length < LIMIT) { out.push(t); if (t > maxMs) break; t += step; }
-    }
-    return out;
-  }
-
-  // Midpoint label per boundary span; the year/date part is repeated only when
-  // it changes, matching the clean_charts axis style.
-  function composeCenters(boundaries, freq) {
-    const centers = [];
-    let prev = null;
-    for (let i = 0; i < boundaries.length - 1; i++) {
-      const start = boundaries[i], end = boundaries[i + 1];
-      const mid = start + (end - start) / 2;
-      const s = new Date(start);
-      let label = '';
-      if (freq === 'year') label = (i === 0) ? String(s.getUTCFullYear()) : String(s.getUTCFullYear()).slice(2);
-      else if (freq === 'quarter') {
-        const q = Math.floor(s.getUTCMonth() / 3) + 1;
-        label = (i === 0 || !prev || s.getUTCFullYear() !== prev.getUTCFullYear())
-          ? `${s.getUTCFullYear()} Q${q}` : `Q${q}`;
-      } else if (freq === 'month') {
-        label = (i === 0 || !prev || s.getUTCFullYear() !== prev.getUTCFullYear())
-          ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCFullYear()}` : MONTHS[s.getUTCMonth()];
-      } else if (freq === 'week' || freq === 'day') {
-        label = (i === 0 || !prev || s.getUTCFullYear() !== prev.getUTCFullYear())
-          ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}, ${s.getUTCFullYear()}`
-          : (s.getUTCMonth() !== prev.getUTCMonth() ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}` : String(s.getUTCDate()));
-      } else if (freq === 'hour') {
-        label = (i === 0 || !prev || s.getUTCDate() !== prev.getUTCDate())
-          ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}, ${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}`
-          : `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}`;
-      } else if (freq === 'minute') {
-        label = (i === 0 || !prev || s.getUTCHours() !== prev.getUTCHours())
-          ? `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}` : `:${pad(s.getUTCMinutes())}`;
-      } else {
-        label = `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}:${pad(s.getUTCSeconds())}`;
-      }
-      centers.push({ ms: mid, label });
-      prev = s;
-    }
-    return centers;
-  }
-
-  // Boundary + midpoint tick generator for datetime axes.
-  // `avail` is the plot width in px; the interval is coarsened until the labels
-  // fit it, so the axis stays readable as the number of datapoints grows.
-  // Returns { boundaries: [ms...], centers: [{ms, label}] }
-  function dateBoundaries(minMs, maxMs, freq, avail, fontSize) {
-    freq = (freq || 'auto').toLowerCase();
-    const span = Math.max(1, maxMs - minMs);
-    const fs = fontSize || 11;
-
-    function build(f, mult) {
-      const bs = genBoundaries(f, mult, minMs, maxMs);
-      return { boundaries: bs, centers: composeCenters(bs, f) };
-    }
-    function fits(r) {
-      if (r.centers.length < 2) return r.centers.length === 1;
-      if (!avail) return r.centers.length <= 12;
-      return labelsFit(r.centers, avail, fs,
-        r.centers.map(c => (c.ms - minMs) / span * avail));
-    }
-
-    let start = 0;
-    if (freq !== 'auto') {
-      const idx = DATE_LADDER.findIndex(l => l[0] === freq);
-      if (idx < 0) return build(freq, 1);   // unknown interval: honour as-is
-      start = idx;
-    }
-    let last = null;
-    for (let i = start; i < DATE_LADDER.length; i++) {
-      const [f, mult] = DATE_LADDER[i];
-      if (span / (UNIT_MS[f] * mult) > 500) continue;   // way too fine to bother building
-      last = build(f, mult);
-      if (fits(last)) return last;
-    }
-    return last || build('year', 100);
-  }
-
-
-  // --- paths ---
-  function linePath(pts) {
-    let d = '';
-    for (let i = 0; i < pts.length; i++) {
-      if (pts[i] === null) continue;
-      d += (d && pts[i - 1] !== null ? 'L' : 'M') + pts[i][0] + ' ' + pts[i][1] + ' ';
-    }
-    return d.trim();
-  }
-  // Monotone cubic (PCHIP-like) for smooth curves without overshoot.
-  function pchipPath(pts) {
-    const P = pts.filter(p => p !== null);
-    const n = P.length;
-    if (n < 2) return linePath(pts);
-    const xs = P.map(p => p[0]);
-    const ys = P.map(p => p[1]);
-    const h = [], delta = [], m = [];
-    for (let i = 0; i < n - 1; i++) {
-      h[i] = xs[i + 1] - xs[i];
-      delta[i] = (ys[i + 1] - ys[i]) / (h[i] || 1);
-    }
-    m[0] = delta[0];
-    for (let i = 1; i < n - 1; i++) {
-      if (delta[i - 1] * delta[i] <= 0) m[i] = 0;
-      else {
-        const w1 = 2 * h[i] + h[i - 1], w2 = h[i] + 2 * h[i - 1];
-        m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
-      }
-    }
-    m[n - 1] = delta[n - 2];
-    let d = `M ${xs[0]} ${ys[0]}`;
-    for (let i = 0; i < n - 1; i++) {
-      const c1x = xs[i] + h[i] / 3;
-      const c1y = ys[i] + m[i] * h[i] / 3;
-      const c2x = xs[i + 1] - h[i] / 3;
-      const c2y = ys[i + 1] - m[i + 1] * h[i] / 3;
-      d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${xs[i + 1]} ${ys[i + 1]}`;
-    }
-    return d;
-  }
-  function stepPath(pts, mode) {
-    let d = '';
-    for (let i = 0; i < pts.length; i++) {
-      if (pts[i] === null) continue;
-      const [x, y] = pts[i];
-      if (!d) { d = 'M ' + x + ' ' + y; continue; }
-      const [px, py] = pts[i - 1] || [x, y];
-      if (mode === 'center') { const mx = (px + x) / 2; d += ` L ${mx} ${py} L ${mx} ${y} L ${x} ${y}`; }
-      else if (mode === 'right') { d += ` L ${x} ${py} L ${x} ${y}`; }
-      else { d += ` L ${px} ${y} L ${x} ${y}`; }
-    }
-    return d;
-  }
-
-  function symbolPath(kind, cx, cy, r) {
-    switch (kind) {
-      case 'square':   return `M ${cx-r} ${cy-r} h ${r*2} v ${r*2} h ${-r*2} Z`;
-      case 'diamond':  return `M ${cx} ${cy-r} L ${cx+r} ${cy} L ${cx} ${cy+r} L ${cx-r} ${cy} Z`;
-      case 'triangle': return `M ${cx} ${cy-r} L ${cx+r} ${cy+r} L ${cx-r} ${cy+r} Z`;
-      case 'triangle-down': return `M ${cx-r} ${cy-r} L ${cx+r} ${cy-r} L ${cx} ${cy+r} Z`;
-      default: return null;
-    }
-  }
-
-  function normalizePoints(data, xType, categories) {
-    return data.map((d, i) => {
-      if (d === null || d === undefined) return null;
-      if (typeof d === 'number') return { x: i, y: d, name: categories ? categories[i] : String(i) };
-      if (Array.isArray(d)) return { x: d[0], y: d[1] };
-      return { x: d.x !== undefined ? d.x : i, y: d.y, name: d.name, marker: d.marker };
-    });
-  }
-
-  function dashArray(style) {
-    switch (style) {
-      case 'Dash': return '6 4';
-      case 'ShortDash': return '4 2';
-      case 'ShortDot': return '1 3';
-      case 'Dot': return '2 4';
-      case 'LongDash': return '10 4';
-      case 'DashDot': return '6 3 2 3';
-      default: return '';
-    }
-  }
-
-  // Refusal panel: drawn in place of the chart when the options describe
-  // something a line chart cannot honestly show. Returns the same stub API
-  // shape as Chart() so callers do not blow up on .redraw().
-  function errorChart(container, W, H, opts, headline, detail) {
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn('[charts-lib line] ' + headline + ' ' + detail);
-    }
-    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
-    svg.style.display = 'block';
-    container.appendChild(svg);
-    let y = 34;
-    if (opts.title) {
-      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
-        txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
-          'font-family': FONT }, svg);
-        y += TITLE_LH;
+    const kpiKeys = cols.filter(function (c) { return c && c.kind === 'kpi'; }).map(function (c) { return c.key; });
+    const asRows = Array.isArray(config.rows) ? config.rows.map(function (r) {
+      if (!r) return r;
+      const copy = Object.assign({}, r);
+      kpiKeys.forEach(function (k) {
+        const v = r[k];
+        if (v != null && typeof v === 'object') copy[k] = v.value;
       });
-      y += 10;
-    }
-    const cy = Math.max(y + 20, H / 2 - 10);
-    // The detail sits below however many lines the headline actually took: at a
-    // fixed 26px it lands on top of the second line whenever the headline wraps,
-    // which is exactly when the message is longest and most needed. The wrap is
-    // measured at F_NOTICE too - it was measuring at a hardcoded 13 and drawing
-    // at the token, so a themed noticeSize wrapped to the wrong width.
-    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
-    headLines.forEach((l, i) => {
-      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
-        fill: TITLE_COL, 'font-family': FONT }, svg);
+      return copy;
+    }) : config.rows;
+    const errors = tableProblems({ columns: asTable, rows: asRows });
+    if (!cols.length || !Array.isArray(config.rows) || !config.rows.length) return errors;
+    const Ch = window.Charts || {};
+    const canCheck = typeof Ch.line === 'function';
+    cols.forEach(function (c, i) {
+      if (!c) return;
+      const label = '"' + (c.name || c.key || ('column ' + (i + 1))) + '"';
+      const kind = c.kind;
+      if (kind == null || kind === 'number') {
+        errors.push('Column ' + label + (kind == null ? ' has no kind' : ' is a plain number column') +
+          ', which a report table does not draw: a table-sized number looks small beside charts and stats. ' +
+          'Use kind: "kpi" for a figure, or "text", "insight" or "chart".');
+        return;
+      }
+      if (REPORT_KINDS.indexOf(kind) < 0) {
+        errors.push('Column ' + label + ' has kind "' + kind + '", which a report table does not draw. ' +
+          'Use one of: ' + REPORT_KINDS.join(', ') + '.');
+        return;
+      }
+      if (kind !== 'chart') return;
+      const type = c.chart && c.chart.type;
+      if (!type) {
+        errors.push('Column ' + label + ' is a chart column but names no chart. ' +
+          'Give it chart: { type: "line" } or any other chart type.');
+      } else if (REPORT_EXCLUDED.indexOf(type) >= 0) {
+        errors.push('Column ' + label + ' asks for a ' + type + ' in each cell, which is a whole exhibit, not a cell. ' +
+          'Use a kpi, text or insight column instead, or a chart such as barList or column.');
+      } else if (canCheck && typeof Ch[type] !== 'function') {
+        errors.push('Column ' + label + ' asks for chart type "' + type + '", which does not exist. ' +
+          'Charts.meta.charts lists the available types.');
+      }
     });
-    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
-      txt(l, { x: 20, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
-        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
-    });
-    return {
-      redraw() {}, addPoint() {}, shift() {}, getSeries() { return []; },
-      error: headline
-    };
+    return errors;
   }
 
-  // ── callouts ────────────────────────────────────────────────────────────
-  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
-  // The block is shared by every engine (each is its own IIFE) so a note reads
-  // the same everywhere, but *where* the box goes is the engine's call: a
-  // column chart puts its notes in a band above the bars, a horizontal bar
-  // chart in the gutter past the bar ends, a scatter in the emptiest corner
-  // near the point. Passing the marks in as `obstacles` is what keeps a box
-  // off the data instead of merely off the other boxes.
-  //
-  //   drawCallouts(g, items, bounds, {
-  //     mode: 'above' | 'right' | 'radial' | 'auto',
-  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
-  //     center: { x, y },              // radial mode: what to push away from
-  //     gutter: 12                     // band/gutter thickness for above/right
-  //   })
-  //
-  // Placement stays deterministic — candidates are tried in a fixed order —
-  // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
-  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+  // ── table refusals ─────────────────────────────────────────────────────
+  // Charts.table's refusals live here rather than in the engine so that the
+  // refusal panel and Charts.validate() are the same function, not two copies
+  // of the same sentences that drift apart. Returns error strings; empty means
+  // the table can be drawn.
+  const TABLE_HIGHLIGHTS = ['sign', 'scale'];
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
+  function tableIsBlank(v) {
+    return v == null || v === '' || (typeof v === 'number' && !isFinite(v));
+  }
+
+  function tableProblems(config) {
+    config = config || {};
+    const cols = Array.isArray(config.columns) ? config.columns : [];
+    const rows = Array.isArray(config.rows) ? config.rows : [];
+    if (!cols.length || !rows.length) {
+      return ['A table needs columns and rows: `columns: [{ key, name }]` and ' +
+              '`rows: [{ name, <key>: value }]`.'];
+    }
+    const errors = [];
+    const seen = {};
+    cols.forEach(function (c, i) {
+      const key = c && c.key;
+      if (key == null || key === '') {
+        errors.push('Column ' + (i + 1) + ' has no key, so no row can say which value belongs in it.');
+        return;
+      }
+      if (seen[key]) errors.push('Two columns share the key "' + key + '", so both would show the same values.');
+      seen[key] = true;
+      const h = c.highlight;
+      if (typeof h === 'string' && TABLE_HIGHLIGHTS.indexOf(h) < 0) {
+        errors.push('Column "' + (c.name || key) + '" asks for highlight "' + h +
+          '". Use "sign", "scale", or a function (value, row, column) returning a color.');
+      }
+      // Colouring a column by its numbers is a claim that it has numbers. A
+      // column of text coloured "by value" would silently draw nothing.
+      if (h === 'sign' || h === 'scale') {
+        const numeric = rows.some(function (r) { return r && typeof r[key] === 'number' && isFinite(r[key]); });
+        if (!numeric) {
+          errors.push('Column "' + (c.name || key) + '" is coloured by value but holds no numbers.');
+        }
+      }
+    });
+
+    // A shared scale makes one color mean one amount across several columns.
+    // That only holds if they measure the same thing: a shade that means
+    // "$3,100M" in one column and "8.2%" in the next is a comparison the reader
+    // will make and the data does not support.
+    const units = {};
+    cols.forEach(function (c) {
+      if (!c || c.highlight !== 'scale' || c.scale == null) return;
+      const unit = (c.prefix || '') + '|' + (c.suffix || '');
+      const u = units[c.scale];
+      if (!u) units[c.scale] = { unit: unit, name: c.name || c.key };
+      else if (u.unit !== unit) {
+        errors.push('Columns "' + u.name + '" and "' + (c.name || c.key) + '" share the color scale "' +
+          c.scale + '" but not a unit, so one shade would stand for two different kinds of number. ' +
+          'Give each its own scale.');
+        u.unit = unit;   // report each mismatch once
+      }
+    });
+
+    // Column groups are all or nothing. A few columns under spanning headers
+    // beside some with none reads as two levels of hierarchy for some columns
+    // and one for the rest. A column that only needs a qualifier can carry it
+    // in its own name instead ("FY26 Budget").
+    const hasGroup = c => c && c.group != null && c.group !== '';
+    const loose = cols.filter(c => c && !hasGroup(c));
+    if (cols.some(hasGroup) && loose.length) {
+      errors.push('Some columns have a group and ' + loose.length + ' do not (' +
+        loose.map(c => '"' + (c.name || c.key) + '"').join(', ') + '), so the header would be uneven. ' +
+        'Give every column a group, or drop the groups and put the qualifier in the column name.');
+    }
+
+    // A row group is drawn as a heading over a contiguous run of rows. Rows of
+    // one group scattered through the list would draw the heading twice, and
+    // the reader would take them for two groups that happen to share a name.
+    const closed = {};
+    let current;
+    rows.forEach(function (r) {
+      const g = r && r.group != null ? String(r.group) : null;
+      if (g === current) return;
+      if (current != null) closed[current] = true;
+      if (g != null && closed[g]) {
+        errors.push('The rows of group "' + g + '" are not next to each other. ' +
+          'Sort the rows so each group is one run.');
+        closed[g] = false;   // once is enough
+      }
+      current = g;
+    });
+    return errors;
+  }
+
+  // ── table column widths ───────────────────────────────────────────────
+  /**
+   * Share `avail` px out between columns that each say how narrow they can go
+   * (`min`), how wide they would like to be (`max`), and how wide they may grow
+   * when there is room to spare (`cap`, default unlimited). Columns marked
+   * `first` are offered the spare before the rest.
+   *
+   * Three regimes, the same ones a browser's auto table layout has:
+   *  - not even the minimums fit: every column at its min, and the caller
+   *    scrolls. Nothing is squeezed below what it said it needs.
+   *  - the minimums fit, the preferences do not: every column moves from min
+   *    towards max by the same fraction, so the columns with the most slack —
+   *    prose, long headers — give the most, and a column whose min equals its
+   *    max does not move at all.
+   *  - everything fits: every column at max, and the spare goes out in
+   *    proportion to max — to the `first` columns until they reach their
+   *    caps, then to the others — never past a column's cap. What a capped column
+   *    cannot take is handed on to the others; if every column is capped the
+   *    table is simply narrower than the room.
+   *
+   * Returns one width per column, in order.
+   */
+  function allocateWidths(cols, avail) {
+    const c = cols.map(function (x) {
+      const min = Math.max(0, +x.min || 0);
+      const max = Math.max(min, +x.max || 0);
+      const cap = x.cap == null ? Infinity : Math.max(max, +x.cap);
+      return { min: min, max: max, cap: cap };
+    });
+    const sumMin = c.reduce(function (a, x) { return a + x.min; }, 0);
+    const sumMax = c.reduce(function (a, x) { return a + x.max; }, 0);
+    if (sumMin >= avail) return c.map(function (x) { return x.min; });
+    if (sumMax >= avail) {
+      const f = (avail - sumMin) / (sumMax - sumMin || 1);
+      return c.map(function (x) { return x.min + (x.max - x.min) * f; });
+    }
+    const w = c.map(function (x) { return x.max; });
+    let spare = avail - sumMax;
+    // Hand `spare` out over the columns in `ids`, in proportion to max and
+    // never past a cap. Each pass either places all of it or closes a column,
+    // so this ends within ids.length passes. Returns what is left over.
+    function share(ids) {
+      let open = ids.filter(function (i) { return c[i].cap - w[i] > 0.01; });
+      while (spare > 0.5 && open.length) {
+        const weight = open.reduce(function (a, i) { return a + (c[i].max || 1); }, 0);
+        let placed = 0;
+        const still = [];
+        open.forEach(function (i) {
+          const take = Math.min(spare * ((c[i].max || 1) / weight), c[i].cap - w[i]);
+          w[i] += take;
+          placed += take;
+          if (c[i].cap - w[i] > 0.01) still.push(i);
+        });
+        spare -= placed;
+        if (still.length === open.length) break;
+        open = still;
+      }
+    }
+    const all = c.map(function (x, i) { return i; });
+    share(all.filter(function (i) { return cols[i].first; }));
+    share(all.filter(function (i) { return !cols[i].first; }));
+    return w;
+  }
+
+  function dlEnabled(opt, dflt) {
+    if (opt === false) return false;
+    if (opt === true) return true;
+    if (opt && opt.enabled != null) return !!opt.enabled;
+    return dflt;
+  }
 
   function calloutTheme() {
     const t = (window.Charts && window.Charts.theme) || {};
@@ -758,20 +1434,27 @@
       dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
       text: t.labelColor || '#333333',
       inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
+      bg: t.bg || '#f4f3f0',
+      font: t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif"
     };
   }
 
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
+  function calloutKey(co) {
+    const k = co.name != null ? co.name
+      : co.category != null ? co.category
+      : co.point != null ? co.point
+      : co.code != null ? co.code
+      : co.label != null ? co.label
+      : co.row != null ? co.row
+      : co.panel != null ? co.panel : null;
+    return k == null ? null : String(k);
   }
 
-  // Total area of a rect that lands on top of anything it should not.
+  function calloutInBounds(r, b) {
+    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
+           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  }
+
   function calloutOverlap(r, rects) {
     let sum = 0;
     for (let i = 0; i < rects.length; i++) {
@@ -783,28 +1466,30 @@
     return sum;
   }
 
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
+  function measureCalloutBox(text) {
+    const th = calloutTheme();
+    const lines = String(text).split('\n');
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => measureText(l, th.size, false, th.font))) + th.pad * 2);
+    const h = lines.length * th.lh + th.pad * 2;
+    return { w: w, h: h };
   }
 
   function drawCalloutBox(g, bx, by, text, edge) {
     const th = calloutTheme();
     const lines = String(text).split('\n');
     const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
+    const w = Math.min(th.maxW,
+      Math.max.apply(null, lines.map(l => measureText(l, th.size, false, th.font))) + pad * 2);
     const h = lines.length * lh + pad * 2;
     el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
       fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
     lines.forEach((ln, i) => {
       txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
+        fill: th.text, 'font-family': th.font }, g);
     });
   }
 
-  // Leader from the anchor to the box. Straight when the box sits diagonally
-  // from the mark; an elbow when it sits squarely above or beside it, so the
-  // line reads as a pointer rather than as another data mark.
   function drawCalloutLeader(g, ax, ay, box, color, mode) {
     const th = calloutTheme();
     const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
@@ -961,28 +1646,580 @@
     });
   }
 
-  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
-  // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
+  // ── sankey graph + refusals ────────────────────────────────────────────
+  // Charts.sankey's input reading lives here for the reason table's does: the
+  // refusal panel and Charts.validate() have to be the same function. It also
+  // does the part of the layout that is arithmetic rather than geometry —
+  // which node sits in which column — because a cycle is found by exactly the
+  // walk that assigns columns, and a cycle is one of the refusals.
+  //
+  // Returns { nodes, links, errors }. Nodes come out in order of first
+  // appearance, so the author's ordering is the starting stack in each column.
+  function sankeyGraph(config) {
+    config = config || {};
+    const errors = [];
+    const series = Array.isArray(config.series) ? config.series : [];
+    const out = { nodes: [], links: [], errors: errors };
+    if (series.length > 1) {
+      errors.push('A sankey draws one flow network, not ' + series.length +
+        ' — every band is a share of the node it leaves, so two networks overlaid would split each ' +
+        'other\'s nodes. Put every link in one series, or give each network its own sankey inside panels.');
+      return out;
+    }
+    const s = series[0] || {};
+    const raw = s.data || config.data || [];
+    if (!raw.length) {
+      errors.push('A sankey needs links — pass them as series: [{ data: [[from, to, weight], ...] }].');
+      return out;
+    }
+
+    const byId = new Map();
+    const node = (id) => {
+      const k = String(id);
+      if (!byId.has(k)) {
+        const n = { id: k, name: k, color: null, column: null, index: byId.size,
+                    inLinks: [], outLinks: [] };
+        byId.set(k, n);
+        out.nodes.push(n);
+      }
+      return byId.get(k);
+    };
+    // Declared nodes first, so their order is the author's and not the links'.
+    (s.nodes || []).forEach(d => {
+      if (!d || d.id == null) return;
+      const n = node(d.id);
+      if (d.name != null) n.name = String(d.name);
+      if (d.color != null) n.color = d.color;
+      if (d.column != null && isFinite(+d.column)) n.column = Math.max(0, Math.floor(+d.column));
+    });
+
+    for (let i = 0; i < raw.length; i++) {
+      const d = raw[i];
+      let from, to, w, color = null;
+      if (Array.isArray(d)) { from = d[0]; to = d[1]; w = d[2]; }
+      else if (d && typeof d === 'object') {
+        from = d.from; to = d.to; w = d.weight != null ? d.weight : d.value; color = d.color;
+      }
+      const where = 'Link ' + (i + 1) + (from != null && to != null ? ' (' + from + ' → ' + to + ')' : '');
+      if (from == null || from === '' || to == null || to === '') {
+        errors.push(where + ' has no from or to — each link is [from, to, weight] or { from, to, weight }.');
+        return out;
+      }
+      const v = (w == null || w === '' || typeof w === 'boolean') ? NaN : +w;
+      if (!isFinite(v) || v < 0) {
+        errors.push(where + ' has weight ' + JSON.stringify(w) + ' — a band\'s thickness is its weight, ' +
+          'so it must be a number of zero or more. A net flow that can go negative is a waterfall.');
+        return out;
+      }
+      if (String(from) === String(to)) {
+        errors.push(where + ' flows into itself — a sankey reads left to right, and a node cannot sit to the ' +
+          'left of itself. Drop the link, or show the retained amount as a link to a separate "kept" node.');
+        return out;
+      }
+      if (v === 0) continue;   // a band of no thickness draws nothing and changes no total
+      const a = node(from), b = node(to);
+      const link = { index: out.links.length, source: a, target: b, value: v, color: color };
+      a.outLinks.push(link); b.inLinks.push(link);
+      out.links.push(link);
+    }
+    if (!out.links.length) {
+      errors.push('Every link has zero weight — there is no flow to draw. Give the links their amounts.');
+      return out;
+    }
+
+    // Columns by longest path from a source (Kahn's order). Whatever the walk
+    // never reaches is on a cycle, and a cycle has no left-to-right order.
+    const indeg = new Map(out.nodes.map(n => [n, n.inLinks.length]));
+    const queue = out.nodes.filter(n => indeg.get(n) === 0);
+    const depth = new Map(queue.map(n => [n, 0]));
+    let seen = 0;
+    while (queue.length) {
+      const n = queue.shift();
+      seen++;
+      n.outLinks.forEach(l => {
+        depth.set(l.target, Math.max(depth.get(l.target) || 0, depth.get(n) + 1));
+        indeg.set(l.target, indeg.get(l.target) - 1);
+        if (indeg.get(l.target) === 0) queue.push(l.target);
+      });
+    }
+    if (seen < out.nodes.length) {
+      const stuck = out.nodes.filter(n => indeg.get(n) > 0).map(n => n.name);
+      errors.push('The links form a loop through ' + stuck.slice(0, 4).join(', ') +
+        (stuck.length > 4 ? ' and ' + (stuck.length - 4) + ' more' : '') +
+        ' — a sankey flows one way, so a node that feeds itself back has no column to sit in. ' +
+        'Break the loop into stages (e.g. "Visit 1" → "Visit 2"), or show the from/to amounts as a table.');
+      return out;
+    }
+    out.nodes.forEach(n => {
+      n.depth = depth.get(n) || 0;
+      n.inValue = n.inLinks.reduce((a, l) => a + l.value, 0);
+      n.outValue = n.outLinks.reduce((a, l) => a + l.value, 0);
+      // A node is as tall as the larger side: a stage that loses some of what
+      // arrives (or tops it up) is legitimate, and the difference is visible
+      // as the part of the node with no band attached.
+      n.value = Math.max(n.inValue, n.outValue);
+    });
+    return out;
   }
 
+  function sankeyProblems(config) { return sankeyGraph(config).errors; }
+
+  window.ChartsShared = {
+    NS: NS, CALLOUT_PAD: CALLOUT_PAD, CALLOUT_OFFSETS: CALLOUT_OFFSETS,
+    describeChart: describeChart, chartDescription: chartDescription,
+    resolveTheme: resolveTheme, CHART_DEFAULTS: CHART_DEFAULTS,
+    createLifecycle: createLifecycle, chartAPI: chartAPI, makeResponsive: makeResponsive,
+    el: el, txt: txt, esc: esc, cssColor: cssColor, cssNumber: cssNumber, cssFont: cssFont, addCommas: addCommas,
+    makeNumberFormatter: makeNumberFormatter, monthNames: monthNames,
+    measureText: measureText, _clearTextCache: function () { _measureCache.clear(); },
+    niceTicks: niceTicks, _headW: _headW, _clipLine: _clipLine, wrapHeading: wrapHeading,
+    textW: textW, truncate: truncate, ellipsize: ellipsize, wrapAxisLabel: wrapAxisLabel,
+    layoutCategoryAxis: layoutCategoryAxis, labelsFit: labelsFit, maxLineChars: maxLineChars,
+    isSequentialCats: isSequentialCats, isContinuousCats: isContinuousCats, parseAxisDate: parseAxisDate,
+    dlEnabled: dlEnabled, calloutTheme: calloutTheme, calloutKey: calloutKey, calloutInBounds: calloutInBounds,
+    calloutOverlap: calloutOverlap, measureCalloutBox: measureCalloutBox, drawCalloutBox: drawCalloutBox, drawCalloutLeader: drawCalloutLeader,
+    drawCallouts: drawCallouts,
+    tableProblems: tableProblems, tableIsBlank: tableIsBlank, allocateWidths: allocateWidths,
+    parseColor: parseColor, mix: mix, contrast: contrast,
+    isTransparent: isTransparent, canvasColor: canvasColor,
+    reportTableProblems: reportTableProblems, REPORT_KINDS: REPORT_KINDS, REPORT_EXCLUDED: REPORT_EXCLUDED,
+    sankeyGraph: sankeyGraph, sankeyProblems: sankeyProblems,
+  };
+})();
+
+// ─── line / spline / step ────────────────────────────────────────────
+
+/*
+ * Clean-charts-styled line chart engine.
+ * Match tokens from clean_charts.config: cream bg, Inter, black+blue palette,
+ * top-left title, y-axis on the right, only-bottom spine, x-ticks at boundaries
+ * with labels centered between, inline line-end labels, no legend by default.
+ * Interactive: crosshair, shared tooltip, marker hover, zoom.
+ */
+(function () {
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { monthNames, layoutCategoryAxis, labelsFit, maxLineChars, isSequentialCats, isContinuousCats, parseAxisDate, makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, niceTicks, wrapHeading, ellipsize, wrapAxisLabel, dlEnabled, drawCallouts, NS } = window.ChartsShared;
+  // --- theme tokens (populated from window.Charts.theme at render time) ---
+  // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
+  // an `{enabled}` object, and falls back to the engine's default when the
+  // option says nothing.
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  // Heading metrics are derived in applyTheme() from the size + line-height
+  // tokens, so a bigger titleSize opens up its own leading.
+  function logTicks(min, max) {
+    const lo = Math.floor(Math.log10(min));
+    const hi = Math.ceil(Math.log10(max));
+    const out = [];
+    for (let e = lo; e <= hi; e++) out.push(Math.pow(10, e));
+    return out;
+  }
+
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function fmtDateFull(ms, MONTHS) {
+    MONTHS = MONTHS || monthNames(null);
+    const d = new Date(ms);
+    return MONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + ', ' + d.getUTCFullYear()
+      + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes());
+  }
+
+
+  // ── dense-axis tick thinning ───────────────────────────────────────────
+  // layoutCategoryAxis(), labelsFit() and the calendar-period ladder they walk
+  // now live in _shared.js: the same decision is made by every engine with a
+  // category x-axis, and it used to be written out identically in each.
+  // Word wrap into at most `lines` lines, split where the longest line comes
+  // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
+  // Draw one planned axis label. `x` is the slot centre, `yTop` the first
+  // baseline. Rotated labels hang from the axis anchored at their end, with
+  // wrapped lines stepping along the rotated frame's own y so they stay
+  // perpendicular to the axis.
+  const UNIT_MS = { second: 1000, minute: 60000, hour: 3600000, day: 86400000,
+    week: 604800000, month: 2629800000, quarter: 7889400000, year: 31557600000 };
+
+  // Ladder of (unit, multiple) tick intervals, finest first. `auto` walks it
+  // from the top and stops at the first interval whose labels fit the axis, so
+  // a denser dataset simply lands on a coarser rung instead of cramming ticks.
+  const DATE_LADDER = [
+    ['second', 1], ['second', 5], ['second', 15], ['second', 30],
+    ['minute', 1], ['minute', 5], ['minute', 15], ['minute', 30],
+    ['hour', 1], ['hour', 3], ['hour', 6], ['hour', 12],
+    ['day', 1], ['day', 2], ['week', 1], ['week', 2],
+    ['month', 1], ['quarter', 1], ['month', 6],
+    ['year', 1], ['year', 2], ['year', 5], ['year', 10], ['year', 25],
+    ['year', 50], ['year', 100]
+  ];
+
+  // Period-start boundaries at `mult` × unit, covering [minMs, maxMs].
+  function genBoundaries(freq, mult, minMs, maxMs) {
+    mult = mult || 1;
+    const out = [];
+    const first = new Date(minMs);
+    const LIMIT = 4000;
+    if (freq === 'year') {
+      let y = Math.floor(first.getUTCFullYear() / mult) * mult;
+      while (out.length < LIMIT) {
+        const t = Date.UTC(y, 0, 1);
+        out.push(t);
+        if (t > maxMs) break;
+        y += mult;
+      }
+    } else if (freq === 'quarter' || freq === 'month') {
+      const step = freq === 'quarter' ? 3 * mult : mult;
+      let idx = Math.floor((first.getUTCFullYear() * 12 + first.getUTCMonth()) / step) * step;
+      while (out.length < LIMIT) {
+        const t = Date.UTC(Math.floor(idx / 12), idx % 12, 1);
+        out.push(t);
+        if (t > maxMs) break;
+        idx += step;
+      }
+    } else {
+      let step, t;
+      if (freq === 'week') {
+        step = 7 * 86400000 * mult;
+        const dow = (first.getUTCDay() + 6) % 7; // 0 = Mon
+        t = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate()) - dow * 86400000;
+      } else {
+        step = (UNIT_MS[freq] || 86400000) * mult;
+        t = Math.floor(minMs / step) * step;
+      }
+      while (out.length < LIMIT) { out.push(t); if (t > maxMs) break; t += step; }
+    }
+    return out;
+  }
+
+  // Midpoint label per boundary span; the year/date part is repeated only when
+  // it changes, matching the clean_charts axis style.
+  function composeCenters(boundaries, freq, MONTHS) {
+    MONTHS = MONTHS || monthNames(null);
+    const centers = [];
+    let prev = null;
+    for (let i = 0; i < boundaries.length - 1; i++) {
+      const start = boundaries[i], end = boundaries[i + 1];
+      const mid = start + (end - start) / 2;
+      const s = new Date(start);
+      let label = '';
+      if (freq === 'year') label = (i === 0) ? String(s.getUTCFullYear()) : String(s.getUTCFullYear()).slice(2);
+      else if (freq === 'quarter') {
+        const q = Math.floor(s.getUTCMonth() / 3) + 1;
+        label = (i === 0 || !prev || s.getUTCFullYear() !== prev.getUTCFullYear())
+          ? `${s.getUTCFullYear()} Q${q}` : `Q${q}`;
+      } else if (freq === 'month') {
+        label = (i === 0 || !prev || s.getUTCFullYear() !== prev.getUTCFullYear())
+          ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCFullYear()}` : MONTHS[s.getUTCMonth()];
+      } else if (freq === 'week' || freq === 'day') {
+        label = (i === 0 || !prev || s.getUTCFullYear() !== prev.getUTCFullYear())
+          ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}, ${s.getUTCFullYear()}`
+          : (s.getUTCMonth() !== prev.getUTCMonth() ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}` : String(s.getUTCDate()));
+      } else if (freq === 'hour') {
+        label = (i === 0 || !prev || s.getUTCDate() !== prev.getUTCDate())
+          ? `${MONTHS[s.getUTCMonth()]} ${s.getUTCDate()}, ${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}`
+          : `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}`;
+      } else if (freq === 'minute') {
+        label = (i === 0 || !prev || s.getUTCHours() !== prev.getUTCHours())
+          ? `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}` : `:${pad(s.getUTCMinutes())}`;
+      } else {
+        label = `${pad(s.getUTCHours())}:${pad(s.getUTCMinutes())}:${pad(s.getUTCSeconds())}`;
+      }
+      centers.push({ ms: mid, label });
+      prev = s;
+    }
+    return centers;
+  }
+
+  // Boundary + midpoint tick generator for datetime axes.
+  // `avail` is the plot width in px; the interval is coarsened until the labels
+  // fit it, so the axis stays readable as the number of datapoints grows.
+  // Returns { boundaries: [ms...], centers: [{ms, label}] }
+  function dateBoundaries(minMs, maxMs, freq, avail, fontSize, MONTHS) {
+    freq = (freq || 'auto').toLowerCase();
+    const span = Math.max(1, maxMs - minMs);
+    const fs = fontSize || 11;
+
+    function build(f, mult) {
+      const bs = genBoundaries(f, mult, minMs, maxMs);
+      return { boundaries: bs, centers: composeCenters(bs, f, MONTHS) };
+    }
+    function fits(r) {
+      if (r.centers.length < 2) return r.centers.length === 1;
+      if (!avail) return r.centers.length <= 12;
+      return labelsFit(r.centers, avail, fs,
+        r.centers.map(c => (c.ms - minMs) / span * avail));
+    }
+
+    let start = 0;
+    if (freq !== 'auto') {
+      const idx = DATE_LADDER.findIndex(l => l[0] === freq);
+      if (idx < 0) return build(freq, 1);   // unknown interval: honour as-is
+      start = idx;
+    }
+    let last = null;
+    for (let i = start; i < DATE_LADDER.length; i++) {
+      const [f, mult] = DATE_LADDER[i];
+      if (span / (UNIT_MS[f] * mult) > 500) continue;   // way too fine to bother building
+      last = build(f, mult);
+      if (fits(last)) return last;
+    }
+    return last || build('year', 100);
+  }
+
+
+  // --- paths ---
+  function linePath(pts) {
+    let d = '';
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i] === null) continue;
+      d += (d && pts[i - 1] !== null ? 'L' : 'M') + pts[i][0] + ' ' + pts[i][1] + ' ';
+    }
+    return d.trim();
+  }
+  // Monotone cubic (PCHIP-like) for smooth curves without overshoot.
+  function pchipPath(pts) {
+    const P = pts.filter(p => p !== null);
+    const n = P.length;
+    if (n < 2) return linePath(pts);
+    const xs = P.map(p => p[0]);
+    const ys = P.map(p => p[1]);
+    const h = [], delta = [], m = [];
+    for (let i = 0; i < n - 1; i++) {
+      h[i] = xs[i + 1] - xs[i];
+      delta[i] = (ys[i + 1] - ys[i]) / (h[i] || 1);
+    }
+    m[0] = delta[0];
+    for (let i = 1; i < n - 1; i++) {
+      if (delta[i - 1] * delta[i] <= 0) m[i] = 0;
+      else {
+        const w1 = 2 * h[i] + h[i - 1], w2 = h[i] + 2 * h[i - 1];
+        m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+      }
+    }
+    m[n - 1] = delta[n - 2];
+    let d = `M ${xs[0]} ${ys[0]}`;
+    for (let i = 0; i < n - 1; i++) {
+      const c1x = xs[i] + h[i] / 3;
+      const c1y = ys[i] + m[i] * h[i] / 3;
+      const c2x = xs[i + 1] - h[i] / 3;
+      const c2y = ys[i + 1] - m[i + 1] * h[i] / 3;
+      d += ` C ${c1x} ${c1y} ${c2x} ${c2y} ${xs[i + 1]} ${ys[i + 1]}`;
+    }
+    return d;
+  }
+  function stepPath(pts, mode) {
+    let d = '';
+    for (let i = 0; i < pts.length; i++) {
+      if (pts[i] === null) continue;
+      const [x, y] = pts[i];
+      if (!d) { d = 'M ' + x + ' ' + y; continue; }
+      const [px, py] = pts[i - 1] || [x, y];
+      if (mode === 'center') { const mx = (px + x) / 2; d += ` L ${mx} ${py} L ${mx} ${y} L ${x} ${y}`; }
+      else if (mode === 'right') { d += ` L ${x} ${py} L ${x} ${y}`; }
+      else { d += ` L ${px} ${y} L ${x} ${y}`; }
+    }
+    return d;
+  }
+
+  function symbolPath(kind, cx, cy, r) {
+    switch (kind) {
+      case 'square':   return `M ${cx-r} ${cy-r} h ${r*2} v ${r*2} h ${-r*2} Z`;
+      case 'diamond':  return `M ${cx} ${cy-r} L ${cx+r} ${cy} L ${cx} ${cy+r} L ${cx-r} ${cy} Z`;
+      case 'triangle': return `M ${cx} ${cy-r} L ${cx+r} ${cy+r} L ${cx-r} ${cy+r} Z`;
+      case 'triangle-down': return `M ${cx-r} ${cy-r} L ${cx+r} ${cy-r} L ${cx} ${cy+r} Z`;
+      default: return null;
+    }
+  }
+
+  function normalizePoints(data, xType, categories) {
+    return data.map((d, i) => {
+      if (d === null || d === undefined) return null;
+      if (typeof d === 'number') return { x: i, y: d, name: categories ? categories[i] : String(i) };
+      if (Array.isArray(d)) return { x: d[0], y: d[1] };
+      return { x: d.x !== undefined ? d.x : i, y: d.y, name: d.name, marker: d.marker };
+    });
+  }
+
+  function dashArray(style) {
+    switch (style) {
+      case 'Dash': return '6 4';
+      case 'ShortDash': return '4 2';
+      case 'ShortDot': return '1 3';
+      case 'Dot': return '2 4';
+      case 'LongDash': return '10 4';
+      case 'DashDot': return '6 3 2 3';
+      default: return '';
+    }
+  }
+
+  // Refusal panel: drawn in place of the chart when the options describe
+  // something a line chart cannot honestly show. Returns the same stub API
+  // shape as Chart() so callers do not blow up on .redraw().
+  // ── callouts ────────────────────────────────────────────────────────────
+  // A callout is an anchor dot on the mark, a leader, and a paragraph box.
+  // The block is shared by every engine (each is its own IIFE) so a note reads
+  // the same everywhere, but *where* the box goes is the engine's call: a
+  // column chart puts its notes in a band above the bars, a horizontal bar
+  // chart in the gutter past the bar ends, a scatter in the emptiest corner
+  // near the point. Passing the marks in as `obstacles` is what keeps a box
+  // off the data instead of merely off the other boxes.
+  //
+  //   drawCallouts(g, items, bounds, {
+  //     mode: 'above' | 'right' | 'radial' | 'auto',
+  //     obstacles: [{ x, y, w, h }],   // rects the box must not cover
+  //     center: { x, y },              // radial mode: what to push away from
+  //     gutter: 12                     // band/gutter thickness for above/right
+  //   })
+  //
+  // Placement stays deterministic — candidates are tried in a fixed order —
+  // so re-rendering the same data puts every box back where it was.
+          // clearance between a box and anything else
+  const CALLOUT_LEAD = 14;        // shortest leader worth drawing
+
+  // Total area of a rect that lands on top of anything it should not.
+  // Leader from the anchor to the box. Straight when the box sits diagonally
+  // from the mark; an elbow when it sits squarely above or beside it, so the
+  // line reads as a pointer rather than as another data mark.
+  // Match a callout to a named thing: `name`, `category`, `point`, `code` and
+  // `label` are all accepted so the key reads naturally per chart type.
   // ---------------- main ----------------
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, HIGHLIGHT, CALLOUT_C, INV_TEXT, COLORS;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
+  let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_POINT_LBL, F_NOTICE, F_VALUE;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      AXIS = t.axis;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      HIGHLIGHT = t.highlight;
+      CALLOUT_C = t.callout;
+      INV_TEXT = t.inverseText;
+      COLORS = t.colors;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      F_POINT_LBL = t.pointLabelSize;
+      F_NOTICE = t.noticeSize;
+      F_VALUE = t.valueSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_TICK = t.tickSize;
+      F_INLINE = t.inlineSize;
+      AXIS_W = t.axisWidth;
+      GRID_W = t.gridWidth;
+      LINE_W = t.lineWidth;
+      TICK_L = t.tickLength;
+      TICK_W = t.tickWidth;
+    }
+
+
+    function drawCategoryLabel(g, layout, tick, k, x, yTop, color, weight) {
+      const a = { 'font-size': layout.font, 'font-weight': weight, fill: color, 'font-family': FONT };
+      const lh = layout.font * 1.25;
+      const y0 = yTop + (layout.stagger && k % 2 ? lh : 0);
+      tick.lines.forEach((ln, li) => {
+        const t = txt(ln, Object.assign({ x, y: y0 + li * lh,
+          'text-anchor': layout.rotate ? 'end' : 'middle' }, a), g);
+        if (layout.rotate) t.setAttribute('transform', `rotate(-${layout.rotate} ${x} ${yTop})`);
+      });
+    }
+
+
+    function errorChart(container, W, H, opts, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib line] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
+            'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      // The detail sits below however many lines the headline actually took: at a
+      // fixed 26px it lands on top of the second line whenever the headline wraps,
+      // which is exactly when the message is longest and most needed. The wrap is
+      // measured at F_NOTICE too - it was measuring at a hardcoded 13 and drawing
+      // at the token, so a themed noticeSize wrapped to the wrong width.
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+          fill: TITLE_COL, 'font-family': FONT }, svg);
+      });
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+        txt(l, { x: 20, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+          'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+      });
+      return chartAPI(createLifecycle(container), {
+      opts: opts, typeName: "Line chart",
+        getData: () => [], getSeries: () => [],
+        extras: { addPoint() {}, shift() {}, error: headline }
+      });
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 500;
@@ -1054,7 +2291,18 @@
       : { rows: [], height: 0 };
     const legendZone = _legendLayout.height;
 
-    const M = {
+    // Compact: the chart is a cell in something else (a reportTable row, a
+    // tile) and draws no axis — no y labels, no gridlines, no x ticks. The
+    // x-axis here is always continuous or temporal, so nothing that names a
+    // point is lost: the tooltip still carries it. The value labels stay, and
+    // become the readout, so the margins keep room for them.
+    const compact = !!chartOpts.compact;
+    const M = compact ? {
+      l: 14,
+      r: 14 + rightPadForNames,
+      t: titleBlockH + legendZone + PLOT_GAP + 16,   // a value label sits 10px above its point
+      b: 6
+    } : {
       // Y-labels sit in the LEFT margin, floating at titleX with no spine —
       // the same 62 the column, bar, histogram and scatter engines use. This
       // engine used to put them on the right (l:20, r:55), which read fine on
@@ -1080,15 +2328,15 @@
         lines: 1, count: n, height: 20 };
       if (!isContinuousCats(cats)) return empty;
       return layoutCategoryAxis(cats, IW, F_TICK,
-        band || Math.max(40, Math.min(110, H * 0.3)));
+        band || Math.max(40, Math.min(110, H * 0.3)), monthNames(resolveTheme(opts)));
     }
     let catLayout = (xAxis.categories && (xAxis.type || 'category') === 'category')
       ? planCatAxis(xAxis.categories.length) : null;
-    if (catLayout) M.b = Math.max(42, catLayout.height + TICK_L + 6);
+    if (catLayout && !compact) M.b = Math.max(42, catLayout.height + TICK_L + 6);
     const IH = H - M.t - M.b;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -1122,7 +2370,7 @@
         marker, dataLabels, lineWidth: s.lineWidth != null ? s.lineWidth : LINE_W,
         dashStyle: s.dashStyle, step: s.step,
         negativeColor: s.negativeColor, threshold: s.threshold != null ? s.threshold : 0,
-        visible: true,
+        visible: s.visible !== false,
         valueSuffix: s.valueSuffix || (opts.tooltip && opts.tooltip.valueSuffix) || '',
         valuePrefix: s.valuePrefix || (opts.tooltip && opts.tooltip.valuePrefix) || '',
         valueDecimals: s.valueDecimals != null ? s.valueDecimals : (opts.tooltip && opts.tooltip.valueDecimals)
@@ -1200,22 +2448,6 @@
     gSeries.setAttribute('clip-path', 'url(#' + clipId + ')');
     gMarkers.setAttribute('clip-path', 'url(#' + clipId + ')');
 
-    function addCommas(n) {
-      // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-      // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-      // fed a computed share or a summed column, and String() renders every
-      // artefact digit. 12 significant figures sits well inside double
-      // precision, so genuine values are untouched while accumulated ~1e-15
-      // error rounds away.
-      if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-      const s = String(n);
-      const neg = s.startsWith('-') ? '-' : '';
-      const abs = neg ? s.slice(1) : s;
-      const dot = abs.indexOf('.');
-      const intPart = dot < 0 ? abs : abs.slice(0, dot);
-      const fracPart = dot < 0 ? '' : abs.slice(dot);
-      return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-    }
     function formatY(v) {
       if (isLog) {
         const e = Math.round(Math.log10(v));
@@ -1267,7 +2499,7 @@
       });
 
       // Horizontal gridlines
-      yTicks.forEach(v => {
+      if (!compact) yTicks.forEach(v => {
         const y = yScale(v);
         el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y, stroke: GRID, 'stroke-width': GRID_W }, gGrid);
       });
@@ -1357,6 +2589,14 @@
         }
       });
 
+      // Inline line-end labels and callouts still apply to a compact chart;
+      // only the axes are skipped.
+      if (compact) {
+        if (showInline) placeInlineLabels();
+        layoutCallouts(opts.callouts || []);
+        return;
+      }
+
       // Y-axis labels float in the left margin, no tick marks and no spine.
       yTicks.forEach(v => {
         const y = yScale(v);
@@ -1386,7 +2626,7 @@
           boundaries.push(n - 0.5);
         }
       } else if (xType === 'datetime') {
-        const bs = dateBoundaries(viewMin, viewMax, xAxis.tickInterval || 'auto', IW, F_TICK);
+        const bs = dateBoundaries(viewMin, viewMax, xAxis.tickInterval || 'auto', IW, F_TICK, monthNames(resolveTheme(opts)));
         boundaries = bs.boundaries;
         centers = bs.centers;
       } else {
@@ -1498,7 +2738,7 @@
 
     // ---- interaction ----
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${cssColor(BG)};border:1px solid ${cssColor(TT_BORDER)};border-radius:4px;padding:6px 8px;font:${cssNumber(F_TIP)}px ${cssFont(FONT)};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     const crosshair = el('line', { x1: 0, x2: 0, y1: M.t, y2: M.t + IH, stroke: AXIS,
@@ -1527,9 +2767,9 @@
       hoverGroup.innerHTML = '';
       rows.forEach(r => drawMarker(hoverGroup, r.s, r.p, xScale(r.p.x), yScale(r.p.y), true));
       const header = formatHeader(nearestX);
-      let html = `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
+      let html = `<div style="font-size:${cssNumber(F_TIP)}px;font-weight:${cssNumber(VAL_FW)};color:${cssColor(TITLE_COL)};margin-bottom:2px">${esc(header)}</div>`;
       rows.forEach(r => {
-        html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${r.s.color};border-radius:2px"></span><span style="color:${LABEL_COL}">${esc(r.s.name)}: </span><b style="color:${TITLE_COL}">${esc(formatValue(r.p.y, r.s) + valueSuffix)}</b></div>`;
+        html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${cssColor(r.s.color)};border-radius:2px"></span><span style="color:${cssColor(LABEL_COL)}">${esc(r.s.name)}: </span><b style="color:${cssColor(TITLE_COL)}">${esc(formatValue(r.p.y, r.s) + valueSuffix)}</b></div>`;
       });
       tooltip.innerHTML = html;
       tooltip.style.display = 'block';
@@ -1547,19 +2787,19 @@
       hoverGroup.innerHTML = '';
     }
     function formatHeader(x) {
-      if (xType === 'datetime') return fmtDateFull(x);
+      if (xType === 'datetime') return fmtDateFull(x, monthNames(resolveTheme(opts)));
       if (xType === 'category') return xAxis.categories[Math.round(x)];
       return String(x);
     }
-    svg.addEventListener('mousemove', onMove);
-    svg.addEventListener('mouseleave', hideTooltip);
+    life.on(svg, 'mousemove', onMove);
+    life.on(svg, 'mouseleave', hideTooltip);
 
     // Zoom (x)
     let dragStart = null, selection = null, resetBtn = null;
     if (chartOpts.zoomType === 'x') {
       selection = el('rect', { x: 0, y: M.t, width: 0, height: IH,
         fill: HIGHLIGHT, 'fill-opacity': 0.15, style: 'display:none;pointer-events:none' }, gInteract);
-      svg.addEventListener('mousedown', e => {
+      life.on(svg, 'mousedown', e => {
         const rect = svg.getBoundingClientRect();
         const px = e.clientX - rect.left;
         if (px < M.l || px > M.l + IW) return;
@@ -1569,14 +2809,14 @@
         selection.style.display = 'block';
         e.preventDefault();
       });
-      svg.addEventListener('mousemove', e => {
+      life.on(svg, 'mousemove', e => {
         if (dragStart == null) return;
         const rect = svg.getBoundingClientRect();
         const px = Math.max(M.l, Math.min(M.l + IW, e.clientX - rect.left));
         selection.setAttribute('x', Math.min(dragStart, px));
         selection.setAttribute('width', Math.abs(px - dragStart));
       });
-      window.addEventListener('mouseup', e => {
+      life.on(window, 'mouseup', e => {
         if (dragStart == null) return;
         const rect = svg.getBoundingClientRect();
         const px = Math.max(M.l, Math.min(M.l + IW, e.clientX - rect.left));
@@ -1594,8 +2834,8 @@
       if (resetBtn) return;
       resetBtn = document.createElement('button');
       resetBtn.textContent = 'Reset zoom';
-      resetBtn.style.cssText = `position:absolute;top:12px;right:12px;padding:5px 10px;font:11px ${FONT};background:${BG};border:1px solid ${AXIS};border-radius:3px;cursor:pointer;color:${LABEL_COL};z-index:5;`;
-      resetBtn.addEventListener('click', () => {
+      resetBtn.style.cssText = `position:absolute;top:12px;right:12px;padding:5px 10px;font:11px ${cssFont(FONT)};background:${cssColor(BG)};border:1px solid ${cssColor(AXIS)};border-radius:3px;cursor:pointer;color:${cssColor(LABEL_COL)};z-index:5;`;
+      life.on(resetBtn, 'click', () => {
         viewMin = xMin; viewMax = xMax + xPad; render();
         resetBtn.remove(); resetBtn = null;
       });
@@ -1654,18 +2894,22 @@
     render();
     renderLegend();
 
-    return {
+    return chartAPI(life, {
+      opts: opts, typeName: "Line chart",
       redraw: () => { render(); renderLegend(); },
-      addPoint(seriesIndex, x, y) {
-        seriesDefs[seriesIndex].points.push({ x, y });
-        recomputeXRange(); render();
-      },
-      shift(seriesIndex) {
-        seriesDefs[seriesIndex].points.shift();
-        recomputeXRange(); render();
-      },
-      getSeries() { return seriesDefs; }
-    };
+      getData: () => seriesDefs,
+      getSeries: () => seriesDefs,
+      extras: {
+        addPoint(seriesIndex, x, y) {
+          seriesDefs[seriesIndex].points.push({ x, y });
+          recomputeXRange(); render();
+        },
+        shift(seriesIndex) {
+          seriesDefs[seriesIndex].points.shift();
+          recomputeXRange(); render();
+        }
+      }
+    });
   }
 
     Charts.line = Chart;
@@ -1687,351 +2931,23 @@
  * Interactions: hover -> shared tooltip, category-slot highlight.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { monthNames, layoutCategoryAxis, maxLineChars, isSequentialCats, parseAxisDate, makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, niceTicks, wrapHeading, ellipsize, wrapAxisLabel, dlEnabled, calloutKey, measureCalloutBox, drawCallouts, NS } = window.ChartsShared;
   // clean_charts tokens
-  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, INV_TEXT, HIGHLIGHT, POS_COL, NEG_COL, DEFAULT_COL, COLORS;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, SPINE_W, GRID_W;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_POINT_LBL, F_NOTICE;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    AXIS = t.axis || '#000000';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    INV_TEXT = t.inverseText || '#FFFFFF';
-    HIGHLIGHT = t.highlight || '#243E63';
-    POS_COL = t.aboveThreshold || t.positive || '#2323FF';
-    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
-    DEFAULT_COL = t.defaultColor || '#000000';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
-    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_TICK = t.tickSize != null ? t.tickSize : 11;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-    SPINE_W = t.spineWidth != null ? t.spineWidth : 1.1;
-    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
-  }
-
   // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
   // an `{enabled}` object, and falls back to the engine's default when the
   // option says nothing.
-  function dlEnabled(opt, dflt) {
-    if (opt === false) return false;
-    if (opt === true) return true;
-    if (opt && opt.enabled != null) return !!opt.enabled;
-    return dflt;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-
   // ── dense-axis tick thinning ───────────────────────────────────────────
-  // With many categories every label would be drawn, so they collide and the
-  // axis looks squeezed. When the labels parse as dates we keep only the ones
-  // that open a calendar period (hour → day → week → month → quarter → year),
-  // stepping up to a coarser period until the kept labels fit the available
-  // pixels; otherwise we fall back to an even stride. Called from render(), so
-  // a chart whose data keeps growing re-thins itself on every update.
-  const TMONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  function tpad(n) { return n < 10 ? '0' + n : '' + n; }
-
-  function parseAxisDate(v) {
-    if (v instanceof Date) return v.getTime();
-    if (typeof v === 'number') return v > 1e11 ? v : null;
-    if (typeof v !== 'string') return null;
-    if (!/\d{4}|\d{1,2}[\/-]\d{1,2}/.test(v)) return null;
-    const t = Date.parse(v);
-    return isNaN(t) ? null : t;
-  }
-
-  // Ordered, evenly-spaced label vocabularies that carry their own sequence:
-  // month and weekday names, quarters, and plain numbers ("2021", "Week 3").
-  // A run of these is a continuous x-axis even though nothing in it parses as
-  // a date, so a line across them is meaningful and must not be refused.
-  const MONTH_SEQ = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
-  const DAY_SEQ = ['mon','tue','wed','thu','fri','sat','sun'];
-  function seqIndex(v) {
-    if (typeof v === 'number' && isFinite(v)) return v;
-    if (typeof v !== 'string') return null;
-    const s = v.trim().toLowerCase();
-    if (!s) return null;
-    const m3 = s.slice(0, 3);
-    let i = MONTH_SEQ.indexOf(m3);
-    if (i >= 0 && /^[a-z]+\.?$/.test(s)) return i;
-    i = DAY_SEQ.indexOf(m3);
-    if (i >= 0 && /^[a-z]+\.?$/.test(s)) return i;
-    return null;
-  }
-
-  // Split a label into its fixed parts and the number between them: "Week 3"
-  // and "Cat 3" are each position 3 of their own series, and "2021" is 2021.
-  // Used to spot a counter axis without keeping a vocabulary of the words
-  // people number things with.
-  function numberedLabel(v) {
-    const s = (typeof v === 'number' ? String(v) : typeof v === 'string' ? v : '').trim();
-    const m = /^(\D*?)(-?\d+(?:\.\d+)?)(\D*)$/.exec(s);
-    return m ? { pre: m[1].toLowerCase(), post: m[3].toLowerCase(), n: +m[2] } : null;
-  }
-
-  // Is this whole category list an ordered sequence? Either a named sequence
-  // (see seqIndex) or one stem numbered upwards ("Q1..Q4", "Cat 1..Cat 100").
-  // Strictly increasing is required, so an unordered set of numbers or a run of
-  // unrelated names is still not a sequence.
-  function isSequentialCats(cats) {
-    if (!cats || cats.length < 2) return false;
-    const rising = vals => vals.every((v, k) => v !== null && (k === 0 || v > vals[k - 1]));
-    if (rising(cats.map(seqIndex))) return true;
-    const nums = cats.map(numberedLabel);
-    if (nums.some(x => x === null)) return false;
-    if (nums.some(x => x.pre !== nums[0].pre || x.post !== nums[0].post)) return false;
-    return rising(nums.map(x => x.n));
-  }
-
-  // Coarsest-last ladder of calendar periods.
-  const AXIS_PERIODS = [
-    { key: ms => Math.floor(ms / 3600000),
-      fmt: (d) => tpad(d.getUTCHours()) + ':' + tpad(d.getUTCMinutes()) },
-    { key: ms => Math.floor(ms / 86400000),
-      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
-    { key: ms => Math.floor((ms / 86400000 - 4) / 7),
-      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + ' ' + d.getUTCDate() + (first ? ' ' + d.getUTCFullYear() : '') },
-    { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 12 + d.getUTCMonth(); },
-      fmt: (d, first) => TMONTHS[d.getUTCMonth()] + (first || d.getUTCMonth() === 0 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
-    { key: ms => { const d = new Date(ms); return d.getUTCFullYear() * 4 + Math.floor(d.getUTCMonth() / 3); },
-      fmt: (d, first) => 'Q' + (Math.floor(d.getUTCMonth() / 3) + 1) + (first || d.getUTCMonth() < 3 ? " '" + tpad(d.getUTCFullYear() % 100) : '') },
-    { key: ms => new Date(ms).getUTCFullYear(),
-      fmt: (d) => String(d.getUTCFullYear()) }
-  ];
-
-  // Does this label set fit in `avail` px of axis length? Only x-axes need this:
-  // their labels sit side by side and collide, whereas a y-axis (horizontal bar)
-  // gives every category its own row and can carry the full-length label, so
-  // y-axis labels are never thinned.
-  // Labels are centred on their tick, so the test is pair-wise: every gap
-  // between neighbouring ticks must hold half of each label plus a little air.
-  // Sizing every slot by the single widest label instead rejects axes that do
-  // fit — one long lead-in label like "Jan 1 2025" made ten short "Jan 6"s
-  // look nine times wider than they are, so a run of days skipped straight
-  // past weekly labels to months.
-  function labelsFit(items, avail, fontSize, pos) {
-    if (items.length <= 1) return true;
-    const GAP = 8;                         // minimum air between two labels
-    const w = it => String(it.label).length * fontSize * 0.62;
-    // Where each label sits, in px along the axis. Callers that know the tick
-    // geometry pass it; otherwise assume the labels are spread evenly.
-    const at = pos || items.map((_, k) => (k + 0.5) / items.length * avail);
-    for (let k = 1; k < items.length; k++) {
-      if (at[k] - at[k - 1] < (w(items[k - 1]) + w(items[k])) / 2 + GAP) return false;
-    }
-    return true;
-  }
-
-  // Plan the x-axis category labels for `avail` px of axis.
-  // Temporal categories collapse to a coarser calendar period (see above) —
-  // dropping "Feb 3" from a run of days still leaves a readable time axis.
-  // Named categories cannot be dropped that way: "Chrome, ?, ?, Safari" is
-  // worse than no axis at all. So for them nothing is ever dropped; instead the
-  // labels are given more room, in order — full width, smaller type, two
-  // wrapped lines, two staggered rows, 45° slant, then 90° vertical. An
-  // ellipsis is the last resort, used only after wrapping has been tried.
-  // Returns { ticks:[{i, lines:[...]}], font, rotate, stagger, lines, height }.
-  function layoutCategoryAxis(cats, avail, baseFont, maxBand) {
-    const n = cats.length;
-    const CW = 0.62;                       // avg glyph width / font-size
-    const base = baseFont || 11;
-    maxBand = maxBand || 96;
-    const FONTS = [base, base - 1, base - 2].filter(f => f >= 9);
-    const upright = (ticks, font, lines, stagger) => ({
-      ticks, font, rotate: 0, stagger: !!stagger, lines, count: n,
-      height: Math.round(font * 1.25 * lines * (stagger ? 2 : 1)) + 20
-    });
-    const one = items => items.map(it => ({ i: it.i, lines: [it.label] }));
-    if (!n) return upright([], base, 1);
-
-    const all = cats.map((c, i) => ({ i, label: c == null ? String(i) : String(c) }));
-    const widest = all.reduce((a, it) => Math.max(a, it.label.length), 0) * CW * base;
-    const slot = avail / n;
-    if (widest + 10 <= slot) return upright(one(all), base, 1);
-
-    const atPx = picked => picked.map(p => n > 1 ? p.i / (n - 1) * avail : avail / 2);
-
-    // Temporal: step up the calendar ladder instead of crowding.
-    const times = cats.map(parseAxisDate);
-    if (times.every(t => t !== null)) {
-      // Label the points that open a calendar period. The very first datapoint
-      // is a special case: when the data starts mid-period it is not a period
-      // start, and labelling it anyway puts e.g. "Jan 1 2025" a few pixels from
-      // "Jan 6" — one crowded pair that would push the whole axis up to a
-      // coarser period than it needs. So try the run without that partial head
-      // label first, and only fall back to including it if that does not fit.
-      const pickPeriod = (period, withHead) => {
-        const picked = [];
-        let prev = null;
-        for (let i = 0; i < n; i++) {
-          const k = period.key(times[i]);
-          const opens = (prev === null)
-            ? (withHead || k !== period.key(times[i] - 1))
-            : k !== prev;
-          if (opens) picked.push({ i, label: period.fmt(new Date(times[i]), picked.length === 0) });
-          prev = k;
-        }
-        return picked;
-      };
-      for (let p = 0; p < AXIS_PERIODS.length; p++) {
-        for (const withHead of [false, true]) {
-          const picked = pickPeriod(AXIS_PERIODS[p], withHead);
-          if (picked.length < n && picked.length > 1
-              && labelsFit(picked, avail, base, atPx(picked))) {
-            return upright(one(picked), base, 1);
-          }
-        }
-      }
-    }
-
-    // A numbered sequence can be thinned by an even stride: a reader fills in
-    // the gap between "Cat 10" and "Cat 20" without help, which is exactly what
-    // a list of unrelated names does not allow.
-    if (isSequentialCats(cats)) {
-      for (let stride = 2; stride <= Math.ceil(n / 2); stride++) {
-        const picked = all.filter(it => it.i % stride === 0);
-        if (picked.length > 1 && labelsFit(picked, avail, base, atPx(picked))) {
-          return upright(one(picked), base, 1);
-        }
-      }
-    }
-
-    // Named categories: keep every label, find a presentation that fits.
-    // 1) upright — shrink the type a little, wrapping onto two lines if it helps
-    for (const font of FONTS) {
-      if (widest * (font / base) + 10 <= slot) return upright(one(all), font, 1);
-      const wrapped = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, 2) }));
-      if (maxLineChars(wrapped) * CW * font + 8 <= slot) return upright(wrapped, font, 2);
-    }
-    // 2) stagger onto two baselines — each label gets two slots of width
-    for (const font of FONTS) {
-      if (widest * (font / base) + 8 <= slot * 2) return upright(one(all), font, 1, true);
-    }
-    // 3) slant 45°, then 4) stand labels vertically. Spacing now costs about a
-    // glyph height per wrapped line, and length is bounded by the band depth —
-    // so try a second line before giving up any characters.
-    const slanted = (ticks, font, rotate, lines, proj) => ({
-      ticks, font, rotate, stagger: false, lines, count: n,
-      height: Math.round(Math.min(maxBand, maxLineChars(ticks) * CW * font / proj + 16)) + 6
-    });
-    for (const rotate of [45, 90]) {
-      const proj = rotate === 45 ? Math.SQRT2 : 1;      // band px per text px
-      const thin = rotate === 45 ? base * 0.95 : base * 1.05;
-      for (const font of FONTS) {
-        const maxChars = Math.max(4, Math.floor((maxBand - 16) * proj / (CW * font)));
-        for (const lines of [1, 2]) {
-          if (thin * (font / base) * lines > slot) break;
-          const ticks = all.map(it => ({ i: it.i, lines: wrapAxisLabel(it.label, lines) }));
-          if (maxLineChars(ticks) <= maxChars) return slanted(ticks, font, rotate, lines, proj);
-        }
-      }
-      // Wrapping was not enough for this angle: truncate to the band depth.
-      for (const font of FONTS) {
-        const maxChars = Math.max(4, Math.floor((maxBand - 16) * proj / (CW * font)));
-        for (const lines of [2, 1]) {
-          if (thin * (font / base) * lines > slot) continue;
-          const ticks = all.map(it => ({
-            i: it.i, lines: wrapAxisLabel(it.label, lines).map(l => ellipsize(l, maxChars))
-          }));
-          return slanted(ticks, font, rotate, lines, proj);
-        }
-      }
-    }
-    // Slots too narrow for any legible text — the tooltip carries the names.
-    return upright([], base, 1);
-  }
-
+  // layoutCategoryAxis(), labelsFit() and the calendar-period ladder they walk
+  // now live in _shared.js: the same decision is made by every engine with a
+  // category x-axis, and it used to be written out identically in each.
   // Y-axis (horizontal bar) row labels. Each category owns a row, so nothing is
   // ever dropped; a label that outgrows the gutter wraps onto a second line
   // whenever the row is tall enough for one, and only what still does not fit
@@ -2068,60 +2984,12 @@
       Math.max(a, lns.reduce((b, l) => Math.max(b, l.length), 0)), 0) * 0.62 * rl.font;
   }
 
-  function maxLineChars(ticks) {
-    return ticks.reduce((a, t) => Math.max(a, t.lines.reduce((b, l) => Math.max(b, l.length), 0)), 0);
-  }
-  function ellipsize(s, maxChars) {
-    s = String(s);
-    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + '…';
-  }
   // Word wrap into at most `lines` lines, split where the longest line comes
   // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
-  function wrapAxisLabel(label, lines) {
-    const s = String(label);
-    const words = s.split(/\s+/);
-    if (lines < 2 || words.length <= 1) return [s];
-    let best = null;
-    for (let k = 1; k < words.length; k++) {
-      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
-      const score = Math.max(a.length, b.length);
-      if (!best || score < best.score) best = { score, out: [a, b] };
-    }
-    if (lines <= 2 || words.length === 2) return best.out;
-    return [best.out[0]].concat(wrapAxisLabel(best.out[1], lines - 1));
-  }
-
   // Draw one planned axis label. `x` is the slot centre, `yTop` the first
   // baseline. Rotated labels hang from the axis anchored at their end, with
   // wrapped lines stepping along the rotated frame's own y so they stay
   // perpendicular to the axis.
-  function drawCategoryLabel(g, layout, tick, k, x, yTop, color, weight) {
-    const a = { 'font-size': layout.font, 'font-weight': weight, fill: color, 'font-family': FONT };
-    const lh = layout.font * 1.25;
-    const y0 = yTop + (layout.stagger && k % 2 ? lh : 0);
-    tick.lines.forEach((ln, li) => {
-      const t = txt(ln, Object.assign({ x, y: y0 + li * lh,
-        'text-anchor': layout.rotate ? 'end' : 'middle' }, a), g);
-      if (layout.rotate) t.setAttribute('transform', `rotate(-${layout.rotate} ${x} ${yTop})`);
-    });
-  }
-
-  function niceTicks(min, max, count) {
-    count = count || 5;
-    if (min === max) { min -= 1; max += 1; }
-    const range = max - min;
-    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
-    const err = (count / range) * step0;
-    let step = step0;
-    if (err <= 0.15) step *= 10;
-    else if (err <= 0.35) step *= 5;
-    else if (err <= 0.75) step *= 2;
-    const lo = Math.floor(min / step) * step;
-    const hi = Math.ceil(max / step) * step;
-    const out = [];
-    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
-    return out;
-  }
   function darken(hex, amt) {
     const c = hex.replace('#','');
     const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
@@ -2133,14 +3001,6 @@
   }
   function lighten(hex, amt) { return darken(hex, -amt); }
   // Rough luminance to pick contrast text
-  function contrastText(hex) {
-    const c = hex.replace('#','');
-    const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
-    const r=(n>>16)&255, g=(n>>8)&255, b=n&255;
-    const L = 0.299*r + 0.587*g + 0.114*b;
-    return L < 140 ? INV_TEXT : TITLE_COL;
-  }
-
   // Word-wrap into up to N lines of a target character width (rough px based)
   function wrapText(str, maxChars, maxLines) {
     const words = String(str).split(/\s+/);
@@ -2179,232 +3039,118 @@
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, INV_TEXT, HIGHLIGHT, POS_COL, NEG_COL, DEFAULT_COL, COLORS;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, SPINE_W, GRID_W;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_POINT_LBL, F_NOTICE;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      AXIS = t.axis;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      INV_TEXT = t.inverseText;
+      HIGHLIGHT = t.highlight;
+      POS_COL = t.aboveThreshold;
+      NEG_COL = t.belowThreshold;
+      DEFAULT_COL = t.defaultColor;
+      COLORS = t.colors;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      F_POINT_LBL = t.pointLabelSize;
+      F_NOTICE = t.noticeSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_TICK = t.tickSize;
+      F_VALUE = t.valueSize;
+      SPINE_W = t.spineWidth;
+      GRID_W = t.gridWidth;
+    }
+
+
+    function drawCategoryLabel(g, layout, tick, k, x, yTop, color, weight) {
+      const a = { 'font-size': layout.font, 'font-weight': weight, fill: color, 'font-family': FONT };
+      const lh = layout.font * 1.25;
+      const y0 = yTop + (layout.stagger && k % 2 ? lh : 0);
+      tick.lines.forEach((ln, li) => {
+        const t = txt(ln, Object.assign({ x, y: y0 + li * lh,
+          'text-anchor': layout.rotate ? 'end' : 'middle' }, a), g);
+        if (layout.rotate) t.setAttribute('transform', `rotate(-${layout.rotate} ${x} ${yTop})`);
+      });
+    }
+
+
+    function contrastText(hex) {
+      const c = hex.replace('#','');
+      const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
+      const r=(n>>16)&255, g=(n>>8)&255, b=n&255;
+      const L = 0.299*r + 0.587*g + 0.114*b;
+      return L < 140 ? INV_TEXT : TITLE_COL;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 500;
@@ -2492,7 +3238,17 @@
         Math.round(titleX + rowLabelWidth(rowLabels) + 12));
     }
 
-    const M = {
+    // Compact: a cell in something else draws no value axis — no tick
+    // labels, no gridlines, no top band for a bar's scale. The category
+    // labels stay: they name the bars, and a bar with no name is unreadable.
+    // The value labels stay too, and are the readout.
+    const compact = !!chartOpts.compact;
+    const M = compact ? {
+      l: inverted ? leftPadForBars : 14,
+      r: 20,
+      t: titleBlockH + legendZone + PLOT_GAP + (inverted ? 0 : 8),
+      b: inverted ? 6 : 40
+    } : {
       l: inverted ? leftPadForBars : 62,   // column: room for y-labels left-aligned to titleX
       r: 20,
       // The horizontal bar carries its value-axis labels ABOVE the plot, so it
@@ -2510,12 +3266,12 @@
       ? null
       : layoutCategoryAxis(
           categories.length ? categories : Array.from({ length: catCount }, (_, i) => i),
-          IW, F_LABEL, Math.max(40, Math.min(110, H * 0.3)));
+          IW, F_LABEL, Math.max(40, Math.min(110, H * 0.3)), monthNames(resolveTheme(opts)));
     if (catLayout) M.b = Math.max(26, catLayout.height);
     const IH = H - M.t - M.b;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -2555,7 +3311,7 @@
         scenario: s.scenario,
         stack: s.stack != null ? s.stack : 0,
         negativeColor: s.negativeColor,
-        visible: true,
+        visible: s.visible !== false,
         valueSuffix: s.valueSuffix || (opts.tooltip && opts.tooltip.valueSuffix) || valueSuffix,
         valuePrefix: s.valuePrefix || (opts.tooltip && opts.tooltip.valuePrefix) || '',
         valueDecimals: s.valueDecimals != null ? s.valueDecimals : (opts.tooltip && opts.tooltip.valueDecimals)
@@ -2653,22 +3409,6 @@
     function catCenterX(i, n) { return M.l + ((i + 0.5) / n) * IW; }
     function catCenterY(i, n) { return M.t + ((i + 0.5) / n) * IH; }
 
-    function addCommas(n) {
-      // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-      // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-      // fed a computed share or a summed column, and String() renders every
-      // artefact digit. 12 significant figures sits well inside double
-      // precision, so genuine values are untouched while accumulated ~1e-15
-      // error rounds away.
-      if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-      const s = String(n);
-      const neg = s.startsWith('-') ? '-' : '';
-      const abs = neg ? s.slice(1) : s;
-      const dot = abs.indexOf('.');
-      const intPart = dot < 0 ? abs : abs.slice(0, dot);
-      const fracPart = dot < 0 ? '' : abs.slice(dot);
-      return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-    }
     function fmtY(v) {
       const abs = Math.abs(v);
       let s;
@@ -2718,7 +3458,7 @@
       // --- axes / gridlines ---
       if (!inverted) {
         // Column: horizontal gridlines & bottom spine, floating y-labels on left
-        ranges.yTicks.forEach(v => {
+        if (!compact) ranges.yTicks.forEach(v => {
           const y = yScale(v);
           el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y,
             stroke: GRID, 'stroke-width': GRID_W }, gGrid);
@@ -2735,7 +3475,7 @@
         if (n !== catLayout.count) {
           catLayout = layoutCategoryAxis(
             categories.length ? categories : Array.from({ length: n }, (_, i) => i),
-            IW, F_LABEL, M.b);
+            IW, F_LABEL, M.b, monthNames(resolveTheme(opts)));
         }
         catLayout.ticks.forEach((tk, k) => {
           drawCategoryLabel(gAxes, catLayout, tk, k, catCenterX(tk.i, n),
@@ -2743,7 +3483,7 @@
         });
       } else {
         // Horizontal bar: vertical gridlines, top spine, x-axis labels on TOP
-        ranges.yTicks.forEach(v => {
+        if (!compact) ranges.yTicks.forEach(v => {
           const x = xScaleVal(v);
           el('line', { x1: x, x2: x, y1: M.t, y2: M.t + IH,
             stroke: GRID, 'stroke-width': GRID_W }, gGrid);
@@ -2752,9 +3492,10 @@
           txt(label, { x, y: M.t - 10, 'text-anchor': 'middle',
             'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
         });
-        // Top spine
-        el('line', { x1: M.l, y1: M.t, x2: M.l + IW, y2: M.t,
-          stroke: LABEL_COL, 'stroke-width': SPINE_W }, gAxes);
+        // Top spine — or, compact, a baseline on zero for the bars to grow from
+        const sx = compact ? xScaleVal(Math.max(0, ranges.yMin)) : null;
+        el('line', Object.assign(compact ? { x1: sx, y1: M.t, x2: sx, y2: M.t + IH } : { x1: M.l, y1: M.t, x2: M.l + IW, y2: M.t },
+          { stroke: LABEL_COL, 'stroke-width': SPINE_W }), gAxes);
         // Category labels aligned to titleX, vertically centered on bar. Never
         // thinned: each category owns a row, so labels stack instead of
         // colliding and a dropped one would leave a bar unidentified. They are
@@ -3076,7 +3817,7 @@
 
     // Interaction — shared tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${cssColor(BG)};border:1px solid ${cssColor(TT_BORDER)};border-radius:4px;padding:6px 8px;font:${cssNumber(F_TIP)}px ${cssFont(FONT)};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     const crosshair = el('rect', { x: 0, y: 0, width: 0, height: 0,
@@ -3103,7 +3844,7 @@
       }
       crosshair.style.display = 'block';
       const header = categories[idx] != null ? String(categories[idx]) : String(idx);
-      let html = `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
+      let html = `<div style="font-size:${cssNumber(F_TIP)}px;font-weight:${cssNumber(VAL_FW)};color:${cssColor(TITLE_COL)};margin-bottom:2px">${esc(header)}</div>`;
       seriesDefs.forEach(s => {
         if (!s.visible) return;
         const p = s.points[idx]; if (!p) return;
@@ -3111,7 +3852,7 @@
         if (p.low != null && p.high != null) val = `${formatValue(p.low, s)} – ${formatValue(p.high, s)}`;
         else if (p.y != null) val = formatValue(Math.abs(p.y), s);
         else return;
-        html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${s.color};border-radius:2px"></span><span style="color:${LABEL_COL}">${esc(s.name)}: </span><b style="color:${TITLE_COL}">${esc(val)}</b></div>`;
+        html += `<div style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:9px;height:9px;background:${cssColor(s.color)};border-radius:2px"></span><span style="color:${cssColor(LABEL_COL)}">${esc(s.name)}: </span><b style="color:${cssColor(TITLE_COL)}">${esc(val)}</b></div>`;
       });
       tooltip.innerHTML = html;
       tooltip.style.display = 'block';
@@ -3127,8 +3868,8 @@
       crosshair.style.display = 'none';
       tooltip.style.display = 'none';
     }
-    svg.addEventListener('mousemove', onMove);
-    svg.addEventListener('mouseleave', hideTooltip);
+    life.on(svg, 'mousemove', onMove);
+    life.on(svg, 'mouseleave', hideTooltip);
 
     // ── Top legend (below subtitle) ─────────────────────────────────────
     function renderLegend() {
@@ -3166,10 +3907,12 @@
     render();
     renderLegend();
 
-    return {
+    return chartAPI(life, {
+      opts: opts, typeName: "Bar chart",
       redraw: () => { render(); renderLegend(); },
+      getData: () => seriesDefs,
       getSeries: () => seriesDefs
-    };
+    });
   }
 
     Charts.column = Chart;
@@ -3198,128 +3941,15 @@ Charts.bar = function (container, opts) {
  * Interactions preserved: hover slice → highlight + tooltip; click → explode.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, AXIS, TITLE_COL, SUB_COL, LABEL_COL, CALLOUT_COL, CONNECT_COL, CONNECT_W, START_COL, END_COL;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE, F_CENTER;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    AXIS = t.axis || '#000000';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    CALLOUT_COL = t.connectorLabel || '#555555';
-    // The connector rule carries the label, so it is drawn darker and heavier
-    // than the old hairline; both are theme tokens.
-    CONNECT_COL = t.connectorLine || t.labelColor || '#333333';
-    CONNECT_W = t.connectorWidth != null ? t.connectorWidth : 1.4;
-    START_COL = t.gradientStart || '#000000';
-    END_COL = t.gradientEnd || '#2323FF';
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-    F_CENTER = t.centerSize != null ? t.centerSize : 14;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, wrapHeading, calloutKey, drawCallouts, measureText, NS } = window.ChartsShared;
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-    // fed a computed share or a summed column, and String() renders every
-    // artefact digit. 12 significant figures sits well inside double
-    // precision, so genuine values are untouched while accumulated ~1e-15
-    // error rounds away.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
   function hex2rgb(hex) {
     const c = hex.replace('#','');
     const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
@@ -3400,232 +4030,91 @@ Charts.bar = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, AXIS, TITLE_COL, SUB_COL, LABEL_COL, CALLOUT_COL, CONNECT_COL, CONNECT_W, START_COL, END_COL;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE, F_CENTER;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      AXIS = t.axis;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      CALLOUT_COL = t.connectorLabel;
+      // The connector rule carries the label, so it is drawn darker and heavier
+      // than the old hairline; both are theme tokens.
+      CONNECT_COL = t.connectorLine;
+      CONNECT_W = t.connectorWidth;
+      START_COL = t.gradientStart;
+      END_COL = t.gradientEnd;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_VALUE = t.valueSize;
+      F_CENTER = t.centerSize;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 500;
@@ -3691,7 +4180,12 @@ Charts.bar = function (container, opts) {
     }
     const noteH = droppedNote ? F_NOTE + 10 : 0;
 
-    const legendDefault = rawData.length > 1;
+    // The callouts already name every wedge, so a default legend only repeats
+    // them — and its rows come straight out of the ring's height. It is shown
+    // by default only when the callouts are off; legend.enabled still wins.
+    const labelsOff = plotOpts.dataLabels === false ||
+      (plotOpts.dataLabels && plotOpts.dataLabels.enabled === false);
+    const legendDefault = rawData.length > 1 && labelsOff;
     const legendEnabled = (opts.legend && opts.legend.enabled != null)
       ? !!opts.legend.enabled : legendDefault;
 
@@ -3707,7 +4201,7 @@ Charts.bar = function (container, opts) {
                       + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -3750,7 +4244,7 @@ Charts.bar = function (container, opts) {
     const chartRight = W - marginPx;
     const chartW = chartRight - chartLeft;
 
-    const cx = chartLeft + chartW / 2;
+    let cx = chartLeft + chartW / 2;
     let cy;
     let baseR;
 
@@ -3765,7 +4259,11 @@ Charts.bar = function (container, opts) {
 
     const TWO_LINE_H = 40, ONE_LINE_H = 24;
     // clean-charts callout stub, as fractions of the outer radius.
+    // Capped in pixels so a large ring does not spend its height on stubs.
     const CALLOUT_GAP = 0.08, CALLOUT_LEN = 0.12;
+    const STUB_GAP_MAX = 6, STUB_LEN_MAX = 10;
+    const stubGap = r => Math.min(r * CALLOUT_GAP, STUB_GAP_MAX);
+    const stubLen = r => Math.min(r * CALLOUT_LEN, STUB_LEN_MAX);
     // The elbow sits 40% of the way from the ring edge to the label column,
     // shared by every label on that side so all the kinks line up.
     const ELBOW_FRAC = 0.40;
@@ -3781,17 +4279,33 @@ Charts.bar = function (container, opts) {
       return sum + (+y || 0);
     }, 0) || 1;
     let widestName = 0, widestValue = 0, widestPair = 0;
+    // Label widths are measured with the font, size and weight they are drawn
+    // in, not estimated from character counts: an estimate has to be generous
+    // for wide glyphs, and that slack came straight out of the ring. LABEL_INSET
+    // is the text's inset from the end of its rule (see lx below) plus a hair.
+    const LABEL_INSET = 6, ONE_LINE_GAP = 8;
+    const boldFW = fw => fw === 'bold' || +fw >= 600;
+    const nameW = (name, size) => measureText(String(name), size, boldFW(CAT_FW), FONT);
+    const valueStrFor = y => plotOpts.showPercentages
+      ? ((+y || 0) / totalForPct * 100).toFixed(1) + '%'
+      : addCommas(+y || 0) + (plotOpts.valueSuffix || '');
+    // Width of one callout block in a given mode at full type size. Measured
+    // text scales linearly with font size, so callers multiply by labelScale.
+    const labelWidthFor = (name, y, mode) => {
+      const nw = nameW(name, F_LABEL);
+      const vw = measureText(valueStrFor(y), F_VALUE, boldFW(TICK_FW), FONT);
+      // value-only labels are drawn in the name's role (size and weight)
+      const vwAsName = nameW(valueStrFor(y), F_LABEL);
+      return LABEL_INSET + (mode === 'two' ? Math.max(nw, vw)
+        : mode === 'one' ? nw + ONE_LINE_GAP + vw
+        : mode === 'value' ? vwAsName : nw);
+    };
     rawData.forEach((p, i) => {
       const name = Array.isArray(p) ? p[0] : ((p && p.name) || ('Slice ' + (i + 1)));
       const y = Array.isArray(p) ? p[1] : (p && typeof p === 'object' ? p.y : p);
-      const valueStr = plotOpts.showPercentages
-        ? ((+y || 0) / totalForPct * 100).toFixed(1) + '%'
-        : addCommas(+y || 0) + (plotOpts.valueSuffix || '');
-      const nw = String(name).length * F_LABEL * 0.62;
-      const vw = valueStr.length * F_VALUE * 0.6;
-      widestName = Math.max(widestName, nw);
-      widestValue = Math.max(widestValue, vw);
-      widestPair = Math.max(widestPair, nw + vw + 10);
+      widestName = Math.max(widestName, labelWidthFor(name, y, 'name'));
+      widestValue = Math.max(widestValue, labelWidthFor(name, y, 'value'));
+      widestPair = Math.max(widestPair, labelWidthFor(name, y, 'one'));
     });
     const showConnectorLabels = userLabels !== 'off';
 
@@ -3805,7 +4319,14 @@ Charts.bar = function (container, opts) {
       : mode === 'one' ? widestPair
       : mode === 'value' ? widestValue
       : widestName;
-    const CONNECT_RUN = 44;              // flat run reserved beside the text
+    // Flat run reserved beside the text. 44px suits a full card; in a small box
+    // (a reportTable cell) a fixed 44 per side eats a third of the width, so it
+    // scales with the plot — 10% of it, floored so the elbow still reads.
+    const CONNECT_RUN = Math.max(16, Math.min(44, chartW * 0.1));
+    // Narrowest a label column may be. 56px suits a full card; in a small plot
+    // two 56px columns take half the width even for a label like "US", so the
+    // floor scales the same way the connector run does.
+    const COL_MIN = Math.max(24, Math.min(56, chartW * 0.13));
     const capPadFor = mode => chartW * (mode === 'two' ? 0.30 : 0.40);
 
     let legendZone = rawLegendZone;
@@ -3842,6 +4363,37 @@ Charts.bar = function (container, opts) {
         const hScale = (capPadFor('name') - CONNECT_RUN) / Math.max(1, textWidthFor('name'));
         labelScale = Math.max(0.72, Math.min(1, vScale, hScale));
       }
+
+      // The steps above only ask whether the labels fit their columns, not
+      // what the columns leave the ring. In a small box two roomy columns can
+      // squeeze the ring to its 30px floor while the height sits unused. So
+      // keep stepping down — tighter mode, then smaller type — until the ring
+      // gets at least RING_SHARE of the radius the height allows. If no step
+      // gets there, take the one that gives the ring the most.
+      const RING_SHARE = 0.75;
+      const heightRAt = zone => (chartBottom - (titleBlockH + zone + PLOT_GAP)) / 2
+        - (STUB_GAP_MAX + STUB_LEN_MAX + 6);
+      const ringRFor = (mode, scale) => (chartW - 2 * Math.max(COL_MIN,
+        Math.min(capPadFor(mode), textWidthFor(mode) * scale + CONNECT_RUN))) / 2;
+      const hR = heightRAt(legendZone);
+      // Type stops at 0.85 here: below ~10px a label costs more than the ring gains.
+      const LADDER = [['two', 1], ['one', 1], ['one', 0.85], ['name', 1], ['name', 0.85]];
+      const at = LADDER.findIndex(([m, sc]) => m === labelMode && sc <= labelScale);
+      if (labelMode !== 'value' && at >= 0 && ringRFor(labelMode, labelScale) < hR * RING_SHARE) {
+        const fitsV = (m, sc) => perSide * (m === 'two' ? TWO_LINE_H : ONE_LINE_H) * sc
+          <= vRoomFor(legendZone) * (m === 'two' ? 0.75 : 1);
+        let best = null;
+        for (const [m, sc] of LADDER.slice(at)) {
+          if (!fitsV(m, sc)) continue;
+          const r = ringRFor(m, sc);
+          if (!best || r > best.r + 0.5) best = { m, sc, r };
+          if (r >= hR * RING_SHARE) break;
+        }
+        if (best && best.r > ringRFor(labelMode, labelScale) + 0.5) {
+          labelMode = best.m;
+          labelScale = best.sc;
+        }
+      }
     }
     const legendVisible = legendEnabled && legendZone > 0;
     const chartTop = titleBlockH + legendZone + PLOT_GAP;
@@ -3849,7 +4401,7 @@ Charts.bar = function (container, opts) {
     const vRoom = chartH - 24;
     // The column is only as wide as the text it holds plus the connector run,
     // so the ring keeps every pixel the labels do not need.
-    const labelPad = Math.max(56, Math.min(capPadFor(labelMode),
+    const labelPad = Math.max(COL_MIN, Math.min(capPadFor(labelMode),
       textWidthFor(labelMode) * labelScale + CONNECT_RUN));
 
     const labelColPad = showConnectorLabels ? labelPad : 30;
@@ -3858,20 +4410,27 @@ Charts.bar = function (container, opts) {
       baseR = Math.max(30, Math.min((chartW - labelColPad * 2) / 2, chartH - 20));
     } else {
       cy = chartTop + chartH / 2;
-      // clean-charts sizes the ring at 40% of the available height (donut_radius),
-      // which is what leaves the vertical room the callout stubs and stacked
-      // labels need above and below the ring.
-      baseR = Math.max(30, Math.min((chartW - labelColPad * 2) / 2, chartH * 0.40));
+      // The ring takes the full height less what actually has to sit above and
+      // below it: the (pixel-capped) callout stub and the label clamp inset.
+      // Stacked labels live in the side columns, and the budget above already
+      // guaranteed they fit the height, so they need no extra band here.
+      const vPad = showConnectorLabels ? STUB_GAP_MAX + STUB_LEN_MAX + 6 : 10;
+      baseR = Math.max(30, Math.min((chartW - labelColPad * 2) / 2, chartH / 2 - vPad));
     }
 
-    const sizePct = parseSize(plotOpts.size, Math.min(chartW, chartH)) || (baseR * 2);
-    const outerR = Math.min(baseR, sizePct / 2);
+    // The height bound on its own: render() re-sizes a full ring once it knows
+    // which labels sit on which side, since only the width bound depends on that.
+    const heightR = chartH / 2 - (showConnectorLabels ? STUB_GAP_MAX + STUB_LEN_MAX + 6 : 10);
+
+    const sizeCap = (plotOpts.size != null && parseSize(plotOpts.size, Math.min(chartW, chartH)) / 2) || Infinity;
+    let outerR = Math.min(baseR, sizeCap);
     // clean-charts hole_radius: fraction of outer RADIUS (not diameter).
-    // e.g. innerSize:'50%' -> innerR = 0.5 * outerR (a thick ring)
-    const holeRatio = plotOpts.innerSize != null ? null : 0.6;
-    const innerR = plotOpts.innerSize != null
-      ? parseSize(plotOpts.innerSize, outerR)
-      : outerR * holeRatio;
+    // e.g. innerSize:'50%' -> innerR = 0.5 * outerR (a thick ring). The default
+    // ring is thin, toward clean-charts' 0.8, so it reads as a light band.
+    const HOLE_RATIO = 0.72;
+    const innerRFor = r => plotOpts.innerSize != null
+      ? parseSize(plotOpts.innerSize, r) : r * HOLE_RATIO;
+    let innerR = innerRFor(outerR);
 
     const rawSeries = opts.series && opts.series[0];
     if (!rawSeries) return;
@@ -3893,21 +4452,24 @@ Charts.bar = function (container, opts) {
     const gradList = gradientColors(startCol, endCol, rawData.length);
 
     const data = rawData.map((d, i) => {
-      let name, y, z, color, sliced;
+      let name, y, z, color, sliced, visible;
       if (Array.isArray(d)) { name = d[0]; y = d[1]; }
-      else if (typeof d === 'object') { name = d.name; y = d.y; z = d.z; color = d.color; sliced = d.sliced; }
+      else if (typeof d === 'object') {
+        name = d.name; y = d.y; z = d.z; color = d.color; sliced = d.sliced; visible = d.visible;
+      }
       else { name = String(i); y = d; }
       return {
         name, y, z,
         color: color || gradList[i],
         sliced: !!sliced,
-        visible: true,
+        visible: visible !== false,
         origIdx: i
       };
     });
 
     const isVariableRadius = rawSeries.type === 'variablepie' || plotOpts.variableRadius;
-    const minRadius = parseSize(plotOpts.minPointSize, outerR * 2) || outerR * 0.4;
+    const minRadiusFor = r => parseSize(plotOpts.minPointSize, r * 2) || r * 0.4;
+    let minRadius = minRadiusFor(outerR);
 
     // Layers
     const defs = el('defs', {}, svg);
@@ -3983,7 +4545,7 @@ Charts.bar = function (container, opts) {
         startAngleDeg = bestOff;
       }
 
-      // Pass 1: compute geometry + ideal label positions
+      // Pass 1a: angles and label sides — nothing here depends on the radius.
       const items = [];
       let acc = 0;
       data.forEach(d => {
@@ -3992,23 +4554,62 @@ Charts.bar = function (container, opts) {
         const a0 = angleRad(startAngleDeg + acc * spanDeg);
         const a1 = angleRad(startAngleDeg + (acc + frac) * spanDeg);
         acc += frac;
+        const midA = (a0 + a1) / 2;
+        d._midA = midA; d._off = d.sliced ? explodeDist : 0; d._frac = frac;
+        d._a0 = a0; d._a1 = a1;
+        items.push({ d, side: Math.cos(midA) >= 0 ? 'right' : 'left',
+          w: labelWidthFor(d.name, d.y, labelMode) * labelScale });
+      });
+
+      // Pass 1b: on a wide card a wedge pointing nearly straight up or down can
+      // label on either side without its connector crossing the ring, so those
+      // move off the more crowded side, nearest-vertical first.
+      const wide = showLabels && !isSemi && chartW / chartH > 1.3;
+      const NEAR_VERTICAL = 0.26;          // |cos| < 0.26 ≈ within 15° of vertical
+      if (wide) {
+        const count = side => items.filter(it => it.side === side).length;
+        items.filter(it => Math.abs(Math.cos(it.d._midA)) < NEAR_VERTICAL)
+          .sort((a, b) => Math.abs(Math.cos(a.d._midA)) - Math.abs(Math.cos(b.d._midA)))
+          .forEach(it => {
+            const to = it.side === 'right' ? 'left' : 'right';
+            if (count(it.side) - count(to) >= 2) { it.side = to; it.moved = true; }
+          });
+      }
+
+      // Pass 1c: each column is only as wide as its own labels, so the ring
+      // sits off-centre when one side's labels run longer, and grows into the
+      // width the narrower side gives back. The whole block stays centred.
+      const needFor = side => {
+        // A moved label counts on both sides: it may still be sent back after relaxing.
+        const ws = items.filter(it => it.side === side || it.moved).map(it => it.w);
+        return ws.length
+          ? Math.max(COL_MIN, Math.min(capPadFor(labelMode), Math.max(...ws) + CONNECT_RUN))
+          : 16;
+      };
+      let leftNeed = labelColPad, rightNeed = labelColPad;
+      if (showLabels && !isSemi) {
+        leftNeed = needFor('left'); rightNeed = needFor('right');
+        outerR = Math.max(30, Math.min(heightR, (chartW - leftNeed - rightNeed) / 2, sizeCap));
+        const blockW = leftNeed + rightNeed + outerR * 2;
+        cx = chartLeft + Math.max(0, (chartW - blockW) / 2) + leftNeed + outerR;
+        innerR = innerRFor(outerR);
+        minRadius = minRadiusFor(outerR);
+      }
+
+      // Pass 1d: radius-dependent geometry + ideal label positions
+      items.forEach(it => {
+        const d = it.d, midA = d._midA, off = d._off;
         const rOut = isVariableRadius
           ? (minRadius + ((d.z || 0) / (maxZ || 1)) * (outerR - minRadius))
           : outerR;
-        const midA = (a0 + a1) / 2;
-        const off = d.sliced ? explodeDist : 0;
-        d._midA = midA; d._rOut = rOut; d._off = off; d._frac = frac;
-        d._a0 = a0; d._a1 = a1;
-
-        // clean-charts callout stub: a radial segment from r*1.08 to r*1.20.
+        d._rOut = rOut;
+        // clean-charts callout stub: a short radial segment out of the wedge.
         // The label's natural y is the OUTER end of that stub, not the wedge edge.
-        const r1 = rOut * (1 + CALLOUT_GAP) + off;
-        const r2 = rOut * (1 + CALLOUT_GAP + CALLOUT_LEN) + off;
+        const r1 = rOut + stubGap(rOut) + off;
+        const r2 = r1 + stubLen(rOut);
         d._p1 = [cx + r1 * Math.cos(midA), cy + r1 * Math.sin(midA)];
         d._p2 = [cx + r2 * Math.cos(midA), cy + r2 * Math.sin(midA)];
-        const idealY = d._p2[1];
-        const side = Math.cos(midA) >= 0 ? 'right' : 'left';
-        items.push({ d, idealY, side });
+        it.idealY = d._p2[1];
       });
 
       // Pass 2: draw wedges (BG-colored 2px separators for cutout look)
@@ -4029,8 +4630,16 @@ Charts.bar = function (container, opts) {
       if (showLabels) {
         // Fixed label columns at outer chart edges
         // Align label columns with the title/legend inner pad (titleX = 20).
-        const rightColX = W - titleX;
-        const leftColX = titleX;
+        // Columns hug the ring: ring edge + connector run + the widest label,
+        // falling back to the canvas edge only when that is closer. A ring
+        // bounded by the height therefore no longer stretches its connectors
+        // across the whole card.
+        // Room for an exploded wedge only when one is out: a click that explodes
+        // a slice re-renders, so the columns step back then, not before.
+        const explodeReach = !isSemi && items.some(it => it.d.sliced) ? explodeDist : 0;
+        const ringReach = outerR + explodeReach + 8;
+        const rightColX = Math.min(W - titleX, cx + ringReach + rightNeed);
+        const leftColX = Math.max(titleX, cx - ringReach - leftNeed);
         // Every connector uses the same short diagonal — a fixed horizontal run
         // out of the wedge — so the kinks line up across labels and the long
         // horizontal into the label column is the dominant part of the path.
@@ -4079,6 +4688,37 @@ Charts.bar = function (container, opts) {
         items.forEach(it => it.y = it.idealY);
         relax(items.filter(it => it.side === 'right'));
         relax(items.filter(it => it.side === 'left'));
+        // A moved label goes back to its own side when its connector ends up
+        // cutting the ring (its stack slid past the ring's top or bottom) or
+        // crossing a neighbour's connector on the side it moved to.
+        const clearR = outerR + explodeReach + 2;
+        const segHitsRing = ([ax, ay], [bx, by]) => {
+          const dx = bx - ax, dy = by - ay;
+          const t = Math.max(0, Math.min(1, ((cx - ax) * dx + (cy - ay) * dy) / (dx * dx + dy * dy || 1)));
+          return Math.hypot(ax + t * dx - cx, ay + t * dy - cy) < clearR;
+        };
+        const cross = (a, b, c, d) => {
+          const o = (p, q, r) => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+          return o(a, b, c) * o(a, b, d) < 0 && o(c, d, a) * o(c, d, b) < 0;
+        };
+        const connector = it => {
+          const ex = it.side === 'right' ? rightElbowX : leftElbowX;
+          const cxCol = it.side === 'right' ? rightColX : leftColX;
+          return [it.d._p1, it.d._p2, [ex, it.y], [cxCol, it.y]];
+        };
+        const segsOf = pts => pts.slice(1).map((p, k) => [pts[k], p]);
+        const reverted = items.filter(it => {
+          if (!it.moved) return false;
+          const mine = segsOf(connector(it));
+          if (segHitsRing(mine[1][0], mine[1][1])) return true;
+          return items.some(o => o !== it && o.side === it.side &&
+            segsOf(connector(o)).some(([c, d]) => mine.some(([a, b]) => cross(a, b, c, d))));
+        });
+        if (reverted.length) {
+          reverted.forEach(it => { it.side = it.side === 'right' ? 'left' : 'right'; it.moved = false; });
+          relax(items.filter(it => it.side === 'right'));
+          relax(items.filter(it => it.side === 'left'));
+        }
 
         // Draw callouts + labels
         items.forEach(it => {
@@ -4111,7 +4751,7 @@ Charts.bar = function (container, opts) {
           const lx = colX + (isRight ? -4 : 4);
           // Remember the whole label block *including* its connector run —
           // the horizontal rule is as much a thing to avoid as the text.
-          const blockW = Math.max(d.name.length, 6) * fLabel * 0.62 + 10;
+          const blockW = labelWidthFor(d.name, d.y, labelMode) * labelScale + 4;
           // The run starts at the wedge stub, kinks at the elbow and ends in
           // the label column — cover all of it, not just the text.
           const runL = Math.min(d._p2[0], elbowX, colX, isRight ? lx - blockW : lx);
@@ -4133,13 +4773,13 @@ Charts.bar = function (container, opts) {
           } else if (oneLine) {
             // Name then value share one baseline, reading outward-in on both
             // sides: the name always sits against the column edge.
-            const nameW = d.name.length * fLabel * 0.6 + 8;
+            const nameGap = nameW(d.name, fLabel) + ONE_LINE_GAP;
             txt(d.name, {
               x: lx, y: it.y +nameDY, 'text-anchor': anch,
               'font-size': fLabel, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
             }, gLabels);
             txt(valueStr, {
-              x: isRight ? lx - nameW : lx + nameW, y: it.y + valueDY,
+              x: isRight ? lx - nameGap : lx + nameGap, y: it.y + valueDY,
               'text-anchor': anch,
               'font-size': fValue, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT
             }, gLabels);
@@ -4242,15 +4882,15 @@ Charts.bar = function (container, opts) {
 
     // Tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${cssColor(BG)};border:1px solid ${cssColor(TT_BORDER)};border-radius:4px;padding:6px 8px;font:${cssNumber(F_TIP)}px ${cssFont(FONT)};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     function showTooltip(d, ev) {
       const total = data.filter(x=>x.visible).reduce((s,x)=>s+x.y, 0);
       const pct = (d.y / total * 100).toFixed(1);
       tooltip.innerHTML =
-        `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(dataName)}</div>` +
-        `<div><span style="display:inline-block;width:9px;height:9px;background:${d.color};border-radius:2px;margin-right:6px"></span>${esc(d.name)}: <b style="color:${TITLE_COL}">${esc(addCommas(d.y))}</b> (${pct}%)</div>`;
+        `<div style="font-size:${cssNumber(F_TIP)}px;font-weight:${cssNumber(VAL_FW)};color:${cssColor(TITLE_COL)};margin-bottom:2px">${esc(dataName)}</div>` +
+        `<div><span style="display:inline-block;width:9px;height:9px;background:${cssColor(d.color)};border-radius:2px;margin-right:6px"></span>${esc(d.name)}: <b style="color:${cssColor(TITLE_COL)}">${esc(addCommas(d.y))}</b> (${pct}%)</div>`;
       tooltip.style.display = 'block';
       const rect = svg.getBoundingClientRect();
       const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
@@ -4264,7 +4904,7 @@ Charts.bar = function (container, opts) {
     }
     function hideTooltip() { tooltip.style.display = 'none'; }
 
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const target = ev.target;
       if (target && target.classList && target.classList.contains('slice')) {
         const idx = +target.getAttribute('data-idx');
@@ -4278,12 +4918,12 @@ Charts.bar = function (container, opts) {
         hideTooltip();
       }
     });
-    svg.addEventListener('mouseleave', () => {
+    life.on(svg, 'mouseleave', () => {
       data.forEach(x => { if (x._node) x._node.style.opacity = '1'; });
       hideTooltip();
     });
 
-    svg.addEventListener('click', ev => {
+    life.on(svg, 'click', ev => {
       const target = ev.target;
       if (target && target.classList && target.classList.contains('slice')) {
         const idx = +target.getAttribute('data-idx');
@@ -4295,7 +4935,8 @@ Charts.bar = function (container, opts) {
     render();
     renderLegend();
 
-    return { redraw: () => { render(); renderLegend(); }, getData: () => data };
+    return chartAPI(life, {
+      opts: opts, typeName: "Donut chart", redraw: () => { render(); renderLegend(); }, getData: () => data });
   }
 
     Charts.donut = Chart;
@@ -4327,135 +4968,16 @@ Charts.pie = function (container, opts) {
  * Interactions: hover point/bubble -> enlarge + tooltip; legend toggle.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, niceTicks, wrapHeading, calloutKey, drawCallouts, NS } = window.ChartsShared;
   // clean_charts tokens
-  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, INV_TEXT, START_COL, END_COL, TREND_COL, DEFAULT_COL;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  function applyThemeColors() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    AXIS = t.axis || '#000000';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    INV_TEXT = t.inverseText || '#FFFFFF';
-    START_COL = t.gradientStart || '#000000';
-    END_COL = t.gradientEnd || '#2323FF';
-    TREND_COL = t.trend || '#2323FF';
-    DEFAULT_COL = t.defaultColor || '#000000';
-  }
-
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_POINT_LBL, SPINE_W, GRID_W;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    applyThemeColors();
-    const t = (window.Charts && window.Charts.theme) || {};
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_TICK = t.tickSize != null ? t.tickSize : 11;
-    F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
-    SPINE_W = t.axisWidth != null ? t.axisWidth : 1.8;
-    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-    // fed a computed share or a summed column, and String() renders every
-    // artefact digit. 12 significant figures sits well inside double
-    // precision, so genuine values are untouched while accumulated ~1e-15
-    // error rounds away.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
   function hex2rgb(hex) {
     const c = hex.replace('#','');
     const n = parseInt(c.length === 3 ? c.split('').map(x=>x+x).join('') : c, 16);
@@ -4479,23 +5001,6 @@ Charts.pie = function (container, opts) {
   function darken(hex, amt) {
     const [r,g,b] = hex2rgb(hex);
     return rgb2hex(r*(1-amt), g*(1-amt), b*(1-amt));
-  }
-
-  function niceTicks(min, max, count) {
-    count = count || 6;
-    if (min === max) { min -= 1; max += 1; }
-    const range = max - min;
-    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
-    const err = (count / range) * step0;
-    let step = step0;
-    if (err <= 0.15) step *= 10;
-    else if (err <= 0.35) step *= 5;
-    else if (err <= 0.75) step *= 2;
-    const lo = Math.floor(min / step) * step;
-    const hi = Math.ceil(max / step) * step;
-    const out = [];
-    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
-    return out;
   }
 
   function symbolPath(kind, cx, cy, r) {
@@ -4572,232 +5077,98 @@ Charts.pie = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, INV_TEXT, START_COL, END_COL, TREND_COL, DEFAULT_COL;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_POINT_LBL, SPINE_W, GRID_W;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      applyThemeColors();
+      const t = resolveTheme(opts);
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_TICK = t.tickSize;
+      F_POINT_LBL = t.pointLabelSize;
+      SPINE_W = t.axisWidth;
+      GRID_W = t.gridWidth;
+    }
+
+
+    function applyThemeColors() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      AXIS = t.axis;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      INV_TEXT = t.inverseText;
+      START_COL = t.gradientStart;
+      END_COL = t.gradientEnd;
+      TREND_COL = t.trend;
+      DEFAULT_COL = t.defaultColor;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 500;
@@ -4872,7 +5243,14 @@ Charts.pie = function (container, opts) {
     // Bottom needs room for x-label and tick labels
     const bottomPad = 28 + (xTitle ? 22 : 0);
 
-    const M = {
+    // Compact: a cell in something else draws no axes at all — both are
+    // numeric, so the tooltip still carries every coordinate.
+    const compact = !!chartOpts.compact;
+    const M = compact ? {
+      l: 12, r: 12,
+      t: titleBlockH + legendZone + PLOT_GAP + 4,
+      b: 8
+    } : {
       l: leftPad,
       r: marginPx,
       t: titleBlockH + legendZone + PLOT_GAP,
@@ -4882,7 +5260,7 @@ Charts.pie = function (container, opts) {
     const IH = H - M.t - M.b;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -4918,7 +5296,7 @@ Charts.pie = function (container, opts) {
         color: s.color,   // may be null → auto-assigned below
         legendColor: s.legendColor,
         type, points, marker,
-        visible: true,
+        visible: s.visible !== false,
         regression: !!s.regression,
         showLabels: s.showLabels !== false,   // labels draw only for named points
         valueSuffix: s.valueSuffix || (opts.tooltip && opts.tooltip.valueSuffix) || '',
@@ -4991,14 +5369,14 @@ Charts.pie = function (container, opts) {
       const yScale = v => M.t + IH - ((v - r.yMin) / (r.yMax - r.yMin)) * IH;
 
       // Both x AND y gridlines
-      r.yTicks.forEach(v => {
+      if (!compact) r.yTicks.forEach(v => {
         const y = yScale(v);
         el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y, stroke: GRID, 'stroke-width': GRID_W }, gGrid);
         const label = addCommas((+v.toFixed(6)).toString()) + ySuffix;
         txt(label, { x: M.l - 8, y: y + 4, 'text-anchor': 'end',
           'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL, 'font-family': FONT }, gAxes);
       });
-      r.xTicks.forEach(v => {
+      if (!compact) r.xTicks.forEach(v => {
         const x = xScale(v);
         el('line', { x1: x, x2: x, y1: M.t, y2: M.t + IH, stroke: GRID, 'stroke-width': GRID_W }, gGrid);
         const label = addCommas((+v.toFixed(6)).toString()) + xSuffix;
@@ -5007,14 +5385,14 @@ Charts.pie = function (container, opts) {
       });
 
       // Both LEFT and BOTTOM spines (dark)
-      el('line', { x1: M.l, y1: M.t, x2: M.l, y2: M.t + IH, stroke: AXIS, 'stroke-width': SPINE_W }, gAxes);
-      el('line', { x1: M.l, y1: M.t + IH, x2: M.l + IW, y2: M.t + IH, stroke: AXIS, 'stroke-width': SPINE_W }, gAxes);
+      if (!compact) el('line', { x1: M.l, y1: M.t, x2: M.l, y2: M.t + IH, stroke: AXIS, 'stroke-width': SPINE_W }, gAxes);
+      if (!compact) el('line', { x1: M.l, y1: M.t + IH, x2: M.l + IW, y2: M.t + IH, stroke: AXIS, 'stroke-width': SPINE_W }, gAxes);
 
       // X label bottom-centered
-      if (xTitle) txt(xTitle, { x: M.l + IW/2, y: H - 8, 'text-anchor': 'middle',
+      if (xTitle && !compact) txt(xTitle, { x: M.l + IW/2, y: H - 8, 'text-anchor': 'middle',
         'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
       // Y label rotated, aligned to titleX
-      if (yTitle) {
+      if (yTitle && !compact) {
         const t = txt(yTitle, { x: 0, y: 0, 'text-anchor': 'middle',
           'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gAxes);
         // Shift anchor right by ~ascent so the rotated text's visual left edge sits at titleX.
@@ -5219,16 +5597,16 @@ Charts.pie = function (container, opts) {
 
     // Tooltip
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${cssColor(BG)};border:1px solid ${cssColor(TT_BORDER)};border-radius:4px;padding:6px 8px;font:${cssNumber(F_TIP)}px ${cssFont(FONT)};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
     function showTip(s, p, ev) {
       const header = p.name || s.name;
-      let html = `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(header)}</div>`;
-      html += `<div><span style="display:inline-block;width:9px;height:9px;background:${s.color};border-radius:50%;margin-right:6px"></span>`
-        + `x: <b style="color:${TITLE_COL}">${esc(addCommas(String(p.x)))}${xSuffix}</b>, `
-        + `y: <b style="color:${TITLE_COL}">${esc(addCommas(p.y))}${ySuffix}</b>`
-        + (p.z != null ? `, z: <b style="color:${TITLE_COL}">${esc(addCommas(String(p.z)))}${s.valueSuffix}</b>` : '')
+      let html = `<div style="font-size:${cssNumber(F_TIP)}px;font-weight:${cssNumber(VAL_FW)};color:${cssColor(TITLE_COL)};margin-bottom:2px">${esc(header)}</div>`;
+      html += `<div><span style="display:inline-block;width:9px;height:9px;background:${cssColor(s.color)};border-radius:50%;margin-right:6px"></span>`
+        + `x: <b style="color:${cssColor(TITLE_COL)}">${esc(addCommas(String(p.x)) + xSuffix)}</b>, `
+        + `y: <b style="color:${cssColor(TITLE_COL)}">${esc(addCommas(p.y) + ySuffix)}</b>`
+        + (p.z != null ? `, z: <b style="color:${cssColor(TITLE_COL)}">${esc(addCommas(String(p.z)) + s.valueSuffix)}</b>` : '')
         + `</div>`;
       tooltip.innerHTML = html;
       tooltip.style.display = 'block';
@@ -5253,7 +5631,7 @@ Charts.pie = function (container, opts) {
       if (t._origSW != null) t.setAttribute('stroke-width', t._origSW);
       currentHover = null;
     }
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const target = ev.target;
       if (target && target.classList && target.classList.contains('pt')) {
         if (currentHover !== target) {
@@ -5277,7 +5655,7 @@ Charts.pie = function (container, opts) {
         hideTip();
       }
     });
-    svg.addEventListener('mouseleave', () => { clearHover(); hideTip(); });
+    life.on(svg, 'mouseleave', () => { clearHover(); hideTip(); });
 
     const _origRender = render;
     render = function () { currentHover = null; _origRender(); };
@@ -5285,10 +5663,12 @@ Charts.pie = function (container, opts) {
     render();
     renderLegend();
 
-    return {
+    return chartAPI(life, {
+      opts: opts, typeName: "Scatter chart",
       redraw: () => { render(); renderLegend(); },
+      getData: () => seriesDefs,
       getSeries: () => seriesDefs
-    };
+    });
   }
 
     Charts.scatter = Chart;
@@ -5325,147 +5705,20 @@ Charts.packedBubble = function (container, opts) {
  *    negative color, since a bar chart CAN represent them honestly
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
-    DEFAULT_COL = t.defaultColor || '#000000';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, wrapHeading, textW, truncate, dlEnabled, calloutKey, drawCallouts, NS } = window.ChartsShared;
   // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
   // an `{enabled}` object, and falls back to the engine's default when the
   // option says nothing.
-  function dlEnabled(opt, dflt) {
-    if (opt === false) return false;
-    if (opt === true) return true;
-    if (opt && opt.enabled != null) return !!opt.enabled;
-    return dflt;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-    // fed a computed share or a summed column, and String() renders every
-    // artefact digit. 12 significant figures sits well inside double
-    // precision, so genuine values are untouched while accumulated ~1e-15
-    // error rounds away.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
   // Rough advance width. The engines all estimate rather than measure so that
   // layout is decided before anything is added to the DOM.
-  function textW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
-  }
-  function truncate(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (textW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s + '…';
-  }
-
   // ---------------- main ----------------
   // ── callouts ────────────────────────────────────────────────────────────
   // A callout is an anchor dot on the mark, a leader, and a paragraph box.
@@ -5485,232 +5738,87 @@ Charts.packedBubble = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      NEG_COL = t.belowThreshold;
+      DEFAULT_COL = t.defaultColor;
+      COLORS = t.colors;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_VALUE = t.valueSize;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const plot = (opts.plotOptions && opts.plotOptions.barList) ||
@@ -5849,7 +5957,7 @@ Charts.packedBubble = function (container, opts) {
     }
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -5858,7 +5966,8 @@ Charts.packedBubble = function (container, opts) {
     subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH, 'text-anchor': 'start',
       'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
 
-    if (!n) return { getData: () => points };
+    if (!n) return chartAPI(life, {
+      opts: opts, typeName: "Bar list", getData: () => points });
 
     // ── Horizontal scale ────────────────────────────────────────────────
     // No axis means no tick rounding: the longest bar simply takes the room
@@ -5968,10 +6077,10 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${cssColor(BG)};border:1px solid ${cssColor(TT_BORDER)};border-radius:4px;padding:6px 8px;font:${cssNumber(F_TIP)}px ${cssFont(FONT)};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container.appendChild(tooltip);
 
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const target = ev.target;
       if (target && target.classList && target.classList.contains('blist-bar')) {
         const p = points.find(q => q._node === target);
@@ -5979,8 +6088,8 @@ Charts.packedBubble = function (container, opts) {
         points.forEach(q => { if (q._node) q._node.style.opacity = '1'; });
         target.style.opacity = '0.85';
         tooltip.innerHTML =
-          `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
-          `<div><span style="display:inline-block;width:9px;height:9px;background:${p.color};border-radius:2px;margin-right:6px"></span>${esc(p.name)}: <b style="color:${TITLE_COL}">${esc(fmt(p.y))}</b></div>`;
+          `<div style="font-size:${cssNumber(F_TIP)}px;font-weight:${cssNumber(VAL_FW)};color:${cssColor(TITLE_COL)};margin-bottom:2px">${esc(seriesName)}</div>` +
+          `<div><span style="display:inline-block;width:9px;height:9px;background:${cssColor(p.color)};border-radius:2px;margin-right:6px"></span>${esc(p.name)}: <b style="color:${cssColor(TITLE_COL)}">${esc(fmt(p.y))}</b></div>`;
         tooltip.style.display = 'block';
         const rect = svg.getBoundingClientRect();
         const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
@@ -5996,12 +6105,19 @@ Charts.packedBubble = function (container, opts) {
         tooltip.style.display = 'none';
       }
     });
-    svg.addEventListener('mouseleave', () => {
+    life.on(svg, 'mouseleave', () => {
       points.forEach(q => { if (q._node) q._node.style.opacity = '1'; });
       tooltip.style.display = 'none';
     });
 
-    return { getData: () => points };
+    // barList draws in one pass rather than from a render(), so a redraw is a
+    // re-run of the factory. release() first: the new pass binds its own
+    // listeners, and the old ones would otherwise fire on a discarded svg.
+    return chartAPI(life, {
+      opts: opts, typeName: "Bar list",
+      getData: () => points,
+      redraw: () => { life.release(); Chart(container, opts); }
+    });
   }
 
     Charts.barList = Chart;
@@ -6038,145 +6154,18 @@ Charts.packedBubble = function (container, opts) {
  *  - Hairline dividers between rows, never around them
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, TITLE_COL, SUB_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
-    DEFAULT_COL = t.defaultColor || '#000000';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || '#333333';
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_TICK = t.tickSize != null ? t.tickSize : 11;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, wrapHeading, textW, truncate, dlEnabled, calloutTheme, calloutKey, measureCalloutBox, drawCalloutBox, drawCalloutLeader, NS } = window.ChartsShared;
   // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
   // an `{enabled}` object, and falls back to the engine's default when the
   // option says nothing.
-  function dlEnabled(opt, dflt) {
-    if (opt === false) return false;
-    if (opt === true) return true;
-    if (opt && opt.enabled != null) return !!opt.enabled;
-    return dflt;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-    // fed a computed share or a summed column, and String() renders every
-    // artefact digit. 12 significant figures sits well inside double
-    // precision, so genuine values are untouched while accumulated ~1e-15
-    // error rounds away.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
-  function textW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
-  }
-  function truncate(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (textW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s + '…';
-  }
-
   // ---------------- main ----------------
   // ── callouts ────────────────────────────────────────────────────────────
   // A callout is an anchor dot on the mark, a leader, and a paragraph box.
@@ -6196,232 +6185,87 @@ Charts.packedBubble = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, TITLE_COL, SUB_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      SEC_COL = t.secondaryColor;
+      NEG_COL = t.belowThreshold;
+      DEFAULT_COL = t.defaultColor;
+      COLORS = t.colors;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_TICK = t.tickSize;
+      F_VALUE = t.valueSize;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     // The author's height is measured HERE, while the container is empty, and
     // not inside render(): by then this engine's own <svg> is already in the
@@ -6454,7 +6298,7 @@ Charts.packedBubble = function (container, opts) {
       // several walk the palette.
       color: s.color || (nSeriesAll === 1 ? DEFAULT_COL : COLORS[si % COLORS.length]),
       data: s.data || [],
-      visible: true
+      visible: s.visible !== false
     }));
 
     const nRows = Math.max(cats.length, ...seriesDefs.map(s => s.data.length), 0);
@@ -6602,13 +6446,13 @@ Charts.packedBubble = function (container, opts) {
 
     const container_ = container;
     const svg = el('svg', { xmlns: NS });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container_.appendChild(svg);
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${cssColor(BG)};border:1px solid ${cssColor(TT_BORDER)};border-radius:4px;padding:6px 8px;font:${cssNumber(F_TIP)}px ${cssFont(FONT)};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;`;
     container_.appendChild(tooltip);
 
     let bars = [], H = 0;
@@ -6882,17 +6726,17 @@ Charts.packedBubble = function (container, opts) {
 
     render();
 
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const target = ev.target;
       const hit = target && bars.find(b => b.node === target);
       if (hit) {
         bars.forEach(b => { b.node.style.opacity = '1'; });
         hit.node.style.opacity = '0.85';
         tooltip.innerHTML =
-          `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(hit.row.label)}</div>` +
-          `<div><span style="display:inline-block;width:9px;height:9px;background:${hit.color};border-radius:2px;margin-right:6px"></span>${esc(hit.series.name)}: <b style="color:${TITLE_COL}">${esc(fmt(hit.value))}</b></div>` +
+          `<div style="font-size:${cssNumber(F_TIP)}px;font-weight:${cssNumber(VAL_FW)};color:${cssColor(TITLE_COL)};margin-bottom:2px">${esc(hit.row.label)}</div>` +
+          `<div><span style="display:inline-block;width:9px;height:9px;background:${cssColor(hit.color)};border-radius:2px;margin-right:6px"></span>${esc(hit.series.name)}: <b style="color:${cssColor(TITLE_COL)}">${esc(fmt(hit.value))}</b></div>` +
           (hit.row.stat != null && hit.row.stat !== ''
-            ? `<div style="color:${SEC_COL};margin-top:2px">${esc(hit.row.insight || 'Change')}: <b style="color:${TITLE_COL}">${esc(hit.row.stat)}</b></div>` : '');
+            ? `<div style="color:${cssColor(SEC_COL)};margin-top:2px">${esc(hit.row.insight || 'Change')}: <b style="color:${cssColor(TITLE_COL)}">${esc(hit.row.stat)}</b></div>` : '');
         tooltip.style.display = 'block';
         const rect = svg.getBoundingClientRect();
         const cx = ev.clientX - rect.left, cy = ev.clientY - rect.top;
@@ -6908,12 +6752,13 @@ Charts.packedBubble = function (container, opts) {
         tooltip.style.display = 'none';
       }
     });
-    svg.addEventListener('mouseleave', () => {
+    life.on(svg, 'mouseleave', () => {
       bars.forEach(b => { b.node.style.opacity = '1'; });
       tooltip.style.display = 'none';
     });
 
-    return { getData: () => rows, redraw: render };
+    return chartAPI(life, {
+      opts: opts, typeName: "Bar insight table", getData: () => rows, redraw: render });
   }
 
     Charts.barInsightTable = Chart;
@@ -6953,120 +6798,14 @@ Charts.packedBubble = function (container, opts) {
  * clamped to zero — the same honesty rule the donut engine applies.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, DEFAULT_COL, COLORS, GRID;
-  let CAT_COL, CAT_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    DEFAULT_COL = t.defaultColor || '#000000';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, _clipLine, wrapHeading, calloutKey, measureCalloutBox, drawCallouts, NS } = window.ChartsShared;
   // ── Text estimation / wrapping (same approach as the other engines:
   // widths are estimated, not measured, so layout is settled before
   // anything reaches the DOM) ──────────────────────────────────────────
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-    // fed a computed share or a summed column, and String() renders every
-    // artefact digit. 12 significant figures sits well inside double
-    // precision, so genuine values are untouched while accumulated ~1e-15
-    // error rounds away.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
-
   // ---------------- main ----------------
   // ── callouts ────────────────────────────────────────────────────────────
   // A callout is an anchor dot on the mark, a leader, and a paragraph box.
@@ -7086,232 +6825,82 @@ Charts.packedBubble = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      DEFAULT_COL = t.defaultColor;
+      COLORS = t.colors;
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const plot = (opts.plotOptions && opts.plotOptions.waffle) ||
@@ -7359,7 +6948,11 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Headings ────────────────────────────────────────────────────────
     const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
-    const titleX = HEAD_X;
+    // Compact: a cell in something else. A hairline of margin, a stat sized
+    // like the table's own KPIs rather than a poster's, and no name under a
+    // lone panel — the column header already says it. The grid takes the rest.
+    const compact = !!(opts.chart && opts.chart.compact);
+    const titleX = compact ? 4 : HEAD_X;
     const titleLines = hasTitle ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
     const subY0 = HEAD_TOP + F_TITLE
@@ -7375,19 +6968,20 @@ Charts.packedBubble = function (container, opts) {
     if (!n) {
       const svg0 = el('svg', { xmlns: NS, width: W, height: titleBlockH,
         viewBox: `0 0 ${W} ${titleBlockH}` });
-      svg0.style.background = BG; svg0.style.display = 'block';
+      svg0.style.background = window.ChartsShared.canvasColor(opts, BG); svg0.style.display = 'block';
       container.appendChild(svg0);
       titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
         'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg0));
       subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH,
         'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg0));
-      return { getData: () => points };
+      return chartAPI(life, {
+      opts: opts, typeName: "Waffle chart", getData: () => points });
     }
 
-    const marginR = 20, marginB = 18;
+    const marginR = compact ? 4 : 20, marginB = compact ? 4 : 18;
     const contentL = titleX, contentR = W - marginR;
     const panelW = (contentR - contentL) / n;
-    const panelPad = plot.panelPadding != null ? plot.panelPadding : 22;
+    const panelPad = plot.panelPadding != null ? plot.panelPadding : (compact ? 4 : 22);
     const innerW = Math.max(40, panelW - panelPad * 2);
 
     const gapRatio = plot.dotGap != null ? plot.dotGap : 0.42;  // gap as a share of dot size
@@ -7397,13 +6991,14 @@ Charts.packedBubble = function (container, opts) {
     let gridW = gridCols * dot + (gridCols - 1) * gap;
     let gridH = gridRows * dot + (gridRows - 1) * gap;
 
-    const F_STAT = plot.statSize != null ? plot.statSize : 34;
+    const F_STAT = plot.statSize != null ? plot.statSize : (compact ? Math.round(F_TITLE * 1.5) : 34);
     const F_NAME = plot.nameSize != null ? plot.nameSize : F_LABEL + 1;
     const F_DESC = plot.descriptionSize != null ? plot.descriptionSize : F_LABEL;
     const DESC_LH = Math.round(F_DESC * 1.42);
 
     const statH = F_STAT + 14;
-    const nameH = F_NAME + 16;
+    const hideName = compact && points.length === 1 && plot.showName !== true;
+    const nameH = hideName ? 0 : F_NAME + 16;
     // Every panel gets the same body height so the dividers and the label
     // baselines line up across the row, however uneven the copy is.
     const descLinesPer = points.map(p => p.description
@@ -7428,7 +7023,7 @@ Charts.packedBubble = function (container, opts) {
     const containerH = container.clientHeight;
     const fixedH = (plot.autoHeight !== true && containerH > 0) ? containerH : 0;
     if (fixedH) {
-      const chrome = titleBlockH + PLOT_GAP + statH + 14 + nameH + descH + marginB;
+      const chrome = titleBlockH + PLOT_GAP + statH + (hideName ? 0 : 14) + nameH + descH + marginB;
       const hBudget = fixedH - chrome - (function () {
         let band = 0;
         (opts.callouts || []).forEach(co => {
@@ -7450,7 +7045,7 @@ Charts.packedBubble = function (container, opts) {
       }
     }
 
-    const bodyH = statH + gridH + 14 + nameH + descH;
+    const bodyH = statH + gridH + (hideName ? 0 : 14) + nameH + descH;
     // A waffle panel is a solid block — big number, dot grid, name, note — with
     // no slack anywhere inside it. So the notes get their own band above the
     // panels, and the chart simply grows to hold it.
@@ -7471,7 +7066,7 @@ Charts.packedBubble = function (container, opts) {
     else { container.style.height = H + 'px'; container.dataset.chartsGrew = '1'; }
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -7539,7 +7134,7 @@ Charts.packedBubble = function (container, opts) {
       // Label, then the description under it — the same category → detail
       // hierarchy the other engines use (semibold dark name, quiet body).
       const nameY = gridTop + gridH + 14 + F_NAME;
-      txt(_clipLine(p.name, F_NAME, panelW - 8, true), {
+      if (!hideName) txt(_clipLine(p.name, F_NAME, panelW - 8, true), {
         x: cx, y: nameY, 'text-anchor': 'middle',
         'font-size': F_NAME, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT
       }, g);
@@ -7576,14 +7171,14 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${BG};border:1px solid ${TT_BORDER};border-radius:4px;padding:6px 8px;font:${F_TIP}px ${FONT};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;max-width:260px;white-space:normal;z-index:10;`;
+    tooltip.style.cssText = `position:absolute;pointer-events:none;background:${cssColor(BG)};border:1px solid ${cssColor(TT_BORDER)};border-radius:4px;padding:6px 8px;font:${cssNumber(F_TIP)}px ${cssFont(FONT)};box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;max-width:260px;white-space:normal;z-index:10;`;
     container.appendChild(tooltip);
 
     function clearHL() {
       points.forEach(q => q._dots.forEach(d => { d.style.opacity = ''; }));
     }
 
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const target = ev.target;
       const isPanel = target && target.classList &&
         (target.classList.contains('waffle-hit') || target.classList.contains('waffle-dot'));
@@ -7594,9 +7189,9 @@ Charts.packedBubble = function (container, opts) {
       clearHL();
       points.forEach(q => { if (q !== p) q._dots.forEach(d => { d.style.opacity = '0.45'; }); });
       tooltip.innerHTML =
-        `<div style="font-size:${F_TIP}px;font-weight:${VAL_FW};color:${TITLE_COL};margin-bottom:2px">${esc(seriesName)}</div>` +
-        `<div><span style="display:inline-block;width:9px;height:9px;background:${p.color};border-radius:50%;margin-right:6px"></span>${esc(p.name)}: <b style="color:${TITLE_COL}">${esc(fmt(p.y))}</b></div>` +
-        (p.description ? `<div style="margin-top:3px;color:${LABEL_COL}">${esc(p.description)}</div>` : '');
+        `<div style="font-size:${cssNumber(F_TIP)}px;font-weight:${cssNumber(VAL_FW)};color:${cssColor(TITLE_COL)};margin-bottom:2px">${esc(seriesName)}</div>` +
+        `<div><span style="display:inline-block;width:9px;height:9px;background:${cssColor(p.color)};border-radius:50%;margin-right:6px"></span>${esc(p.name)}: <b style="color:${cssColor(TITLE_COL)}">${esc(fmt(p.y))}</b></div>` +
+        (p.description ? `<div style="margin-top:3px;color:${cssColor(LABEL_COL)}">${esc(p.description)}</div>` : '');
       tooltip.style.display = 'block';
       const rect = svg.getBoundingClientRect();
       const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
@@ -7609,9 +7204,13 @@ Charts.packedBubble = function (container, opts) {
       tooltip.style.left = tx + 'px';
       tooltip.style.top = ty + 'px';
     });
-    svg.addEventListener('mouseleave', () => { clearHL(); tooltip.style.display = 'none'; });
+    life.on(svg, 'mouseleave', () => { clearHL(); tooltip.style.display = 'none'; });
 
-    return { getData: () => points };
+    return chartAPI(life, {
+      opts: opts, typeName: "Waffle chart",
+      getData: () => points,
+      redraw: () => { life.release(); Chart(container, opts); }
+    });
   }
 
     Charts.waffle = Chart;
@@ -7642,111 +7241,15 @@ Charts.packedBubble = function (container, opts) {
  * Interactions: hover tile → highlight + tooltip.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, START_COL, END_COL, INV_COL;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_CODE, F_VALUE;
-  let TT_BORDER, DIM_COL, HOVER_INK, TILE_COL, TILE_TRACK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    TILE_COL = t.tileSurface || '#eae8e4';
-    TILE_TRACK = t.tileTrack || '#f4f3f0';
-    BG = t.bg || '#f4f3f0';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    START_COL = t.gradientStart || '#000000';
-    END_COL = t.gradientEnd || '#2323FF';
-    INV_COL = t.inverseText || '#FFFFFF';
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_CODE = t.pointLabelSize != null ? t.pointLabelSize : 10;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, wrapHeading, calloutKey, drawCallouts, NS } = window.ChartsShared;
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
   function hex2rgb(hex) {
     const c = hex.replace('#', '');
     const n = parseInt(c.length === 3 ? c.split('').map(x => x + x).join('') : c, 16);
@@ -7806,232 +7309,84 @@ Charts.packedBubble = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, START_COL, END_COL, INV_COL;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_CODE, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK, TILE_COL, TILE_TRACK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      TILE_COL = t.tileSurface;
+      TILE_TRACK = t.tileTrack;
+      BG = t.bg;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      START_COL = t.gradientStart;
+      END_COL = t.gradientEnd;
+      INV_COL = t.inverseText;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_CODE = t.pointLabelSize;
+      F_VALUE = t.valueSize;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 500;
@@ -8089,7 +7444,7 @@ Charts.packedBubble = function (container, opts) {
                       + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -8154,8 +7509,8 @@ Charts.packedBubble = function (container, opts) {
       style: 'display:none;pointer-events:none' }, svg);
 
     const tip = document.createElement('div');
-    tip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
-      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' + F_TIP + 'px ' + FONT +
+    tip.style.cssText = 'position:absolute;pointer-events:none;background:' + cssColor(BG) +
+      ';border:1px solid ' + cssColor(TT_BORDER) + ';border-radius:4px;padding:6px 8px;font:' + cssNumber(F_TIP) + 'px ' + cssFont(FONT) +
       ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
     container.appendChild(tip);
 
@@ -8281,10 +7636,10 @@ Charts.packedBubble = function (container, opts) {
       const entry = { code: g.code, name: rec.name || g.name || g.code, value: v, grp, x, y };
       cells.push(entry);
 
-      const tipHtml = '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
+      const tipHtml = '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + cssColor(TITLE_COL) +
         ';margin-bottom:2px">' + esc(entry.name) + '</div>' +
-        '<div style="color:' + LABEL_COL + '">' + esc(seriesName) + ': ' +
-        '<b style="color:' + TITLE_COL + '">' + esc(valueText) + '</b></div>';
+        '<div style="color:' + cssColor(LABEL_COL) + '">' + esc(seriesName) + ': ' +
+        '<b style="color:' + cssColor(TITLE_COL) + '">' + esc(valueText) + '</b></div>';
 
       function enter(evt) {
         mark.style.opacity = '0.85';
@@ -8315,7 +7670,9 @@ Charts.packedBubble = function (container, opts) {
         { mode: 'auto', obstacles: tileRects });
     })();
 
-    return { getData: () => cells, redraw: () => Chart(container, opts) };
+    return chartAPI(life, {
+      opts: opts, typeName: "Geographic small multiples", getData: () => cells,
+      redraw: () => { life.release(); Chart(container, opts); } });
   }
 
   Chart.grids = { us: US_GRID };
@@ -8342,171 +7699,22 @@ Charts.packedBubble = function (container, opts) {
  * legend key → toggle the series.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, niceTicks, wrapHeading, calloutKey, drawCallouts, NS } = window.ChartsShared;
   // --- theme tokens (populated from window.Charts.theme at render time) ---
-  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, HIGHLIGHT, CALLOUT_C, INV_TEXT, COLORS;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
-  let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_POINT_LBL, F_NOTICE, F_VALUE;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    AXIS = t.axis || '#000000';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    HIGHLIGHT = t.highlight || '#243E63';
-    CALLOUT_C = t.callout || '#B31B38';
-    INV_TEXT = t.inverseText || '#FFFFFF';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    F_POINT_LBL = t.pointLabelSize != null ? t.pointLabelSize : 10;
-    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_TICK = t.tickSize != null ? t.tickSize : 11;
-    F_INLINE = t.inlineSize != null ? t.inlineSize : 11;
-    AXIS_W = t.axisWidth != null ? t.axisWidth : 1.8;
-    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
-    LINE_W = t.lineWidth != null ? t.lineWidth : 3;
-    TICK_L = t.tickLength != null ? t.tickLength : 6;
-    TICK_W = t.tickWidth != null ? t.tickWidth : 1.5;
-  }
-
   // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
   // an `{enabled}` object, and falls back to the engine's default when the
   // option says nothing.
-  function dlEnabled(opt, dflt) {
-    if (opt === false) return false;
-    if (opt === true) return true;
-    if (opt && opt.enabled != null) return !!opt.enabled;
-    return dflt;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function niceTicks(min, max, count) {
-    count = count || 5;
-    if (min === max) { min -= 1; max += 1; }
-    const range = max - min;
-    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
-    const err = (count / range) * step0;
-    let step = step0;
-    if (err <= 0.15) step *= 10;
-    else if (err <= 0.35) step *= 5;
-    else if (err <= 0.75) step *= 2;
-    const lo = Math.floor(min / step) * step;
-    const hi = Math.ceil(max / step) * step;
-    const out = [];
-    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
-    return out;
-  }
-
   // The outer ring is the value axis' frame, drawn at the spine weight the
   // cartesian engines give their axis line so a radar in a grid reads at the
   // same ink level as its neighbours.
-  let SPINE_W;
-  function applyRadarTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    SPINE_W = t.spineWidth != null ? t.spineWidth : 1.1;
-  }
-
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26.
-    // Same 12-significant-figure cut-off every other engine uses.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
-
   // A point may be a bare number, [name, y] or {y}. The NAME on a point is
   // ignored on purpose: the axes come from xAxis.categories and are shared by
   // every series, so a per-series name here would describe an axis that only
@@ -8518,43 +7726,6 @@ Charts.packedBubble = function (container, opts) {
   // Refusal panel: drawn in place of the chart when the options describe
   // something a radar cannot honestly show. Returns the same stub API
   // shape as Chart() so callers do not blow up on .redraw().
-  function errorChart(container, W, H, opts, headline, detail) {
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn('[charts-lib radar] ' + headline + ' ' + detail);
-    }
-    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
-    svg.style.background = BG;
-    svg.style.display = 'block';
-    container.appendChild(svg);
-    let y = 34;
-    if (opts.title) {
-      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
-        txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
-          'font-family': FONT }, svg);
-        y += TITLE_LH;
-      });
-      y += 10;
-    }
-    const cy = Math.max(y + 20, H / 2 - 10);
-    // The detail sits below however many lines the headline actually took: at a
-    // fixed 26px it lands on top of the second line whenever the headline wraps,
-    // which is exactly when the message is longest and most needed. The wrap is
-    // measured at F_NOTICE too - it was measuring at a hardcoded 13 and drawing
-    // at the token, so a themed noticeSize wrapped to the wrong width.
-    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
-    headLines.forEach((l, i) => {
-      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
-        fill: TITLE_COL, 'font-family': FONT }, svg);
-    });
-    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
-      txt(l, { x: 20, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
-        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
-    });
-    return {
-      redraw() {}, addPoint() {}, shift() {}, getSeries() { return []; },
-      error: headline
-    };
-  }
   // ── callouts ────────────────────────────────────────────────────────────
   // A callout is an anchor dot on the mark, a leader, and a paragraph box.
   // The block is shared by every engine (each is its own IIFE) so a note reads
@@ -8573,253 +7744,149 @@ Charts.packedBubble = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'near') {
-        // Stack the box straight above (or below) the anchor and reach it with
-        // a vertical elbow. On a line chart every direction looks "free" until
-        // the leader is drawn, and a diagonal leader across a trend reads as
-        // another data mark; a vertical stem never does. Lateral nudges are a
-        // last resort, so a note stays over the point it names.
-        const NEAR_MIN = 26, NEAR_MAX = 190;
-        for (let d = NEAR_MIN; d <= NEAR_MAX && bestCost > 0; d += 12) {
-          consider(it.x - box.w / 2, it.y - d - box.h, d * 0.6, 'above');
-          consider(it.x - box.w / 2, it.y + d, d * 0.6 + 30, 'below');
-        }
-        for (let k = 1; k <= 4 && bestCost > 0; k++) {
-          const dx = k * 26;
-          for (let d = NEAR_MIN; d <= 150 && bestCost > 0; d += 16) {
-            consider(it.x - box.w / 2 + dx, it.y - d - box.h, d * 0.6 + dx * 1.4, 'above');
-            consider(it.x - box.w / 2 - dx, it.y - d - box.h, d * 0.6 + dx * 1.4, 'above');
-            consider(it.x - box.w / 2 + dx, it.y + d, d * 0.6 + dx * 1.4 + 30, 'below');
-            consider(it.x - box.w / 2 - dx, it.y + d, d * 0.6 + dx * 1.4 + 30, 'below');
-          }
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = (mode === 'near') ? 'above' : 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, HIGHLIGHT, CALLOUT_C, INV_TEXT, COLORS;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_INLINE;
+  let AXIS_W, GRID_W, LINE_W, TICK_L, TICK_W;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_POINT_LBL, F_NOTICE, F_VALUE;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+  let SPINE_W;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      AXIS = t.axis;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      HIGHLIGHT = t.highlight;
+      CALLOUT_C = t.callout;
+      INV_TEXT = t.inverseText;
+      COLORS = t.colors;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      F_POINT_LBL = t.pointLabelSize;
+      F_NOTICE = t.noticeSize;
+      F_VALUE = t.valueSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_TICK = t.tickSize;
+      F_INLINE = t.inlineSize;
+      AXIS_W = t.axisWidth;
+      GRID_W = t.gridWidth;
+      LINE_W = t.lineWidth;
+      TICK_L = t.tickLength;
+      TICK_W = t.tickWidth;
+    }
+
+
+    function applyRadarTheme() {
+      const t = resolveTheme(opts);
+      SPINE_W = t.spineWidth;
+    }
+
+
+    function errorChart(container, W, H, opts, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib radar] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: `0 0 ${W} ${H}` });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: 20, y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
+            'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      // The detail sits below however many lines the headline actually took: at a
+      // fixed 26px it lands on top of the second line whenever the headline wraps,
+      // which is exactly when the message is longest and most needed. The wrap is
+      // measured at F_NOTICE too - it was measuring at a hardcoded 13 and drawing
+      // at the token, so a themed noticeSize wrapped to the wrong width.
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+          fill: TITLE_COL, 'font-family': FONT }, svg);
+      });
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+        txt(l, { x: 20, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+          'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+      });
+      // Mirrors the real radar API: a refused chart must not advertise methods
+      // the drawn one lacks, or feature-detection on the handle lies.
+      return chartAPI(createLifecycle(container), {
+      opts: opts, typeName: "Radar chart",
+        getData: () => [], getSeries: () => [],
+        extras: { error: headline }
+      });
+    }
     applyTheme();
     applyRadarTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 500;
@@ -8869,7 +7936,8 @@ Charts.packedBubble = function (container, opts) {
       const values = cats.map((_, ci) => pointY((s.data || [])[ci]));
       return {
         name: s.name || 'Series ' + (i + 1),
-        color: color, legendColor: s.legendColor, values: values, visible: true,
+        color: color, legendColor: s.legendColor, values: values,
+        visible: s.visible !== false,
         fillOpacity: s.fillOpacity != null ? s.fillOpacity
           : (plotOpts.fillOpacity != null ? plotOpts.fillOpacity : 0.16),
         lineWidth: s.lineWidth != null ? s.lineWidth : Math.max(1.5, LINE_W - 1),
@@ -8989,7 +8057,7 @@ Charts.packedBubble = function (container, opts) {
     }
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -9152,18 +8220,18 @@ Charts.packedBubble = function (container, opts) {
     }
 
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
-      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' +
-      F_TIP + 'px ' + FONT + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + cssColor(BG) +
+      ';border:1px solid ' + cssColor(TT_BORDER) + ';border-radius:4px;padding:6px 8px;font:' +
+      cssNumber(F_TIP) + 'px ' + cssFont(FONT) + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
     container.appendChild(tooltip);
 
     function showTooltip(idx, ev) {
       const rows = seriesDefs.filter(s => s.visible).map(s =>
-        '<div><span style="display:inline-block;width:9px;height:9px;background:' + s.color +
+        '<div><span style="display:inline-block;width:9px;height:9px;background:' + cssColor(s.color) +
         ';border-radius:2px;margin-right:6px"></span>' + esc(s.name) +
-        ': <b style="color:' + TITLE_COL + '">' + esc(fmt(s.values[idx], s)) + '</b></div>').join('');
+        ': <b style="color:' + cssColor(TITLE_COL) + '">' + esc(fmt(s.values[idx], s)) + '</b></div>').join('');
       tooltip.innerHTML =
-        '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
+        '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + cssColor(TITLE_COL) +
         ';margin-bottom:2px">' + esc(cats[idx]) + '</div>' + rows;
       tooltip.style.display = 'block';
       const rect = svg.getBoundingClientRect();
@@ -9177,7 +8245,7 @@ Charts.packedBubble = function (container, opts) {
       tooltip.style.top = ty + 'px';
     }
 
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const rect = svg.getBoundingClientRect();
       const dx = ev.clientX - rect.left - cx, dy = ev.clientY - rect.top - cy;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -9194,7 +8262,7 @@ Charts.packedBubble = function (container, opts) {
       if (idx !== hoverIdx) { hoverIdx = idx; renderHover(); }
       showTooltip(idx, ev);
     });
-    svg.addEventListener('mouseleave', () => {
+    life.on(svg, 'mouseleave', () => {
       hoverIdx = -1; renderHover();
       tooltip.style.display = 'none';
     });
@@ -9265,10 +8333,12 @@ Charts.packedBubble = function (container, opts) {
     render();
     renderLegend();
 
-    return {
+    return chartAPI(life, {
+      opts: opts, typeName: "Radar chart",
       redraw: () => { render(); renderLegend(); },
-      getSeries() { return seriesDefs; }
-    };
+      getData: () => seriesDefs,
+      getSeries: () => seriesDefs
+    });
   }
 
     Charts.radar = Chart;
@@ -9303,147 +8373,20 @@ Charts.packedBubble = function (container, opts) {
  * Charts.bar, grouped), each with a panel naming the chart that does fit.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
-    DEFAULT_COL = t.defaultColor || '#000000';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, niceTicks, wrapHeading, textW, ellipsize, wrapAxisLabel, dlEnabled, calloutTheme, calloutKey, drawCallouts, NS } = window.ChartsShared;
   // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
   // an `{enabled}` object, and falls back to the engine's default when the
   // option says nothing.
-  function dlEnabled(opt, dflt) {
-    if (opt === false) return false;
-    if (opt === true) return true;
-    if (opt && opt.enabled != null) return !!opt.enabled;
-    return dflt;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-    // fed a computed share or a summed column, and String() renders every
-    // artefact digit. 12 significant figures sits well inside double
-    // precision, so genuine values are untouched while accumulated ~1e-15
-    // error rounds away.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
   // Rough advance width. The engines all estimate rather than measure so that
   // layout is decided before anything is added to the DOM.
-  function textW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
-  }
-  function truncate(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (textW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s + '…';
-  }
-
   // ---------------- main ----------------
   // ── callouts ────────────────────────────────────────────────────────────
   // A callout is an anchor dot on the mark, a leader, and a paragraph box.
@@ -9463,260 +8406,20 @@ Charts.packedBubble = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   // ── Tokens this engine needs beyond the shared block ────────────────
   // (the prelude above is the same in every engine; these are the value-axis
   // and direction roles a dumbbell uses and a bar list has no need of)
-  let AXIS_COL, GRID_W, SPINE_W, F_TICK, F_NOTICE, MUTED, ABOVE_COL, BELOW_COL;
-  function applyExtraTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    AXIS_COL = t.axis || '#000000';
-    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
-    SPINE_W = t.spineWidth != null ? t.spineWidth : 1.1;
-    F_TICK = t.tickSize != null ? t.tickSize : 11;
-    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
-    MUTED = t.muted || '#8f8d87';
-    ABOVE_COL = t.aboveThreshold || t.positive || '#2323FF';
-    BELOW_COL = t.belowThreshold || t.negative || '#9a0060';
-  }
-
-  function ellipsize(s, maxChars) {
-    s = String(s);
-    return s.length <= maxChars ? s : s.slice(0, Math.max(1, maxChars - 1)) + '…';
-  }
   // Word wrap into at most `lines` lines, split where the longest line comes
   // out shortest — a balanced wrap fits a narrow slot that a greedy one misses.
-  function wrapAxisLabel(label, lines) {
-    const s = String(label);
-    const words = s.split(/\s+/);
-    if (lines < 2 || words.length <= 1) return [s];
-    let best = null;
-    for (let k = 1; k < words.length; k++) {
-      const a = words.slice(0, k).join(' '), b = words.slice(k).join(' ');
-      const score = Math.max(a.length, b.length);
-      if (!best || score < best.score) best = { score, out: [a, b] };
-    }
-    if (lines <= 2 || words.length === 2) return best.out;
-    return [best.out[0]].concat(wrapAxisLabel(best.out[1], lines - 1));
-  }
-
   // Row labels in the left gutter. Each category owns a row, so nothing is
   // ever dropped: a label that outgrows the gutter wraps onto a second line
   // whenever the row is tall enough for one, and only what still does not fit
@@ -9749,59 +8452,9 @@ Charts.packedBubble = function (container, opts) {
       Math.max(a, lns.reduce((b, l) => Math.max(b, l.length), 0)), 0) * 0.62 * rl.font;
   }
 
-  function niceTicks(min, max, count) {
-    count = count || 5;
-    if (min === max) { min -= 1; max += 1; }
-    const range = max - min;
-    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
-    const err = (count / range) * step0;
-    let step = step0;
-    if (err <= 0.15) step *= 10;
-    else if (err <= 0.35) step *= 5;
-    else if (err <= 0.75) step *= 2;
-    const lo = Math.floor(min / step) * step;
-    const hi = Math.ceil(max / step) * step;
-    const out = [];
-    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
-    return out;
-  }
-
   // Refusal panel: drawn in place of the chart when the options describe
   // something a dumbbell cannot honestly show. Returns the same stub API shape
   // as Chart() so callers do not blow up on .redraw().
-  function errorChart(container, W, H, opts, headline, detail) {
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn('[charts-lib dumbbell] ' + headline + ' ' + detail);
-    }
-    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
-    svg.style.background = BG;
-    svg.style.display = 'block';
-    container.appendChild(svg);
-    let y = 34;
-    if (opts.title) {
-      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
-        txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
-          'font-family': FONT }, svg);
-        y += TITLE_LH;
-      });
-      y += 10;
-    }
-    const cy = Math.max(y + 20, H / 2 - 10);
-    // The detail sits below however many lines the headline actually took: at a
-    // fixed 26px it lands on top of the second line whenever the headline wraps,
-    // which is exactly when the message is longest and most needed.
-    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
-    headLines.forEach((l, i) => {
-      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
-        fill: TITLE_COL, 'font-family': FONT }, svg);
-    });
-    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
-      txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
-        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
-    });
-    return { redraw: function () {}, getData: function () { return []; }, error: headline };
-  }
-
   // Normalise one series' data to [{name, y}], accepting the same shapes as
   // every other engine: [{name,y}], [name, y] pairs, or bare numbers.
   function readSeries(series, cats) {
@@ -9816,14 +8469,130 @@ Charts.packedBubble = function (container, opts) {
   }
 
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+  let AXIS_COL, GRID_W, SPINE_W, F_TICK, F_NOTICE, MUTED, ABOVE_COL, BELOW_COL;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      NEG_COL = t.belowThreshold;
+      DEFAULT_COL = t.defaultColor;
+      COLORS = t.colors;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_VALUE = t.valueSize;
+    }
+
+
+    function applyExtraTheme() {
+      const t = resolveTheme(opts);
+      AXIS_COL = t.axis;
+      GRID_W = t.gridWidth;
+      SPINE_W = t.spineWidth;
+      F_TICK = t.tickSize;
+      F_NOTICE = t.noticeSize;
+      MUTED = t.muted;
+      ABOVE_COL = t.aboveThreshold;
+      BELOW_COL = t.belowThreshold;
+    }
+
+
+    function errorChart(container, W, H, opts, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib dumbbell] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL,
+            'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      // The detail sits below however many lines the headline actually took: at a
+      // fixed 26px it lands on top of the second line whenever the headline wraps,
+      // which is exactly when the message is longest and most needed.
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+          fill: TITLE_COL, 'font-family': FONT }, svg);
+      });
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+          'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+      });
+      return chartAPI(createLifecycle(container), {
+      opts: opts, typeName: "Dumbbell chart",
+        getData: function () { return []; },
+        extras: { error: headline }
+      });
+    }
+
     applyTheme();
     applyExtraTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H0 = container.clientHeight || 400;
@@ -9885,7 +8654,13 @@ Charts.packedBubble = function (container, opts) {
                       : (yAxis.suffix != null ? yAxis.suffix : '');
     const valuePrefix = plot.valuePrefix != null ? plot.valuePrefix : '';
     const showValues = dlEnabled(plot.dataLabels, true);
-    const showDelta = plot.showDelta !== false;
+    // Compact: the chart is a cell in something else (a reportTable row). It
+    // draws no value axis, keeps only a hairline of margin, drops the change
+    // column unless asked for (a table usually carries the change in a column
+    // of its own), and drops a lone row's label, which only repeats the
+    // column header. Every pixel that frees goes to the track.
+    const compact = !!(opts.chart && opts.chart.compact);
+    const showDelta = plot.showDelta != null ? plot.showDelta !== false : !compact;
     const deltaAsPercent = plot.deltaFormat === 'percent';
     const deltaColorBySign = plot.deltaColorBySign !== false;
     const connectorBySign = plot.connectorBySign === true;
@@ -9917,7 +8692,7 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Heading ─────────────────────────────────────────────────────────
     const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
-    const titleX = HEAD_X;
+    const titleX = compact ? 4 : HEAD_X;
     const titleLines = hasTitle
       ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
     const subLines = hasSub
@@ -9949,8 +8724,8 @@ Charts.packedBubble = function (container, opts) {
     const legendZone = legendRows.length * LEG_ROW;
 
     // ── Vertical rhythm ─────────────────────────────────────────────────
-    const marginR = 20, marginB = 14;
-    const axisH = F_TICK + 12;                      // tick labels under the plot
+    const marginR = compact ? 4 : 20, marginB = compact ? 4 : 14;
+    const axisH = compact ? 0 : F_TICK + 12;        // tick labels under the plot
     const topY = titleBlockH + legendZone + PLOT_GAP;
     const rowMin = Math.max(dotSize + 4, F_LABEL * 1.2);
     let rowH = rowMin + rowGap;
@@ -9984,7 +8759,7 @@ Charts.packedBubble = function (container, opts) {
     }
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -10050,7 +8825,8 @@ Charts.packedBubble = function (container, opts) {
 
     const rowLabels = layoutRowLabels(rows.map(r => r.name),
       W * 0.34 - titleX - 10, rowH, F_LABEL);
-    const labelGutter = Math.round(rowLabelWidth(rowLabels)) + 14;
+    const hideLabels = compact && rows.length === 1 && plot.rowLabels !== true;
+    const labelGutter = hideLabels ? 0 : Math.round(rowLabelWidth(rowLabels)) + 14;
 
     const plotL = titleX + labelGutter + dotR + widestValue + valuePad;
     const plotR = rightEdge - (showDelta ? widestDelta + deltaPad : 0)
@@ -10079,7 +8855,7 @@ Charts.packedBubble = function (container, opts) {
     })();
 
     const gAxis = el('g', {}, svg);
-    visTicks.forEach(t => {
+    if (!compact) visTicks.forEach(t => {
       const x = sx(t);
       if (showGrid) el('line', { x1: x, y1: plotTop, x2: x, y2: plotBot,
         stroke: GRID, 'stroke-width': GRID_W }, gAxis);
@@ -10087,7 +8863,7 @@ Charts.packedBubble = function (container, opts) {
         'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL,
         'font-family': FONT }, gAxis);
     });
-    el('line', { x1: plotL, y1: plotBot, x2: plotL + trackW, y2: plotBot,
+    if (!compact) el('line', { x1: plotL, y1: plotBot, x2: plotL + trackW, y2: plotBot,
       stroke: AXIS_COL, 'stroke-width': SPINE_W }, gAxis);
     // A zero rule earns its keep only when the scale actually crosses zero.
     if (axMin < 0 && axMax > 0) {
@@ -10127,7 +8903,7 @@ Charts.packedBubble = function (container, opts) {
       // Row label in the left gutter, vertically centred on its own row.
       const lns = rowLabels.lines[i] || [r.name];
       const l0 = cy - (lns.length - 1) * rowLabels.lh / 2 + rowLabels.font * 0.34;
-      lns.forEach((ln, li) => txt(ln, {
+      if (!hideLabels) lns.forEach((ln, li) => txt(ln, {
         x: titleX, y: l0 + li * rowLabels.lh, 'text-anchor': 'start',
         'font-size': rowLabels.font, 'font-weight': CAT_FW, fill: CAT_COL,
         'font-family': FONT }, gText));
@@ -10222,9 +8998,9 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip (same treatment as the other engines) ───────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
-      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' +
-      F_TIP + 'px ' + FONT + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + cssColor(BG) +
+      ';border:1px solid ' + cssColor(TT_BORDER) + ';border-radius:4px;padding:6px 8px;font:' +
+      cssNumber(F_TIP) + 'px ' + cssFont(FONT) + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
     container.appendChild(tooltip);
 
     function clearHover() {
@@ -10232,7 +9008,7 @@ Charts.packedBubble = function (container, opts) {
       tooltip.style.display = 'none';
     }
 
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const target = ev.target;
       if (target && target.classList && target.classList.contains('db-row')) {
         const r = rows[+target.getAttribute('data-idx')];
@@ -10241,15 +9017,15 @@ Charts.packedBubble = function (container, opts) {
         target.setAttribute('fill', HOVER_INK);
         target.setAttribute('fill-opacity', '0.045');
         const dot = c => '<span style="display:inline-block;width:9px;height:9px;background:' +
-          c + ';border-radius:50%;margin-right:6px"></span>';
+          cssColor(c) + ';border-radius:50%;margin-right:6px"></span>';
         const dCol = deltaColorBySign
           ? (r.delta > 0 ? ABOVE_COL : r.delta < 0 ? BELOW_COL : TITLE_COL) : TITLE_COL;
         tooltip.innerHTML =
-          '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
+          '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + cssColor(TITLE_COL) +
             ';margin-bottom:3px">' + esc(r.name) + '</div>' +
-          '<div>' + dot(r.colA) + esc(nameA) + ': <b style="color:' + TITLE_COL + '">' + esc(fmt(r.a)) + '</b></div>' +
-          '<div>' + dot(r.colB) + esc(nameB) + ': <b style="color:' + TITLE_COL + '">' + esc(fmt(r.b)) + '</b></div>' +
-          '<div style="margin-top:3px;color:' + SEC_COL + '">Change: <b style="color:' + dCol + '">' +
+          '<div>' + dot(r.colA) + esc(nameA) + ': <b style="color:' + cssColor(TITLE_COL) + '">' + esc(fmt(r.a)) + '</b></div>' +
+          '<div>' + dot(r.colB) + esc(nameB) + ': <b style="color:' + cssColor(TITLE_COL) + '">' + esc(fmt(r.b)) + '</b></div>' +
+          '<div style="margin-top:3px;color:' + cssColor(SEC_COL) + '">Change: <b style="color:' + cssColor(dCol) + '">' +
             esc(deltaText(r)) + '</b></div>';
         tooltip.style.display = 'block';
         const rect = svg.getBoundingClientRect();
@@ -10263,12 +9039,13 @@ Charts.packedBubble = function (container, opts) {
         tooltip.style.top = ty + 'px';
       } else clearHover();
     });
-    svg.addEventListener('mouseleave', clearHover);
+    life.on(svg, 'mouseleave', clearHover);
 
-    return {
+    return chartAPI(life, {
+      opts: opts, typeName: "Dumbbell chart",
       getData: () => rows.map(r => ({ name: r.name, a: r.a, b: r.b, delta: r.delta })),
-      redraw: () => Chart(container, opts)
-    };
+      redraw: () => { life.release(); Chart(container, opts); }
+    });
   }
 
     Charts.dumbbell = Chart;
@@ -10311,147 +9088,20 @@ Charts.packedBubble = function (container, opts) {
  * drawn is a bar chart of counts, which is Charts.column.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
-  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
-  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
-  let TT_BORDER, DIM_COL, HOVER_INK;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  let PLOT_GAP, TOP_AXIS_BAND;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    TT_BORDER = t.tooltipBorder || '#dcdbd7';
-    DIM_COL = t.dimmed || '#c2c0ba';
-    HOVER_INK = t.hoverInk || '#000000';
-    BG = t.bg || '#f4f3f0';
-    GRID = t.grid || '#dcdbd7';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    LABEL_COL = t.labelColor || '#333333';
-    SEC_COL = t.secondaryColor || '#666666';
-    NEG_COL = t.belowThreshold || t.negative || '#9a0060';
-    DEFAULT_COL = t.defaultColor || '#000000';
-    COLORS = t.colors || ['#000000','#2323FF','#4949FF','#7070FF','#9696FF','#BCBCFF','#DDD0FF'];
-    // Shared text roles — see the hierarchy comment in theme.js.
-    CAT_COL = t.categoryColor || TITLE_COL;
-    CAT_FW = t.categoryWeight != null ? t.categoryWeight : 600;
-    TICK_COL = t.tickColor || LABEL_COL;
-    TICK_FW = t.tickWeight != null ? t.tickWeight : 400;
-    VAL_COL = t.valueColor || TITLE_COL;
-    VAL_FW = t.valueWeight != null ? t.valueWeight : 700;
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    PLOT_GAP = t.plotGap != null ? t.plotGap : 16;
-    TOP_AXIS_BAND = t.topAxisBand != null ? t.topAxisBand : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-    F_LABEL = t.labelSize != null ? t.labelSize : 11.5;
-    F_VALUE = t.valueSize != null ? t.valueSize : 11;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, niceTicks, wrapHeading, textW, dlEnabled, calloutKey, drawCallouts, NS } = window.ChartsShared;
   // Resolve a dataLabels option to a boolean. Accepts `true`/`false` directly or
   // an `{enabled}` object, and falls back to the engine's default when the
   // option says nothing.
-  function dlEnabled(opt, dflt) {
-    if (opt === false) return false;
-    if (opt === true) return true;
-    if (opt && opt.enabled != null) return !!opt.enabled;
-    return dflt;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
   // ── Heading wrapping ────────────────────────────────────────────────
   // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
   // not fit is clipped with an ellipsis. Widths are estimated (not measured)
   // so the whole layout can be decided before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
   // Heading metrics are derived in applyTheme() from the size + line-height
   // tokens, so a bigger titleSize opens up its own leading.
-  let TITLE_LH, SUB_LH;
-  function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-  function addCommas(n) {
-    // Strip binary-float noise before stringifying: 25.999999999999996 -> 26,
-    // 0.30000000000000004 -> 0.3. Values like these arrive whenever a chart is
-    // fed a computed share or a summed column, and String() renders every
-    // artefact digit. 12 significant figures sits well inside double
-    // precision, so genuine values are untouched while accumulated ~1e-15
-    // error rounds away.
-    if (typeof n === 'number' && isFinite(n)) n = +n.toPrecision(12);
-    const s = String(n);
-    const neg = s.startsWith('-') ? '-' : '';
-    const abs = neg ? s.slice(1) : s;
-    const dot = abs.indexOf('.');
-    const intPart = dot < 0 ? abs : abs.slice(0, dot);
-    const fracPart = dot < 0 ? '' : abs.slice(dot);
-    return neg + intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + fracPart;
-  }
   // Rough advance width. The engines all estimate rather than measure so that
   // layout is decided before anything is added to the DOM.
-  function textW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.60 : 0.55);
-  }
-  function truncate(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (textW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && textW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s + '…';
-  }
-
   // ---------------- main ----------------
   // ── callouts ────────────────────────────────────────────────────────────
   // A callout is an anchor dot on the mark, a leader, and a paragraph box.
@@ -10471,254 +9121,16 @@ Charts.packedBubble = function (container, opts) {
   //
   // Placement stays deterministic — candidates are tried in a fixed order —
   // so re-rendering the same data puts every box back where it was.
-  const CALLOUT_PAD = 6;          // clearance between a box and anything else
+          // clearance between a box and anything else
   const CALLOUT_LEAD = 14;        // shortest leader worth drawing
 
-  const CALLOUT_OFFSETS = [
-    [ 32, -60], [-32, -60], [ 32, -110], [-32, -110],
-    [ 60, -30], [-60, -30], [ 32,  30], [-32,  30],
-    [ 60,  30], [-60,  30], [ 32, -160], [-32, -160]
-  ];
-
-  function calloutTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    return {
-      accent: t.callout || '#B31B38',
-      size: t.calloutSize != null ? t.calloutSize : 10,
-      lh: Math.round((t.calloutSize != null ? t.calloutSize : 10)
-                     * (t.calloutLineHeight != null ? t.calloutLineHeight : 1.3)),
-      pad: t.calloutPad != null ? t.calloutPad : 8,
-      maxW: t.calloutMaxWidth != null ? t.calloutMaxWidth : 220,
-      leadW: t.calloutLeaderWidth != null ? t.calloutLeaderWidth : 1.2,
-      dotR: t.calloutAnchorRadius != null ? t.calloutAnchorRadius : 4.5,
-      text: t.labelColor || '#333333',
-      inverse: t.inverseText || '#FFFFFF',
-      bg: t.bg || '#f4f3f0'
-    };
-  }
-
-  function measureCalloutBox(text) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const w = Math.min(th.maxW,
-      Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + th.pad * 2);
-    const h = lines.length * th.lh + th.pad * 2;
-    return { w: w, h: h };
-  }
-
   // Total area of a rect that lands on top of anything it should not.
-  function calloutOverlap(r, rects) {
-    let sum = 0;
-    for (let i = 0; i < rects.length; i++) {
-      const o = rects[i];
-      const dx = Math.min(r.x + r.w + CALLOUT_PAD, o.x + o.w) - Math.max(r.x - CALLOUT_PAD, o.x);
-      const dy = Math.min(r.y + r.h + CALLOUT_PAD, o.y + o.h) - Math.max(r.y - CALLOUT_PAD, o.y);
-      if (dx > 0 && dy > 0) sum += dx * dy;
-    }
-    return sum;
-  }
-
-  function calloutInBounds(r, b) {
-    return r.x >= b.x + 2 && r.y >= b.y + 2 &&
-           r.x + r.w <= b.x + b.w - 2 && r.y + r.h <= b.y + b.h - 2;
-  }
-
-  function drawCalloutBox(g, bx, by, text, edge) {
-    const th = calloutTheme();
-    const lines = String(text).split('\n');
-    const lh = th.lh, pad = th.pad;
-    const w = Math.min(th.maxW, Math.max.apply(null, lines.map(l => l.length)) * th.size * 0.6 + pad * 2);
-    const h = lines.length * lh + pad * 2;
-    el('rect', { x: bx, y: by, width: w, height: h, rx: 6, ry: 6,
-      fill: th.bg, 'fill-opacity': 0.94, stroke: edge, 'stroke-width': 0.8 }, g);
-    lines.forEach((ln, i) => {
-      txt(ln, { x: bx + pad, y: by + pad + (i + 1) * lh - 3, 'font-size': th.size,
-        fill: th.text, 'font-family': FONT }, g);
-    });
-  }
-
   // Leader from the anchor to the box. Straight when the box sits diagonally
   // from the mark; an elbow when it sits squarely above or beside it, so the
   // line reads as a pointer rather than as another data mark.
-  function drawCalloutLeader(g, ax, ay, box, color, mode) {
-    const th = calloutTheme();
-    const midX = box.x + box.w / 2, midY = box.y + box.h / 2;
-    if (mode === 'above' || mode === 'below') {
-      const edgeY = mode === 'above' ? box.y + box.h : box.y;
-      const stem = mode === 'above' ? edgeY + 8 : edgeY - 8;
-      const cx = Math.max(box.x + 8, Math.min(box.x + box.w - 8, ax));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + ax + ' ' + stem +
-                ' L ' + cx + ' ' + stem + ' L ' + cx + ' ' + edgeY;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    if (mode === 'right' || mode === 'left') {
-      const edgeX = mode === 'right' ? box.x : box.x + box.w;
-      const stem = mode === 'right' ? edgeX - 8 : edgeX + 8;
-      const cy = Math.max(box.y + 8, Math.min(box.y + box.h - 8, ay));
-      const d = 'M ' + ax + ' ' + ay + ' L ' + stem + ' ' + ay +
-                ' L ' + stem + ' ' + cy + ' L ' + edgeX + ' ' + cy;
-      el('path', { d: d, fill: 'none', stroke: color, 'stroke-width': th.leadW,
-        'stroke-linejoin': 'round' }, g);
-      return;
-    }
-    let lx = midX, ly = midY;
-    if (ax < box.x) lx = box.x;
-    else if (ax > box.x + box.w) lx = box.x + box.w;
-    if (ay < box.y) ly = box.y;
-    else if (ay > box.y + box.h) ly = box.y + box.h;
-    el('line', { x1: ax, y1: ay, x2: lx, y2: ly, stroke: color, 'stroke-width': th.leadW }, g);
-  }
-
-  function drawCallouts(g, items, bounds, cfg) {
-    if (!items || !items.length) return;
-    cfg = cfg || {};
-    const mode = cfg.mode || 'auto';
-    const obstacles = (cfg.obstacles || []).slice();
-    const th = calloutTheme();
-    const placed = [];
-    const gutter = cfg.gutter != null ? cfg.gutter : 10;
-
-    // Sorting by the axis the band runs along keeps leaders from crossing.
-    const ordered = items.slice().sort((a, b) =>
-      (mode === 'right' || mode === 'left') ? a.y - b.y : a.x - b.x);
-
-    ordered.forEach(it => {
-      const box = measureCalloutBox(it.text);
-      const color = it.color || th.accent;
-      const blocked = obstacles.concat(placed);
-      let best = null, bestCost = Infinity, leader = mode;
-
-      const consider = (x, y, penalty, leadMode) => {
-        const r = { x: x, y: y, w: box.w, h: box.h };
-        if (!calloutInBounds(r, bounds)) return;
-        const cost = calloutOverlap(r, blocked) + (penalty || 0);
-        if (cost < bestCost) { bestCost = cost; best = r; leader = leadMode || mode; }
-      };
-
-      if (mode === 'above' || mode === 'below') {
-        // Band across the top (or bottom): the box keeps to the headroom the
-        // engine reserved, and slides sideways from the anchor until it is
-        // clear. Distance from the anchor is the tie-breaker, so a note stays
-        // over the mark it belongs to whenever the room is there.
-        const bandY = mode === 'above'
-          ? bounds.y + gutter
-          : bounds.y + bounds.h - gutter - box.h;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-          consider(it.x - box.w / 2 + dx, bandY, Math.abs(dx) * 0.5, mode);
-        }
-        // Second row under the first when the band is full.
-        if (bestCost > 0) {
-          const row2 = mode === 'above' ? bandY + box.h + CALLOUT_PAD
-                                        : bandY - box.h - CALLOUT_PAD;
-          for (let step = 0; step <= 24; step++) {
-            const dx = Math.ceil(step / 2) * 18 * (step % 2 ? 1 : -1);
-            consider(it.x - box.w / 2 + dx, row2, 400 + Math.abs(dx) * 0.5, mode);
-          }
-        }
-      } else if (mode === 'right' || mode === 'left') {
-        // Gutter past the ends of the bars, one box per row, aligned with the
-        // row it annotates.
-        const colX = mode === 'right'
-          ? bounds.x + bounds.w - gutter - box.w
-          : bounds.x + gutter;
-        for (let step = 0; step <= 24 && bestCost > 0; step++) {
-          const dy = Math.ceil(step / 2) * 14 * (step % 2 ? 1 : -1);
-          consider(colX, it.y - box.h / 2 + dy, Math.abs(dy) * 0.5, mode);
-        }
-      } else if (mode === 'radial' && cfg.center) {
-        // Push out from the middle of the ring or cluster, so the leader reads
-        // as a spoke. Straight out is preferred, but the fan of angles around
-        // it matters: a wedge pointing into a crowded side still has a clear
-        // diagonal to reach for, and a spoke 30° off still reads as a spoke.
-        const vx = it.x - cfg.center.x, vy = it.y - cfg.center.y;
-        const base = Math.atan2(vy, vx);
-        const FAN = [0, 0.44, -0.44, 0.87, -0.87, 1.31, -1.31];
-        for (let f = 0; f < FAN.length && bestCost > 0; f++) {
-          const a = base + FAN[f];
-          for (let d = 30; d <= 260 && bestCost > 0; d += 14) {
-            const px = it.x + Math.cos(a) * d, py = it.y + Math.sin(a) * d;
-            consider(px - box.w / 2, py - box.h / 2,
-              d * 0.4 + Math.abs(FAN[f]) * 90, 'auto');
-          }
-        }
-      }
-
-      // Ladder of diagonal offsets: the general fallback, and the default for
-      // charts with no obvious free direction (line, scatter).
-      if (bestCost > 0) {
-        for (let i = 0; i < CALLOUT_OFFSETS.length; i++) {
-          const ox = CALLOUT_OFFSETS[i][0], oy = CALLOUT_OFFSETS[i][1];
-          consider(ox >= 0 ? it.x + ox : it.x + ox - box.w,
-                   oy < 0 ? it.y + oy - box.h : it.y + oy,
-                   (mode === 'auto' ? 0 : 800) + i * 2, 'auto');
-        }
-      }
-
-      if (!best) {
-        // Nothing fits: clamp inside and accept the overlap rather than drop a
-        // note the author wrote.
-        best = {
-          x: Math.max(bounds.x + 2, Math.min(bounds.x + bounds.w - box.w - 2, it.x - box.w / 2)),
-          y: Math.max(bounds.y + 2, Math.min(bounds.y + bounds.h - box.h - 2, it.y - box.h - 20)),
-          w: box.w, h: box.h
-        };
-        leader = 'auto';
-      }
-      placed.push(best);
-
-      drawCalloutLeader(g, it.x, it.y, best, color, leader);
-      el('circle', { cx: it.x, cy: it.y, r: th.dotR, fill: color,
-        stroke: th.inverse, 'stroke-width': 1 }, g);
-      drawCalloutBox(g, best.x, best.y, it.text, color);
-    });
-  }
-
   // Match a callout to a named thing: `name`, `category`, `point`, `code` and
   // `label` are all accepted so the key reads naturally per chart type.
-  function calloutKey(co) {
-    const k = co.name != null ? co.name
-      : co.category != null ? co.category
-      : co.point != null ? co.point
-      : co.code != null ? co.code
-      : co.label != null ? co.label
-      : co.row != null ? co.row
-      : co.panel != null ? co.panel : null;
-    return k == null ? null : String(k);
-  }
-
   // ── Tokens beyond the shared block ──────────────────────────────────
-  let AXIS_COL, GRID_W, SPINE_W, F_TICK, F_NOTICE, MUTED, ANNOT;
-  function applyExtraTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    AXIS_COL = t.axis || '#000000';
-    GRID_W = t.gridWidth != null ? t.gridWidth : 0.8;
-    SPINE_W = t.spineWidth != null ? t.spineWidth : 1.1;
-    F_TICK = t.tickSize != null ? t.tickSize : 11;
-    F_NOTICE = t.noticeSize != null ? t.noticeSize : 13;
-    MUTED = t.muted || '#8f8d87';
-    ANNOT = t.callout || '#B31B38';
-  }
-
-  function niceTicks(min, max, count) {
-    count = count || 5;
-    if (min === max) { min -= 1; max += 1; }
-    const range = max - min;
-    const step0 = Math.pow(10, Math.floor(Math.log10(range / count)));
-    const err = (count / range) * step0;
-    let step = step0;
-    if (err <= 0.15) step *= 10;
-    else if (err <= 0.35) step *= 5;
-    else if (err <= 0.75) step *= 2;
-    const lo = Math.floor(min / step) * step;
-    const hi = Math.ceil(max / step) * step;
-    const out = [];
-    for (let v = lo; v <= hi + step * 1e-9; v += step) out.push(+v.toFixed(12));
-    return out;
-  }
-
   // Round a raw bin width up to something a reader can hold in their head —
   // 1, 2, 2.5, 5 or 10 times a power of ten. A histogram whose bins are
   // 3.7194 wide has edges nobody can read off the axis, and the shape it shows
@@ -10739,49 +9151,134 @@ Charts.packedBubble = function (container, opts) {
   }
 
   // Refusal / empty panel, same shape as the other engines'.
-  function errorChart(container, W, H, opts, headline, detail) {
-    if (typeof console !== 'undefined' && console.warn) {
-      console.warn('[charts-lib histogram] ' + headline + ' ' + detail);
-    }
-    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
-    svg.style.background = BG;
-    svg.style.display = 'block';
-    container.appendChild(svg);
-    let y = 34;
-    if (opts.title) {
-      wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
-        txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW,
-          fill: TITLE_COL, 'font-family': FONT }, svg);
-        y += TITLE_LH;
-      });
-      y += 10;
-    }
-    const cy = Math.max(y + 20, H / 2 - 10);
-    // The detail sits below however many lines the headline actually took: at a
-    // fixed 26px it lands on top of the second line whenever the headline wraps,
-    // which is exactly when the message is longest and most needed.
-    const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
-    headLines.forEach((l, i) => {
-      txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
-        fill: TITLE_COL, 'font-family': FONT }, svg);
-    });
-    wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
-      txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
-        'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
-    });
-    return { redraw: function () {}, getBins: function () { return []; },
-             getStats: function () { return null; }, error: headline };
-  }
-
   function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, NEG_COL, DEFAULT_COL, COLORS, GRID;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_VALUE;
+  let TT_BORDER, DIM_COL, HOVER_INK;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, TOP_AXIS_BAND;
+  let TITLE_LH, SUB_LH;
+  let AXIS_COL, GRID_W, SPINE_W, F_TICK, F_NOTICE, MUTED, ANNOT;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      DIM_COL = t.dimmed;
+      HOVER_INK = t.hoverInk;
+      BG = t.bg;
+      GRID = t.grid;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      NEG_COL = t.belowThreshold;
+      DEFAULT_COL = t.defaultColor;
+      COLORS = t.colors;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      TOP_AXIS_BAND = t.topAxisBand;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_VALUE = t.valueSize;
+    }
+
+
+    function applyExtraTheme() {
+      const t = resolveTheme(opts);
+      AXIS_COL = t.axis;
+      GRID_W = t.gridWidth;
+      SPINE_W = t.spineWidth;
+      F_TICK = t.tickSize;
+      F_NOTICE = t.noticeSize;
+      MUTED = t.muted;
+      ANNOT = t.callout;
+    }
+
+
+    function errorChart(container, W, H, opts, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib histogram] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+            fill: TITLE_COL, 'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      // The detail sits below however many lines the headline actually took: at a
+      // fixed 26px it lands on top of the second line whenever the headline wraps,
+      // which is exactly when the message is longest and most needed.
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+          fill: TITLE_COL, 'font-family': FONT }, svg);
+      });
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16), 'font-size': F_SUB,
+          'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+      });
+      return chartAPI(createLifecycle(container), {
+      opts: opts, typeName: "Histogram",
+        getData: function () { return []; },
+        extras: {
+          getBins: function () { return []; },
+          getStats: function () { return null; },
+          error: headline
+        }
+      });
+    }
+
     applyTheme();
     applyExtraTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
 
     const W = container.clientWidth || 800;
     const H = container.clientHeight || 400;
@@ -10919,7 +9416,7 @@ Charts.packedBubble = function (container, opts) {
                       + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
 
     const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
-    svg.style.background = BG;
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
     svg.style.display = 'block';
     container.appendChild(svg);
 
@@ -10936,9 +9433,12 @@ Charts.packedBubble = function (container, opts) {
     const showValues = dlEnabled(plot.dataLabels, true);
     const axisTitleH = xAxis.title ? F_TICK + 12 : 0;
     const footH = (dropped || outside) ? F_TICK + 10 : 0;
+    // Compact: a cell in something else draws no value axis — no tick labels,
+    // no gridlines. The bin edges on x stay — they are what each bar counts, and so do the value labels.
+    const compact = !!(opts.chart && opts.chart.compact);
     const M = {
-      l: 62, r: 20,
-      t: titleBlockH + PLOT_GAP,
+      l: compact ? 14 : 62, r: 20,
+      t: titleBlockH + PLOT_GAP + (compact ? 8 : 0),
       b: 40 + axisTitleH + footH
     };
     const IW = Math.max(40, W - M.l - M.r);
@@ -11000,7 +9500,7 @@ Charts.packedBubble = function (container, opts) {
     // ── Axes ────────────────────────────────────────────────────────────
     const gGrid = el('g', {}, svg);
     const gAxes = el('g', {}, svg);
-    yTicks.forEach(v => {
+    if (!compact) yTicks.forEach(v => {
       const y = yScale(v);
       el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y,
         stroke: GRID, 'stroke-width': GRID_W }, gGrid);
@@ -11171,16 +9671,16 @@ Charts.packedBubble = function (container, opts) {
 
     // ── Tooltip ─────────────────────────────────────────────────────────
     const tooltip = document.createElement('div');
-    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + BG +
-      ';border:1px solid ' + TT_BORDER + ';border-radius:4px;padding:6px 8px;font:' +
-      F_TIP + 'px ' + FONT + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + cssColor(BG) +
+      ';border:1px solid ' + cssColor(TT_BORDER) + ';border-radius:4px;padding:6px 8px;font:' +
+      cssNumber(F_TIP) + 'px ' + cssFont(FONT) + ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
     container.appendChild(tooltip);
 
     function clearHover() {
       bins.forEach(b => { if (b._node) b._node.style.opacity = '1'; });
       tooltip.style.display = 'none';
     }
-    svg.addEventListener('mousemove', ev => {
+    life.on(svg, 'mousemove', ev => {
       const target = ev.target;
       if (target && target.classList && target.classList.contains('hist-bar')) {
         const b = bins[+target.getAttribute('data-idx')];
@@ -11192,12 +9692,12 @@ Charts.packedBubble = function (container, opts) {
         const closed = b.i === count - 1;
         const range = fmtX(b.from) + ' – ' + fmtX(b.to) + (closed ? '' : ' (exclusive)');
         tooltip.innerHTML =
-          '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + TITLE_COL +
+          '<div style="font-size:' + F_TIP + 'px;font-weight:' + VAL_FW + ';color:' + cssColor(TITLE_COL) +
             ';margin-bottom:2px">' + esc(range) + '</div>' +
           '<div>' + esc(addCommas(b.n)) + ' of ' + esc(addCommas(total)) +
-            ' <span style="color:' + SEC_COL + '">(' + esc(addCommas(+b.pct.toFixed(1))) + '%)</span></div>' +
+            ' <span style="color:' + cssColor(SEC_COL) + '">(' + esc(addCommas(+b.pct.toFixed(1))) + '%)</span></div>' +
           (mode === 'cumulative'
-            ? '<div style="color:' + SEC_COL + '">' + esc(addCommas(+b.cum.toFixed(1))) +
+            ? '<div style="color:' + cssColor(SEC_COL) + '">' + esc(addCommas(+b.cum.toFixed(1))) +
               '% at or below ' + esc(fmtX(b.to)) + '</div>' : '');
         tooltip.style.display = 'block';
         const rect = svg.getBoundingClientRect();
@@ -11210,16 +9710,23 @@ Charts.packedBubble = function (container, opts) {
         tooltip.style.top = ty + 'px';
       } else clearHover();
     });
-    svg.addEventListener('mouseleave', clearHover);
+    life.on(svg, 'mouseleave', clearHover);
 
-    return {
-      getBins: () => bins.map(b => ({ from: b.from, to: b.to, count: b.n,
-                                      percent: b.pct, cumulative: b.cum })),
-      getStats: () => ({ n: n, min: dataMin, max: dataMax, mean: mean,
-                         median: median, binWidth: width, bins: count,
-                         dropped: dropped, outside: outside }),
-      redraw: () => Chart(container, opts)
-    };
+    const getBins = () => bins.map(b => ({ from: b.from, to: b.to, count: b.n,
+                                          percent: b.pct, cumulative: b.cum }));
+    return chartAPI(life, {
+      opts: opts, typeName: "Histogram",
+      // The bins are the histogram's data — getData and getBins are the same
+      // answer under the generic name and the one this engine is asked for.
+      getData: getBins,
+      redraw: () => { life.release(); Chart(container, opts); },
+      extras: {
+        getBins: getBins,
+        getStats: () => ({ n: n, min: dataMin, max: dataMax, mean: mean,
+                           median: median, binWidth: width, bins: count,
+                           dropped: dropped, outside: outside })
+      }
+    });
   }
 
   function dashArrayFor(style) {
@@ -11248,6 +9755,2890 @@ Charts.histogramCumulative = function (container, opts) {
   opts.plotOptions.histogram = Object.assign({}, opts.plotOptions.histogram, { mode: 'cumulative' });
   return Charts.histogram(container, opts);
 };
+
+// ─── waterfall ────────────────────
+
+/*
+ * Clean-charts-styled WATERFALL engine (Charts.waterfall).
+ *
+ * The bridge chart: how a total got from one value to another. An opening
+ * balance, a run of signed contributions each starting where the last one
+ * ended, and a closing total measured from zero. The question it answers is
+ * not "how big is each of these" — that is a column chart — but "what closed
+ * the gap between these two numbers, and which piece mattered".
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the other
+ *    engines, y-tick labels floating at titleX = 20 with no left spine,
+ *    horizontal gridlines and a thin spine on zero, exactly as Charts.column
+ *  - The same plot box (62px in from the left, 20px from the right), so a
+ *    waterfall and a column chart side by side sit on the same baselines
+ *  - Theme tokens only — no literal colors in the draw code. Increases take
+ *    `aboveThreshold`, decreases `belowThreshold`, totals `defaultColor`:
+ *    a total is not a change and should not be coloured as one.
+ *  - Data labels on by default, dropped individually where they will not fit
+ *  - Hover highlight + tooltip, callouts in the band above the bars
+ *
+ * THE AXIS ALWAYS INCLUDES ZERO. Every bar in a waterfall is read against the
+ * zero line — the deltas as distances from it, the totals as heights from it —
+ * so a cropped axis does not merely exaggerate here, it makes the totals lie
+ * about their own size. yAxis.min/max are honoured but cannot cut zero out.
+ *
+ * TWO HARD REFUSALS, both about the arithmetic:
+ *
+ *  - MORE THAN ONE SERIES. A waterfall is one bridge between two numbers.
+ *    Two of them overlaid share no baseline and cannot both be read against
+ *    the running total, so the steps of one would be measured against the
+ *    other's ground. Comparing two bridges is Charts.column with grouped
+ *    series, or two waterfalls in Charts.panels.
+ *
+ *  - A DECLARED TOTAL THAT DOES NOT RECONCILE. If a point carries both
+ *    `isSum: true` and a `y`, the y is a claim about the steps that precede
+ *    it, and the engine checks it. A bridge whose ends do not match its middle
+ *    is the one error this chart exists to make visible, so drawing it anyway
+ *    — with the discrepancy hidden inside a bar nobody can measure — is worse
+ *    than refusing. Omit the y and the engine computes it.
+ *
+ * Non-numeric values are refused rather than dropped, for the same reason: a
+ * skipped step does not leave a gap, it silently shifts every bar after it.
+ */
+(function () {
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { monthNames, layoutCategoryAxis, makeNumberFormatter, cssFont, cssNumber, cssColor,
+          resolveTheme, chartAPI, createLifecycle, el, txt, esc, addCommas, niceTicks,
+          wrapHeading, textW, dlEnabled, calloutKey, drawCallouts, NS } = window.ChartsShared;
+
+  // ── Heading wrapping ────────────────────────────────────────────────
+  // Titles wrap to at most 2 lines, subtitles to at most 3; whatever does
+  // not fit is clipped with an ellipsis. Widths are estimated (not measured)
+  // so the whole layout can be decided before anything hits the DOM.
+  const TITLE_LINES = 2, SUB_LINES = 3;
+
+  // Dash vocabulary for yAxis.plotLines, matching the column engine's.
+  const DASH = { Solid: '', Dash: '6 4', ShortDash: '4 2', ShortDot: '1 3',
+                 Dot: '2 4', LongDash: '10 5', DashDot: '8 3 2 3' };
+
+  /**
+   * Read one authored point into a step.
+   * Accepts a bare number, an [x, y] pair, or an object — the shapes every
+   * other engine takes — plus the two sum flags. Returns null for a value the
+   * chart cannot use, which the caller turns into a refusal rather than a gap.
+   */
+  function readPoint(d, i, cats) {
+    const named = cats && cats[i] != null ? String(cats[i]) : null;
+    const out = { i: i, name: named != null ? named : String(i + 1),
+                  kind: 'delta', y: null, declared: null, color: null };
+    if (d == null || typeof d === 'boolean' || d === '') return null;
+    if (typeof d === 'number') { out.y = d; return isFinite(d) ? out : null; }
+    if (Array.isArray(d)) {
+      if (named == null && d.length > 1) out.name = String(d[0]);
+      const v = +d[d.length - 1];
+      out.y = v;
+      return isFinite(v) ? out : null;
+    }
+    if (typeof d !== 'object') {
+      const v = +d;
+      out.y = v;
+      return isFinite(v) ? out : null;
+    }
+    if (d.name != null) out.name = String(d.name);
+    if (d.color != null) out.color = d.color;
+    // `isIntermediateSum` is accepted as a second spelling of the same thing.
+    // A waterfall has exactly one kind of total — the running balance to this
+    // point, drawn from zero — because that is the only total that reconciles
+    // with the bars on either side of it. A bar summing "the run since the
+    // last subtotal" would not: the step after it carries on from the full
+    // balance, so the connector leaving it would have to jump a distance the
+    // chart never drew.
+    if (d.isSum || d.isIntermediateSum) out.kind = 'sum';
+    const raw = d.y != null ? d.y : d.value;
+    if (out.kind === 'delta') {
+      const v = +raw;
+      out.y = v;
+      return isFinite(v) ? out : null;
+    }
+    // A sum may state its value or leave it to the engine. If it states one it
+    // is a claim to be checked, not a value to be drawn.
+    if (raw != null) {
+      const v = +raw;
+      if (!isFinite(v)) return null;
+      out.declared = v;
+    }
+    return out;
+  }
+
+  function Chart(container, opts) {
+    // The chart's own number formatter, shadowing the shared default.
+    // Grouping and the decimal separator are conventions, not constants:
+    // theme.locale picks one, theme.numberFormat overrides it outright.
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module: two charts with different
+    // themes have to be able to share a page, and a redraw or a hover has to
+    // use the theme this chart was built with rather than whichever one was
+    // applied last. See resolveTheme in _shared.js.
+  let BG, GRID, AXIS, TITLE_COL, SUB_COL, LABEL_COL, SEC_COL, POS_COL, NEG_COL, DEFAULT_COL;
+  let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+  let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, F_TIP, F_NOTICE, F_POINT_LBL;
+  let TT_BORDER, MUTED;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+  let PLOT_GAP, SPINE_W, GRID_W, CONN_COL, CONN_W;
+  let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      TT_BORDER = t.tooltipBorder;
+      MUTED = t.muted;
+      BG = t.bg;
+      GRID = t.grid;
+      AXIS = t.axis;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      LABEL_COL = t.labelColor;
+      SEC_COL = t.secondaryColor;
+      POS_COL = t.aboveThreshold;
+      NEG_COL = t.belowThreshold;
+      DEFAULT_COL = t.defaultColor;
+      // Shared text roles — see the hierarchy comment in theme.js.
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      F_NOTICE = t.noticeSize;
+      F_POINT_LBL = t.pointLabelSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+      F_LABEL = t.labelSize;
+      F_TICK = t.tickSize;
+      F_VALUE = t.valueSize;
+      SPINE_W = t.spineWidth;
+      GRID_W = t.gridWidth;
+      CONN_COL = t.connectorLine;
+      CONN_W = t.connectorWidth;
+    }
+
+    // Refusal / empty panel, same shape as the other engines'.
+    function errorChart(container, W, H, opts, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib waterfall] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+            fill: TITLE_COL, 'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      // The detail sits below however many lines the headline actually took, so
+      // a wrapped headline does not have the explanation drawn through it.
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+          fill: TITLE_COL, 'font-family': FONT }, svg);
+      });
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16),
+          'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+      });
+      return chartAPI(createLifecycle(container), {
+        opts: opts, typeName: 'Waterfall',
+        getData: function () { return []; },
+        extras: { getSteps: function () { return []; }, error: headline }
+      });
+    }
+
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
+
+    const W = container.clientWidth || 800;
+    const H = container.clientHeight || 500;
+    const xAxis = opts.xAxis || {};
+    const yAxis = opts.yAxis || {};
+    const plot = (opts.plotOptions && opts.plotOptions.waterfall) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+    const cats = xAxis.categories || null;
+
+    // ── Input ───────────────────────────────────────────────────────────
+    const allSeries = opts.series || [];
+    if (allSeries.length > 1) {
+      return errorChart(container, W, H, opts,
+        'A waterfall draws one bridge, not ' + allSeries.length,
+        'Every bar after the first is measured from where the last one ended, so a second ' +
+        'series has no ground of its own to stand on. To compare two bridges use Charts.column ' +
+        'with grouped series, or give each its own Charts.waterfall inside Charts.panels.');
+    }
+    const series = allSeries[0] || null;
+    const rawList = (series && series.data) || opts.data || [];
+    if (!rawList.length) {
+      return errorChart(container, W, H, opts, 'No data to chart',
+        'Pass the opening balance, the changes and the closing total as one series: ' +
+        '`series: [{ data: [{ name, y }, …, { name, isSum: true }] }]`.');
+    }
+
+    const steps = [];
+    for (let i = 0; i < rawList.length; i++) {
+      const s = readPoint(rawList[i], i, cats);
+      if (!s) {
+        const label = cats && cats[i] != null ? '"' + cats[i] + '"' : 'position ' + (i + 1);
+        return errorChart(container, W, H, opts,
+          'Step ' + label + ' is not a number',
+          'A waterfall adds its steps up, so a blank or non-numeric one cannot be skipped the ' +
+          'way a missing point is elsewhere: every bar after it would shift by the amount that ' +
+          'went missing, and the chart would still look complete. Give the step a number, or ' +
+          'drop it from the data.');
+      }
+      steps.push(s);
+    }
+
+    if (!steps.some(s => s.kind === 'delta')) {
+      return errorChart(container, W, H, opts, 'Nothing to bridge',
+        'Every point is a total, so there are no changes between them to draw. A row of ' +
+        'independent totals is a bar chart: use Charts.column, or Charts.bar when the names ' +
+        'are long.');
+    }
+
+    // ── The arithmetic ──────────────────────────────────────────────────
+    // Each delta starts where the last bar ended; each total is measured from
+    // zero. `base`/`top` are the two ends of the bar in data units, and `total`
+    // is where the running balance stands once this step has been applied.
+    let running = 0, mismatch = null;
+    steps.forEach(s => {
+      if (s.kind === 'delta') {
+        s.base = running;
+        running += s.y;
+        s.top = running;
+      } else {
+        // A total stands on zero. That is what makes it comparable with the
+        // other totals, and it is why its top lands at exactly the level the
+        // connector arrives on — the bridge and the total agree by
+        // construction rather than by the author getting them to agree.
+        s.y = running;
+        s.base = 0;
+        s.top = s.y;
+      }
+      s.total = running;
+      // The reconciliation check. Absolute by default: a tolerance of zero
+      // would refuse a bridge whose numbers came out of a spreadsheet and
+      // carry a rounding cent, which is not the error this is looking for.
+      if (s.declared != null) {
+        const tol = plot.tolerance != null ? Math.abs(+plot.tolerance)
+                                           : Math.max(Math.abs(s.declared) * 1e-6, 1e-9);
+        if (Math.abs(s.declared - s.y) > tol && mismatch == null) {
+          mismatch = { name: s.name, declared: s.declared, computed: s.y };
+        }
+      }
+    });
+
+    if (mismatch) {
+      const diff = mismatch.declared - mismatch.computed;
+      return errorChart(container, W, H, opts,
+        'The steps do not add up to "' + mismatch.name + '"',
+        'The bars before it sum to ' + addCommas(+mismatch.computed.toPrecision(12)) +
+        ', but it declares ' + addCommas(+mismatch.declared.toPrecision(12)) +
+        ' — a difference of ' + addCommas(+diff.toPrecision(12)) + '. A waterfall exists to ' +
+        'show what closed a gap, so it will not draw one with an unexplained gap of its own. ' +
+        'Either add the missing step, or omit the `y` and let the total compute itself.');
+    }
+
+    // ── Heading ─────────────────────────────────────────────────────────
+    const hasTitle = !!opts.title, hasSub = !!opts.subtitle;
+    const titleX = HEAD_X;
+    const titleLines = hasTitle
+      ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = hasSub
+      ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (hasTitle ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (hasSub ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
+
+    // ── Legend ──────────────────────────────────────────────────────────
+    // Three roles rather than three series, and it does not toggle: hiding
+    // "decrease" would leave a bridge with holes in it and every bar after the
+    // hole standing at the wrong height. On by default whenever the chart
+    // actually uses more than one role.
+    const roles = [];
+    if (steps.some(s => s.kind === 'delta' && s.y >= 0)) {
+      roles.push({ name: plot.increaseLabel || 'Increase', color: plot.upColor || POS_COL });
+    }
+    if (steps.some(s => s.kind === 'delta' && s.y < 0)) {
+      roles.push({ name: plot.decreaseLabel || 'Decrease', color: plot.downColor || NEG_COL });
+    }
+    if (steps.some(s => s.kind !== 'delta')) {
+      roles.push({ name: plot.totalLabel || 'Total', color: plot.sumColor || DEFAULT_COL });
+    }
+    const legendEnabled = (opts.legend && opts.legend.enabled != null)
+      ? !!opts.legend.enabled : roles.length > 1;
+    const legendRows = (function () {
+      if (!legendEnabled) return { rows: [], height: 0 };
+      const availW = W - HEAD_X * 2;
+      const rows = [];
+      let cur = [], curX = 0;
+      roles.forEach(r => {
+        const w = LEG_ICON + LEG_ICON_GAP + Math.ceil(textW(r.name, F_LEG, false)) + LEG_GAP;
+        if (cur.length && curX + w > availW) { rows.push(cur); cur = []; curX = 0; }
+        cur.push({ role: r, x: curX });
+        curX += w;
+      });
+      if (cur.length) rows.push(cur);
+      return { rows: rows, height: rows.length * LEG_ROW };
+    })();
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: titleX, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+      'text-anchor': 'start', 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+      fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: titleX, y: subY0 + i * SUB_LH,
+      'text-anchor': 'start', 'font-size': F_SUB, 'font-weight': SUB_FW,
+      fill: SUB_COL, 'font-family': FONT }, svg));
+
+    // ── Geometry ────────────────────────────────────────────────────────
+    // The same margins Charts.column uses, so a waterfall and a column chart
+    // on one page sit on the same baselines.
+    const n = steps.length;
+    const showValues = dlEnabled(plot.dataLabels, true);
+    const catLayout = layoutCategoryAxis(steps.map(s => s.name), Math.max(40, W - 82),
+      F_LABEL, Math.max(40, Math.min(110, H * 0.3)), monthNames(resolveTheme(opts)));
+    // Compact: a cell in something else draws no value axis — no tick labels,
+    // no gridlines. The category labels stay, and so do the value labels.
+    const compact = !!(opts.chart && opts.chart.compact);
+    const M = {
+      l: compact ? 14 : 62, r: 20,
+      t: titleBlockH + legendRows.height + PLOT_GAP + (compact ? 8 : 0),
+      b: Math.max(26, catLayout.height)
+    };
+    const IW = Math.max(40, W - M.l - M.r);
+    const IH = Math.max(40, H - M.t - M.b);
+
+    // The sign is written outside the prefix: a currency symbol belongs inside
+    // the number it qualifies, so a negative step reads "-$230" and never
+    // "$-230", which is what prefixing a formatted negative produces.
+    const fmtV = v => {
+      if (plot.format) return String(plot.format).replace('{y}', addCommas(v));
+      const pre = plot.valuePrefix || yAxis.prefix || '';
+      const suf = plot.valueSuffix || yAxis.suffix || '';
+      return (v < 0 ? '-' : '') + pre + addCommas(v < 0 ? -v : v) + suf;
+    };
+    // A delta reads as a change or it reads as a quantity, and only one of
+    // those is what the bar means. So the sign is always written, including
+    // the plus that a number does not carry on its own — except on the first
+    // bar, which has nothing before it to have changed from. That one is an
+    // opening balance, and "+4,200" would claim it rose by its own size.
+    const fmtDelta = (v, first) => (v > 0 && !first ? '+' : '') + fmtV(v);
+
+    // ── Value scale ─────────────────────────────────────────────────────
+    // Zero is always in range: every bar is read against it, and a total that
+    // does not start from the same line as the other totals is not comparable
+    // with them. An author-set min or max can move the other end, not this one.
+    let yLo = 0, yHi = 0;
+    steps.forEach(s => {
+      yLo = Math.min(yLo, s.base, s.top);
+      yHi = Math.max(yHi, s.base, s.top);
+    });
+    const span = (yHi - yLo) || Math.abs(yHi) || 1;
+    // Headroom for the value labels, and more of it when a callout band has to
+    // sit above the bars — the same bargain the column engine strikes.
+    const hasCallouts = !!(opts.callouts && opts.callouts.length);
+    const pad = span * ((showValues ? 0.10 : 0.04) + (hasCallouts ? 0.30 : 0));
+    yHi += pad;
+    if (yLo < 0) yLo -= span * (showValues ? 0.08 : 0.04);
+    if (yAxis.min != null) yLo = Math.min(0, +yAxis.min);
+    if (yAxis.max != null) yHi = Math.max(0, +yAxis.max);
+    const yTicks = niceTicks(yLo, yHi, 5);
+    const yMin = yTicks[0], yMax = yTicks[yTicks.length - 1];
+    const yScale = v => M.t + IH - ((v - yMin) / (yMax - yMin || 1)) * IH;
+    const y0 = yScale(0);
+
+    // ── Axes ────────────────────────────────────────────────────────────
+    const gGrid = el('g', {}, svg);
+    const gConn = el('g', {}, svg);      // connectors sit under the bars
+    const gBars = el('g', {}, svg);
+    const gText = el('g', {}, svg);
+    const gAxes = el('g', {}, svg);      // plot lines draw over the bars
+    const gLegend = el('g', {}, svg);
+
+    if (!compact) yTicks.forEach(v => {
+      const y = yScale(v);
+      el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y,
+        stroke: GRID, 'stroke-width': GRID_W }, gGrid);
+      txt(fmtV(v), { x: titleX, y: y + 4, 'text-anchor': 'start',
+        'font-size': F_TICK, 'font-weight': TICK_FW, fill: TICK_COL,
+        'font-family': FONT }, gGrid);
+    });
+    // The spine is on zero, not at the foot of the plot: with a negative step
+    // in the data the bars cross it, and a line drawn anywhere else would read
+    // as the baseline they are measured from.
+    el('line', { x1: M.l, y1: y0, x2: M.l + IW, y2: y0,
+      stroke: LABEL_COL, 'stroke-width': SPINE_W }, gGrid);
+
+    // ── Bars ────────────────────────────────────────────────────────────
+    const slot = IW / n;
+    const gapRatio = plot.pointPadding != null ? Math.max(0, Math.min(0.6, +plot.pointPadding)) : 0.3;
+    const barW = Math.max(2, Math.min(slot * (1 - gapRatio), plot.maxPointWidth || 72));
+    const centerX = i => M.l + (i + 0.5) * slot;
+    const colorOf = s => s.color || (s.kind !== 'delta' ? (plot.sumColor || DEFAULT_COL)
+                                   : s.y >= 0 ? (plot.upColor || POS_COL)
+                                              : (plot.downColor || NEG_COL));
+    const barRects = [];
+
+    steps.forEach(s => {
+      const yTop = yScale(Math.max(s.base, s.top));
+      const yBot = yScale(Math.min(s.base, s.top));
+      const x = centerX(s.i) - barW / 2;
+      // A step of exactly zero still happened, and a bar of no height would
+      // read as a step that is missing rather than one that changed nothing.
+      const h = Math.max(1, yBot - yTop);
+      s._rect = el('rect', { x: x, y: yTop, width: barW, height: h,
+        fill: colorOf(s), class: 'wf-bar', 'data-idx': s.i,
+        style: 'cursor:default;transition:opacity .15s' }, gBars);
+      s._x = x; s._top = yTop; s._bot = yTop + h;
+      barRects.push({ x: x, y: yTop, w: barW, h: h });
+    });
+
+    // ── Connectors ──────────────────────────────────────────────────────
+    // A hairline from where one bar ends to where the next begins. This is
+    // what makes the chart a bridge rather than a row of floating blocks: it
+    // says the next step starts from this level, and it is drawn at the level
+    // itself so the eye can carry the balance across the gap.
+    if (plot.connectors !== false && n > 1) {
+      for (let i = 0; i < n - 1; i++) {
+        const a = steps[i], b = steps[i + 1];
+        // Every bar ends at the running balance — a delta at its far end, a
+        // total at its top — so the connector is always horizontal, and it
+        // meets the next bar exactly where that bar starts.
+        const level = yScale(a.total);
+        el('line', { x1: a._x, x2: b._x + barW, y1: level, y2: level,
+          stroke: plot.connectorColor || CONN_COL, 'stroke-width': CONN_W,
+          'stroke-dasharray': plot.connectorDash || '3 3', 'stroke-opacity': 0.75 }, gConn);
+      }
+    }
+
+    // ── Value labels ────────────────────────────────────────────────────
+    // At the outer end of each bar — above an increase, below a decrease — so
+    // the label never sits on the connector that leaves the bar, and the run
+    // of labels traces the same shape the bars do. Dropped individually where
+    // the slot is too narrow, as everywhere else: the value is one hover away
+    // and the axis is right there.
+    if (showValues) {
+      let lastRight = -Infinity;
+      steps.forEach(s => {
+        const down = s.kind === 'delta' ? s.y < 0 : s.y < 0;
+        const label = s.kind === 'delta' && plot.showSign !== false
+          ? fmtDelta(s.y, s.i === 0) : fmtV(s.y);
+        const tw = textW(label, F_VALUE, true);
+        const cx = centerX(s.i);
+        if (tw > slot - 2) return;                   // wider than its own slot
+        if (cx - tw / 2 < lastRight + 3) return;     // would touch its neighbour
+        lastRight = cx + tw / 2;
+        txt(label, { x: cx, y: down ? s._bot + F_VALUE + 4 : s._top - 6,
+          'text-anchor': 'middle', 'font-size': F_VALUE,
+          'font-weight': s.kind === 'delta' ? VAL_FW : TITLE_FW,
+          fill: s.kind === 'delta' ? VAL_COL : TITLE_COL, 'font-family': FONT }, gText);
+      });
+    }
+
+    // ── Category labels ─────────────────────────────────────────────────
+    (function () {
+      const a = { 'font-size': catLayout.font, 'font-weight': CAT_FW, fill: CAT_COL,
+                  'font-family': FONT };
+      const lh = catLayout.font * 1.25;
+      const yTop = M.t + IH + 16;
+      catLayout.ticks.forEach((tk, k) => {
+        const x = centerX(tk.i);
+        const yy = yTop + (catLayout.stagger && k % 2 ? lh : 0);
+        tk.lines.forEach((ln, li) => {
+          const t = txt(ln, Object.assign({ x: x, y: yy + li * lh,
+            'text-anchor': catLayout.rotate ? 'end' : 'middle' }, a), gAxes);
+          if (catLayout.rotate) t.setAttribute('transform', 'rotate(-' + catLayout.rotate + ' ' + x + ' ' + yTop + ')');
+        });
+      });
+    })();
+
+    // ── Target / threshold marks ────────────────────────────────────────
+    // `yAxis.plotLines` — a budget, a covenant, a prior-year close the closing
+    // total is meant to clear. Drawn after the bars, for the reason the column
+    // engine draws its targets last: a target hidden behind a bar is useless.
+    (yAxis.plotLines || []).forEach(pl => {
+      if (pl == null || pl.value == null) return;
+      const v = Math.max(yMin, Math.min(yMax, +pl.value));
+      const y = yScale(v);
+      el('line', { x1: M.l, x2: M.l + IW, y1: y, y2: y,
+        stroke: pl.color || AXIS, 'stroke-width': pl.width || 1.5,
+        'stroke-dasharray': DASH[pl.dashStyle || 'ShortDash'] || '4 2' }, gAxes);
+      if (pl.label && pl.label.text) {
+        txt(pl.label.text, { x: M.l + IW, y: y - 5, 'text-anchor': 'end',
+          'font-size': F_POINT_LBL, 'font-weight': VAL_FW, fill: pl.color || AXIS,
+          'font-family': FONT }, gAxes);
+      }
+    });
+
+    // ── Legend ──────────────────────────────────────────────────────────
+    if (legendEnabled) {
+      const startY = titleBlockH + 2;
+      legendRows.rows.forEach((row, ri) => {
+        row.forEach(cell => {
+          const x = HEAD_X + cell.x;
+          const y = startY + ri * LEG_ROW;
+          el('rect', { x: x, y: y + 2, width: LEG_ICON, height: LEG_ICON, rx: 2,
+            fill: cell.role.color }, gLegend);
+          txt(cell.role.name, { x: x + LEG_ICON + LEG_ICON_GAP, y: y + 12,
+            'font-size': F_LEG, 'font-weight': LEG_FW, fill: TITLE_COL,
+            'font-family': FONT }, gLegend);
+        });
+      });
+    }
+
+    // ── Callouts ────────────────────────────────────────────────────────
+    // `callouts: [{ step: 2, text }]` or the shared naming key against the
+    // step's own name. The band above the bars is where a waterfall has room,
+    // and the axis was extended above to make it.
+    (function () {
+      const cos = opts.callouts || [];
+      if (!cos.length) return;
+      const gAnnot = el('g', {}, svg);
+      const items = cos.map(co => {
+        let s = null;
+        if (co.step != null) s = steps[co.step | 0];
+        else {
+          const key = calloutKey(co);
+          if (key != null) s = steps.filter(q => q.name === key)[0];
+          if (!s) s = steps[0];
+        }
+        return s ? { x: centerX(s.i), y: s._top, text: co.text, color: co.color } : null;
+      }).filter(Boolean);
+      drawCallouts(gAnnot, items, { x: M.l, y: M.t, w: IW, h: IH },
+        { mode: 'above', obstacles: barRects, gutter: 8 });
+    })();
+
+    // ── Tooltip ─────────────────────────────────────────────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + cssColor(BG) +
+      ';border:1px solid ' + cssColor(TT_BORDER) + ';border-radius:4px;padding:6px 8px;font:' +
+      cssNumber(F_TIP) + 'px ' + cssFont(FONT) +
+      ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    container.appendChild(tooltip);
+
+    function clearHover() {
+      steps.forEach(s => { if (s._rect) s._rect.style.opacity = '1'; });
+      tooltip.style.display = 'none';
+    }
+
+    life.on(svg, 'mousemove', ev => {
+      const target = ev.target;
+      if (!(target && target.classList && target.classList.contains('wf-bar'))) {
+        clearHover();
+        return;
+      }
+      const s = steps[+target.getAttribute('data-idx')];
+      if (!s) return;
+      clearHover();
+      target.style.opacity = '0.85';
+      // A delta says what it changed and where that left the balance; a total
+      // says what it is. The share is against the balance the step started
+      // from, which is the number a reader is comparing it with.
+      const head = '<div style="font-size:' + cssNumber(F_TIP) + 'px;font-weight:' + cssNumber(VAL_FW) +
+        ';color:' + cssColor(TITLE_COL) + ';margin-bottom:2px">' + esc(s.name) + '</div>';
+      let body;
+      if (s.kind === 'delta') {
+        const pct = s.base !== 0 ? (s.y / Math.abs(s.base)) * 100 : null;
+        body = '<div style="color:' + cssColor(colorOf(s)) + ';font-weight:' + cssNumber(VAL_FW) + '">' +
+            esc(fmtDelta(s.y, s.i === 0)) +
+            (pct != null ? ' <span style="color:' + cssColor(SEC_COL) + ';font-weight:400">(' +
+              esc((pct > 0 ? '+' : '') + addCommas(+pct.toFixed(1))) + '%)</span>' : '') +
+          '</div>' +
+          '<div style="color:' + cssColor(SEC_COL) + '">Running total ' +
+            esc(fmtV(+s.total.toPrecision(12))) + '</div>';
+      } else {
+        body = '<div style="font-weight:' + cssNumber(VAL_FW) + ';color:' + cssColor(TITLE_COL) + '">' +
+          esc(fmtV(+s.y.toPrecision(12))) + '</div>' +
+          '<div style="color:' + cssColor(MUTED) + '">' +
+          'Running total' + '</div>';
+      }
+      tooltip.innerHTML = head + body;
+      tooltip.style.display = 'block';
+      const rect = svg.getBoundingClientRect();
+      const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+      const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+      let tx = px + 14, ty = py - th - 12;
+      if (tx + tw > W - 4) tx = px - tw - 14;
+      if (ty < 4) ty = py + 16;
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top = ty + 'px';
+    });
+    life.on(svg, 'mouseleave', clearHover);
+
+    // The steps are the waterfall's data, and they are what the accessible
+    // table publishes: the change, what kind of step it was, and where the
+    // balance stood afterwards — which is the reading a sighted user takes off
+    // the bars and the connectors.
+    const getSteps = () => steps.map(s => ({
+      category: s.name,
+      change: s.kind === 'delta' ? s.y : null,
+      total: +s.total.toPrecision(12),
+      type: s.kind === 'delta' ? (s.y >= 0 ? 'increase' : 'decrease') : 'total'
+    }));
+
+    return chartAPI(life, {
+      // The accessible table describes `opts.series` whenever there is one,
+      // and here that is the wrong answer: the authored series says nothing
+      // about the computed totals or the running balance, so a reader of the
+      // table would find the closing figure blank — the one number the chart
+      // was drawn to show. Withholding the series sends the description down
+      // the getData() path instead, which publishes the steps as drawn.
+      opts: Object.assign({}, opts, { series: null }),
+      typeName: 'Waterfall',
+      getData: getSteps,
+      redraw: () => { life.release(); Chart(container, opts); },
+      extras: {
+        getSteps: getSteps,
+        getTotal: () => running
+      }
+    });
+  }
+
+    Charts.waterfall = Chart;
+})();
+
+// ─── sankey ───────────────────────────────────────────
+
+/*
+ * Clean-charts-styled SANKEY engine (Charts.sankey).
+ *
+ * Where an amount goes. Nodes stand in columns, left to right; a band leaves
+ * one node and arrives at another, and its thickness is how much moved. The
+ * question it answers is not "how big is each stage" — that is a bar chart —
+ * but "of what entered here, how much went where, and where was it lost".
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the other
+ *    engines, and the heading gutter (titleX = 20) as the plot's left edge
+ *  - Theme tokens only — no literal colors in the draw code. Each column takes
+ *    one step of the palette ramp, darkest on the left, so every level of
+ *    connections reads as a stage; bands take the colour of the node they
+ *    leave, washed back so the nodes stay the loudest marks
+ *  - Node labels on by default, in the category text role, with the value in
+ *    the value role; dropped individually where a column is too crowded
+ *  - Hover highlight + tooltip; hovering a node lights up everything it
+ *    touches and washes back everything it does not
+ *
+ * ONE SCALE FOR EVERY COLUMN. The pixels-per-unit is set by the fullest
+ * column and shared by all of them, so a band is the same thickness at both
+ * ends and a node's height can be compared with any other node's. Scaling
+ * each column to fill the height would make the chart look fuller and every
+ * comparison across columns false.
+ *
+ * A node is as tall as the larger of what flows in and what flows out. A
+ * stage that loses part of what arrives is legitimate, and the remainder
+ * flows from the bottom of the node into the next column's single Unaccounted
+ * node, which gathers every remainder from that level, in the counter colour,
+ * labelled
+ * "Unaccounted" with its amount and share: a word that is true of a funnel's
+ * drop-off, a budget's unallocated slice and an energy loss alike.
+ *
+ * REFUSALS (shared with Charts.validate via sankeyGraph in _shared.js):
+ *
+ *  - MORE THAN ONE SERIES. One network per chart: two overlaid would split
+ *    each other's nodes. Merge them, or use Charts.panels.
+ *  - A NEGATIVE OR NON-NUMERIC WEIGHT. A band's thickness is its weight, and a
+ *    band cannot be thinner than nothing. A signed net flow is a waterfall.
+ *  - A LINK FROM A NODE TO ITSELF, OR A LOOP. The chart reads left to right;
+ *    a node on a cycle has no column to sit in, and any column chosen for it
+ *    would draw a band running backwards across the others.
+ */
+(function () {
+  const { makeNumberFormatter, cssFont, cssNumber, cssColor, resolveTheme, chartAPI,
+          createLifecycle, el, txt, esc, wrapHeading, textW, ellipsize, dlEnabled,
+          sankeyGraph, NS } = window.ChartsShared;
+
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  let gradientId = 0;
+
+  function Chart(container, opts) {
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    // Theme tokens are per chart, not per module — see resolveTheme in _shared.js.
+    let BG, TITLE_COL, SUB_COL, SEC_COL, MUTED, TT_BORDER, COLORS, DROP_COL, GRID, GRID_W;
+    let CAT_COL, CAT_FW, TICK_COL, TICK_FW, VAL_COL, VAL_FW;
+    let FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, F_TIP, F_NOTICE;
+    let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, PLOT_GAP;
+    let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      BG = t.bg;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      SEC_COL = t.secondaryColor;
+      MUTED = t.muted;
+      DROP_COL = t.belowThreshold;
+      GRID = t.grid;
+      GRID_W = t.gridWidth;
+      TT_BORDER = t.tooltipBorder;
+      COLORS = t.colors && t.colors.length ? t.colors : [t.defaultColor];
+      CAT_COL = t.categoryColor;
+      CAT_FW = t.categoryWeight;
+      TICK_COL = t.tickColor;
+      TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor;
+      VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_LABEL = t.labelSize;
+      F_TICK = t.tickSize;
+      F_VALUE = t.valueSize;
+      F_TIP = t.tooltipSize;
+      F_NOTICE = t.noticeSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      PLOT_GAP = t.plotGap;
+    }
+
+    // Refusal / empty panel, same shape as the other engines'.
+    function errorChart(container, W, H, opts, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib sankey] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+            fill: TITLE_COL, 'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE, 'font-weight': TITLE_FW,
+          fill: TITLE_COL, 'font-family': FONT }, svg);
+      });
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => {
+        txt(l, { x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * (SUB_LH || 16),
+          'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg);
+      });
+      return chartAPI(createLifecycle(container), {
+        opts: Object.assign({}, opts, { series: null }), typeName: 'Sankey',
+        getData: function () { return []; },
+        extras: { getNodes: function () { return []; }, getLinks: function () { return []; },
+                  error: headline }
+      });
+    }
+
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    const life = createLifecycle(container);
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
+
+    const W = container.clientWidth || 800;
+    const H = container.clientHeight || 500;
+    const plot = (opts.plotOptions && opts.plotOptions.sankey) ||
+                 (opts.plotOptions && opts.plotOptions.series) || {};
+
+    // ── Input ───────────────────────────────────────────────────────────
+    const graph = sankeyGraph(opts);
+    if (graph.errors.length) {
+      // The shared sentences are "what — why and what instead"; the panel
+      // splits them into its headline and its detail at the dash.
+      const msg = graph.errors[0];
+      const cut = msg.indexOf(' — ');
+      return errorChart(container, W, H, opts,
+        cut > 0 ? msg.slice(0, cut) : 'Cannot draw this sankey',
+        cut > 0 ? msg.charAt(cut + 3).toUpperCase() + msg.slice(cut + 4) : msg);
+    }
+    const nodes = graph.nodes.filter(n => n.inLinks.length || n.outLinks.length);
+    const links = graph.links;
+
+    // ── Columns ─────────────────────────────────────────────────────────
+    // Longest path from a source puts every node right of everything that
+    // feeds it. 'justify' (the default) then pushes the end points — nodes
+    // nothing leaves — into the last column, so every outcome lines up on the
+    // right edge rather than stopping wherever its path happened to end.
+    let maxDepth = nodes.reduce((a, n) => Math.max(a, n.depth), 0);
+    const align = plot.align || 'justify';
+    nodes.forEach(n => {
+      n.col = n.depth;
+      if (align === 'justify' && !n.outLinks.length) n.col = maxDepth;
+    });
+    // An author's column wins, but never at the cost of a band running
+    // backwards: a node is pushed right of anything that feeds it.
+    if (nodes.some(n => n.column != null)) {
+      nodes.forEach(n => { if (n.column != null) n.col = n.column; });
+      const order = nodes.slice().sort((a, b) => a.depth - b.depth);
+      order.forEach(n => n.inLinks.forEach(l => {
+        if (l.source.col >= n.col) n.col = l.source.col + 1;
+      }));
+    }
+    // ── Unaccounted remainders ──────────────────────────────────────────
+    // Whatever a stage receives but does not pass on is not left hanging: it
+    // flows, like everything else, into a node of its own in the next column,
+    // drawn in the counter colour. One per stage: every node in a column that
+    // loses something sends its remainder into the same Unaccounted node in
+    // the column after it, so each level has a single bar saying how much of
+    // what reached that level went no further. Remainders are never pooled
+    // across levels — a funnel's drop-off at sign-up and at activation stay
+    // two bars. Only a node with both sides contributes: a source has nothing
+    // to lose, and an end point keeps everything by definition.
+    //
+    // The word is deliberately neutral: "Unaccounted" is true of a funnel's
+    // drop-off, a budget's unallocated slice and an energy loss alike, where
+    // "lost" or "churned" would each be wrong for one of them. Rename it with
+    // plotOptions.sankey.dropLabel; dropoff: false leaves the remainder as
+    // bare node instead.
+    const DROP_WORD = plot.dropLabel || 'Unaccounted';
+    const dropByCol = new Map();
+    nodes.slice().forEach(n => {
+      const d = n.inLinks.length && n.outLinks.length ? n.inValue - n.outValue : 0;
+      n.drop = d > n.value * 1e-9 ? d : 0;
+      if (!n.drop || plot.dropoff === false) return;
+      let r = dropByCol.get(n.col + 1);
+      if (!r) {
+        r = { id: "\u0000unaccounted:" + (n.col + 1), name: DROP_WORD, synthetic: true, parents: [],
+              reached: 0, color: null, column: null, col: n.col + 1, depth: n.depth + 1,
+              inLinks: [], outLinks: [], inValue: 0, outValue: 0, value: 0, drop: 0 };
+        dropByCol.set(n.col + 1, r);
+        nodes.push(r);
+      }
+      const l = { index: links.length, source: n, target: r, value: n.drop, color: null, synthetic: true };
+      n.outLinks.push(l); r.inLinks.push(l);
+      links.push(l);
+      r.parents.push(n);
+      r.inValue += n.drop;
+      r.value = r.inValue;
+    });
+    // The share is of everything that reached the level, not only of the
+    // nodes that lost something: a stage that passed on all it received is
+    // still part of what the level had to pass on.
+    dropByCol.forEach((r, c) => {
+      r.reached = nodes.filter(n => !n.synthetic && n.col === c - 1 && n.inLinks.length && n.outLinks.length)
+        .reduce((a, n) => a + n.inValue, 0);
+    });
+    const nCols = nodes.reduce((a, n) => Math.max(a, n.col), 0) + 1;
+    const columns = Array.from({ length: nCols }, () => []);
+    nodes.forEach(n => columns[n.col].push(n));
+
+    // ── Heading ─────────────────────────────────────────────────────────
+    const titleLines = opts.title ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = opts.subtitle ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (titleLines.length ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (subLines.length ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
+
+    const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: HEAD_X, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: HEAD_X, y: subY0 + i * SUB_LH,
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
+
+    // ── Geometry ────────────────────────────────────────────────────────
+    // Stage names, one per column, left to right. `stages` at the top of the
+    // config is the documented spelling; series[0].stages, plotOptions.sankey
+    // .stages and the older plotOptions.sankey.columnLabels are read too.
+    const stageList = [opts.stages, (opts.series && opts.series[0] || {}).stages, plot.stages, plot.columnLabels]
+      .filter(Array.isArray)[0] || null;
+    const colLabels = stageList && stageList.some(v => v != null && v !== '') ? stageList : null;
+    const colHeadH = colLabels ? F_LABEL + 16 : 0;
+    const M = { l: HEAD_X, r: HEAD_X, t: titleBlockH + PLOT_GAP + colHeadH, b: 16 };
+    const IW = Math.max(60, W - M.l - M.r);
+    const IH = Math.max(40, H - M.t - M.b);
+    const nodeW = plot.nodeWidth != null ? Math.max(2, +plot.nodeWidth) : 12;
+    const colX = c => nCols === 1 ? M.l + (IW - nodeW) / 2 : M.l + c * (IW - nodeW) / (nCols - 1);
+
+    // One pixels-per-unit for every column, set by the one that needs the most
+    // room. The padding gives way before the scale does, but not to nothing.
+    let pad = plot.nodePadding != null ? Math.max(0, +plot.nodePadding) : 16;
+    const fits = p => Math.min.apply(null, columns.map(col =>
+      (IH - (col.length - 1) * p) / (col.reduce((a, n) => a + n.value, 0) || 1)));
+    while (pad > 4 && fits(pad) < 0.4 * IH / Math.max.apply(null,
+           columns.map(col => col.reduce((a, n) => a + n.value, 0) || 1))) pad -= 2;
+    const ky = Math.max(0, fits(pad));
+
+    // Starting stack: each column in authored order, centred.
+    columns.forEach(col => {
+      const h = col.reduce((a, n) => a + n.value * ky, 0) + (col.length - 1) * pad;
+      let y = M.t + (IH - h) / 2;
+      col.forEach(n => {
+        n.x0 = colX(n.col); n.x1 = n.x0 + nodeW;
+        n.y0 = y; n.h = Math.max(1, n.value * ky); n.y1 = y + n.h;
+        y = n.y1 + pad;
+      });
+    });
+
+    // Relaxation: nudge each node toward the weighted centre of the nodes it
+    // is joined to, sweeping right then left, then settle overlaps. This is
+    // what keeps bands short and roughly level instead of crossing the whole
+    // height. The authored order is only the starting stack: a node moves
+    // past its neighbour when that uncrosses its bands (`plotOptions.sankey.
+    // keepOrder: true` pins the authored order instead).
+    const centre = n => (n.y0 + n.y1) / 2;
+    const keepOrder = !!plot.keepOrder;
+    function settle(col) {
+      // Remainder nodes stay at the foot of their column, under the flow that
+      // carries on, so their bands leave downward instead of across it.
+      col.sort((a, b) => (a.synthetic ? 1 : 0) - (b.synthetic ? 1 : 0) || (keepOrder ? 0 : a.y0 - b.y0));
+      let y = M.t;
+      col.forEach(n => { if (n.y0 < y) { n.y0 = y; n.y1 = y + n.h; } y = n.y1 + pad; });
+      let bottom = M.t + IH;
+      for (let i = col.length - 1; i >= 0; i--) {
+        const n = col[i];
+        if (n.y1 > bottom) { n.y1 = bottom; n.y0 = bottom - n.h; }
+        bottom = n.y0 - pad;
+      }
+    }
+    const iterations = plot.iterations != null ? Math.max(0, plot.iterations | 0) : 32;
+    for (let it = 0, alpha = 1; it < iterations; it++, alpha *= 0.94) {
+      const sweep = (list, pick) => list.forEach(col => {
+        col.forEach(n => {
+          const ls = pick(n);
+          const tot = ls.reduce((a, l) => a + l.value, 0);
+          if (!tot) return;
+          const target = ls.reduce((a, l) => a + centre(l.source === n ? l.target : l.source) * l.value, 0) / tot;
+          const dy = (target - centre(n)) * alpha * 0.5;
+          n.y0 += dy; n.y1 += dy;
+        });
+        settle(col);
+      });
+      sweep(columns.slice(1), n => n.inLinks);
+      sweep(columns.slice(0, -1).reverse(), n => n.outLinks);
+    }
+
+    // Stack band ends on each node in the order of the node at the other end,
+    // so bands leave and arrive without crossing each other at the node.
+    links.forEach(l => { l.w = l.value * ky; });
+    nodes.forEach(n => {
+      n.outLinks.sort((a, b) => (a.synthetic ? 1 : 0) - (b.synthetic ? 1 : 0) ||
+        a.target.y0 - b.target.y0 || a.index - b.index);
+      n.inLinks.sort((a, b) => a.source.y0 - b.source.y0 || a.index - b.index);
+      let ys = n.y0, yt = n.y0;
+      // A node taller than one of its sides centres that side's bands. With
+      // the remainder band counted, a stage that loses something uses its whole
+      // height on both sides; a top-up still centres its inflow.
+      ys += (n.h - n.outLinks.reduce((a, l) => a + l.w, 0)) / 2;
+      yt += (n.h - n.inValue * ky) / 2;
+      n.outLinks.forEach(l => { l.sy = ys; ys += l.w; });
+      n.inLinks.forEach(l => { l.ty = yt; yt += l.w; });
+    });
+
+    // ── Formatting ──────────────────────────────────────────────────────
+    const fmtV = v => {
+      v = +(+v).toPrecision(12);
+      if (plot.format) return String(plot.format).replace('{y}', addCommas(v));
+      const pre = plot.valuePrefix || '', suf = plot.valueSuffix || '';
+      return (v < 0 ? '-' : '') + pre + addCommas(Math.abs(v)) + suf;
+    };
+    const pct = (a, b) => b ? addCommas(+(a / b * 100).toFixed(1)) + '%' : '';
+
+    // ── Colours ─────────────────────────────────────────────────────────
+    // 'level' (the default): every column takes one step of the palette
+    // ramp, darkest on the left, so each level of connections reads as one
+    // stage and the bands lighten as the flow moves on. The steps are spread
+    // evenly over the usable part of the ramp whatever the column count, so a
+    // two-column chart spans it as fully as a six-column one.
+    // 'source': origins take successive palette colours and every other node
+    // inherits the colour its largest inflow traces back to. 'node' cycles the
+    // palette per node; 'none' leaves every node in the primary ink. An
+    // author's colour always wins.
+    const colorBy = plot.colorBy || 'level';
+    let nextColor = 0;
+    // The ramp starts on the second palette colour. The first is the primary
+    // ink, and a wash of ink is a grey that reads as "no category" — which
+    // is what 'none' is for.
+    const ORIGIN = COLORS.length > 1 ? COLORS.slice(1).concat(COLORS[0]) : COLORS;
+    // The last ramp step is a tint too pale to hold a node on the background,
+    // so levels use the ramp without it when there is enough ramp to spare.
+    const RAMP = COLORS.length > 3 ? COLORS.slice(1, -1) : ORIGIN;
+    const levelColor = c => RAMP[nCols > 1 ? Math.round(c * (RAMP.length - 1) / (nCols - 1)) : 0];
+    nodes.forEach((n, i) => { n._i = i; });
+    nodes.slice().sort((a, b) => a.col - b.col || a.depth - b.depth).forEach(n => {
+      if (n.synthetic) { n._color = DROP_COL; return; }
+      if (n.color) { n._color = n.color; return; }
+      if (colorBy === 'level') { n._color = levelColor(n.col); return; }
+      if (colorBy === 'node') { n._color = COLORS[n._i % COLORS.length]; return; }
+      if (colorBy === 'none') { n._color = COLORS[0]; return; }
+      if (!n.inLinks.length) { n._color = ORIGIN[nextColor++ % ORIGIN.length]; return; }
+      const real = n.inLinks.filter(l => !l.synthetic);
+      const main = (real.length ? real : n.inLinks).reduce((a, l) => (l.value > a.value ? l : a));
+      n._color = main.source._color;
+    });
+    const linkMode = plot.linkColor || 'source';
+    const linkOpacity = plot.linkOpacity != null ? +plot.linkOpacity : 0.35;
+    const gDefs = el('defs', {}, svg);
+    const linkFill = l => {
+      if (l.synthetic) return DROP_COL;
+      if (l.color) return l.color;
+      if (linkMode === 'target') return l.target._color;
+      if (linkMode === 'neutral') return MUTED;
+      if (linkMode === 'gradient') {
+        const id = 'sk-grad-' + (++gradientId);
+        const g = el('linearGradient', { id: id, gradientUnits: 'userSpaceOnUse',
+          x1: l.source.x1, x2: l.target.x0, y1: 0, y2: 0 }, gDefs);
+        el('stop', { offset: '0%', 'stop-color': l.source._color }, g);
+        el('stop', { offset: '100%', 'stop-color': l.target._color }, g);
+        return 'url(#' + id + ')';
+      }
+      if (linkMode !== 'source') return linkMode;   // a literal CSS colour
+      return l.source._color;
+    };
+
+    // ── Column headers ──────────────────────────────────────────────────
+    const gLinks = el('g', {}, svg);
+    const gNodes = el('g', {}, svg);
+    const gText = el('g', {}, svg);
+    // A header row above the plot: each stage's name over its column, in the
+    // category text role, above a hairline that separates the names from the
+    // flow. The outer names align to the plot edges rather than centring on
+    // the node, so they are never clipped; every name is cut to the room
+    // between its neighbours so two long ones cannot run into each other.
+    if (colLabels) {
+      const spacing = nCols > 1 ? (IW - nodeW) / (nCols - 1) : IW;
+      const baseY = M.t - 16;
+      colLabels.slice(0, nCols).forEach((lab, c) => {
+        if (lab == null || lab === '') return;
+        const first = c === 0, last = c === nCols - 1 && nCols > 1;
+        const x = first ? colX(c) : last ? colX(c) + nodeW : colX(c) + nodeW / 2;
+        const room = (first || last ? spacing * 0.5 : spacing) - 12;
+        const name = ellipsize(String(lab), Math.max(3, Math.floor(room / (F_LABEL * 0.6))));
+        const t = txt(name, { x: x, y: baseY, 'font-size': F_LABEL, 'font-weight': VAL_FW,
+          fill: TITLE_COL, 'font-family': FONT,
+          'text-anchor': first ? 'start' : last ? 'end' : 'middle' }, gText);
+        if (name !== String(lab)) el('title', {}, t).textContent = String(lab);
+      });
+      el('line', { x1: M.l, x2: M.l + IW, y1: baseY + 7, y2: baseY + 7,
+        stroke: GRID, 'stroke-width': GRID_W }, gText);
+    }
+
+    // ── Bands ───────────────────────────────────────────────────────────
+    const curv = plot.curvature != null ? Math.max(0, Math.min(1, +plot.curvature)) : 0.5;
+    links.forEach(l => {
+      const x0 = l.source.x1, x1 = l.target.x0;
+      const xa = x0 + (x1 - x0) * curv, xb = x1 - (x1 - x0) * curv;
+      const w = Math.max(0.75, l.w);
+      const d = 'M' + x0 + ',' + l.sy + 'C' + xa + ',' + l.sy + ' ' + xb + ',' + l.ty + ' ' + x1 + ',' + l.ty +
+                'L' + x1 + ',' + (l.ty + w) + 'C' + xb + ',' + (l.ty + w) + ' ' + xa + ',' + (l.sy + w) +
+                ' ' + x0 + ',' + (l.sy + w) + 'Z';
+      l._path = el('path', { d: d, fill: linkFill(l), 'fill-opacity': linkOpacity,
+        class: 'sk-link', 'data-idx': l.index, style: 'transition:fill-opacity .15s' }, gLinks);
+    });
+
+    // ── Nodes ───────────────────────────────────────────────────────────
+    nodes.forEach((n, i) => {
+      n._i = i;
+      n._rect = el('rect', { x: n.x0, y: n.y0, width: nodeW, height: n.h, fill: n._color,
+        class: 'sk-node', 'data-idx': i, style: 'transition:opacity .15s' }, gNodes);
+    });
+
+    // ── Labels ──────────────────────────────────────────────────────────
+    // Outside the node, pointing into the chart: right of every column but the
+    // last, left of the last, so the outcomes read against the right edge.
+    // Name on top and value beneath when the node is tall enough, on one line
+    // when not, and dropped when it would touch the label above it — the
+    // tooltip still carries it. A halo in the background colour keeps a label
+    // legible where it crosses a band.
+    const labelBoxes = [];
+    if (dlEnabled(plot.dataLabels, true)) {
+      const showVal = plot.showValues !== false;
+      const maxW = nCols > 1 ? Math.max(40, (IW - nodeW) / (nCols - 1) - nodeW - 16) : IW / 2 - 16;
+      columns.forEach((col, c) => {
+        const right = c < nCols - 1 || nCols === 1;
+        let lastBottom = -Infinity;
+        col.slice().sort((a, b) => a.y0 - b.y0).forEach(n => {
+          const x = right ? n.x1 + 6 : n.x0 - 6;
+          const anchor = right ? 'start' : 'end';
+          const name = ellipsize(n.name, Math.max(3, Math.floor(maxW / (F_LABEL * 0.58))));
+          const val = showVal ? fmtV(n.value) + (n.synthetic ? ' · ' + pct(n.value, n.reached) : '') : '';
+          const nameCol = n.synthetic ? DROP_COL : CAT_COL;
+          const twoLines = showVal && n.h >= F_LABEL + F_VALUE + 2;
+          const blockH = twoLines ? F_LABEL + F_VALUE + 4 : F_LABEL + 2;
+          const cy = (n.y0 + n.y1) / 2;
+          let top = cy - blockH / 2;
+          const lw = twoLines ? Math.max(textW(name, F_LABEL, true), textW(val, F_VALUE, false))
+            : textW(name, F_LABEL, true) + (val ? 5 + textW(val, F_LABEL, false) : 0);
+          const bx0 = right ? x : x - lw, bx1 = right ? x + lw : x;
+          const hit = t => labelBoxes.find(lb => bx0 < lb.x1 && bx1 > lb.x0 && t < lb.y1 + 2 && t + blockH > lb.y0 - 2);
+          if (n.synthetic) {
+            // A remainder is always labelled: it is the number the chart would
+            // otherwise hide. A label that lands on another — typically the
+            // previous stage's remainder, which reaches into this column — steps
+            // down past it, and only gives up at the foot of the plot.
+            for (let h = hit(top), guard = 0; h && guard < 8; h = hit(top), guard++) top = h.y1 + 3;
+            if (hit(top) || top + blockH > M.t + IH + M.b) return;
+          } else if (top < lastBottom + 2 || hit(top)) return;
+          lastBottom = Math.max(lastBottom, top + blockH);
+          labelBoxes.push({ x0: bx0, x1: bx1, y0: top, y1: top + blockH });
+          const halo = { stroke: BG, 'stroke-width': 3, 'stroke-linejoin': 'round', 'paint-order': 'stroke' };
+          if (twoLines) {
+            txt(name, Object.assign({ x: x, y: top + F_LABEL - 1, 'text-anchor': anchor,
+              'font-size': F_LABEL, 'font-weight': CAT_FW, fill: nameCol, 'font-family': FONT }, halo), gText);
+            txt(val, Object.assign({ x: x, y: top + F_LABEL + F_VALUE + 2, 'text-anchor': anchor,
+              'font-size': F_VALUE, 'font-weight': VAL_FW, fill: SEC_COL, 'font-family': FONT }, halo), gText);
+          } else {
+            const t = txt('', Object.assign({ x: x, y: top + blockH / 2 + F_LABEL * 0.36, 'text-anchor': anchor,
+              'font-size': F_LABEL, 'font-family': FONT }, halo), gText);
+            const a = el('tspan', { 'font-weight': CAT_FW, fill: nameCol }, t);
+            a.textContent = name;
+            if (val) {
+              const b = el('tspan', { 'font-weight': VAL_FW, fill: SEC_COL, dx: 5 }, t);
+              b.textContent = val;
+            }
+          }
+        });
+      });
+    }
+
+    // ── Tooltip + hover ─────────────────────────────────────────────────
+    const tooltip = document.createElement('div');
+    tooltip.style.cssText = 'position:absolute;pointer-events:none;background:' + cssColor(BG) +
+      ';border:1px solid ' + cssColor(TT_BORDER) + ';border-radius:4px;padding:6px 8px;font:' +
+      cssNumber(F_TIP) + 'px ' + cssFont(FONT) +
+      ';box-shadow:1px 1px 3px rgba(0,0,0,0.12);display:none;white-space:nowrap;z-index:10;';
+    container.appendChild(tooltip);
+
+    const line = (label, value, strong) => '<div style="color:' + cssColor(strong ? TITLE_COL : SEC_COL) +
+      ';font-weight:' + cssNumber(strong ? VAL_FW : 400) + '">' + esc(label) +
+      (value != null ? ' <span style="color:' + cssColor(TITLE_COL) + ';font-weight:' + cssNumber(VAL_FW) + '">' +
+        esc(value) + '</span>' : '') + '</div>';
+    const head = (s, color) => '<div style="font-weight:' + cssNumber(VAL_FW) + ';color:' + cssColor(TITLE_COL) +
+      ';margin-bottom:2px">' + (color ? '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;' +
+      'margin-right:6px;background:' + cssColor(color) + '"></span>' : '') + esc(s) + '</div>';
+
+    function clearHover() {
+      links.forEach(l => l._path.setAttribute('fill-opacity', linkOpacity));
+      nodes.forEach(n => { n._rect.style.opacity = '1'; });
+      tooltip.style.display = 'none';
+    }
+    function focus(litLinks, litNodes) {
+      links.forEach(l => l._path.setAttribute('fill-opacity',
+        litLinks.has(l) ? Math.min(1, linkOpacity + 0.3) : linkOpacity * 0.35));
+      nodes.forEach(n => {
+        n._rect.style.opacity = litNodes.has(n) ? '1' : '0.35';
+      });
+    }
+
+    life.on(svg, 'mousemove', ev => {
+      const t = ev.target;
+      const cls = t && t.getAttribute && t.getAttribute('class');
+      if (cls !== 'sk-link' && cls !== 'sk-node') { clearHover(); return; }
+      let html;
+      if (cls === 'sk-link') {
+        const l = links[+t.getAttribute('data-idx')];
+        focus(new Set([l]), new Set([l.source, l.target]));
+        html = l.synthetic
+          ? head(l.source.name + ': ' + DROP_WORD.toLowerCase(), DROP_COL) + line('', fmtV(l.value), true) +
+            line(pct(l.value, l.source.inValue) + ' of what reaches ' + l.source.name + ' goes no further')
+          : head(l.source.name + ' → ' + l.target.name) +
+          line('', fmtV(l.value), true) +
+          line(pct(l.value, l.source.outValue) + ' of what leaves ' + l.source.name) +
+          line(pct(l.value, l.target.inValue) + ' of what reaches ' + l.target.name);
+      } else {
+        const n = nodes[+t.getAttribute('data-idx')];
+        if (n.synthetic) {
+          focus(new Set(n.inLinks), new Set([n].concat(n.parents)));
+          html = head(DROP_WORD, DROP_COL) + line('', fmtV(n.value), true) +
+            line(pct(n.value, n.reached) + ' of what reaches this level goes no further');
+          if (n.parents.length > 1) {
+            n.inLinks.slice().sort((a, b) => b.value - a.value).forEach(l => {
+              html += line('From ' + l.source.name, fmtV(l.value));
+            });
+          }
+          showTip(ev, html);
+          return;
+        }
+        const ls = new Set(n.inLinks.concat(n.outLinks));
+        const ns = new Set([n]);
+        ls.forEach(l => { ns.add(l.source); ns.add(l.target); });
+        focus(ls, ns);
+        html = head(n.name, n._color);
+        if (n.inLinks.length) html += line('In', fmtV(n.inValue));
+        if (n.outLinks.some(l => !l.synthetic)) html += line('Out', fmtV(n.outValue));
+        if (!n.inLinks.length || !n.outLinks.some(l => !l.synthetic)) html += line('Total', fmtV(n.value));
+        if (n.inLinks.length && n.outLinks.length && Math.abs(n.inValue - n.outValue) > n.value * 1e-9) {
+          const d = n.outValue - n.inValue;
+          html += line(d < 0 ? DROP_WORD : 'Added here', fmtV(Math.abs(d)) +
+            ' (' + pct(Math.abs(d), n.inValue) + ')');
+        }
+      }
+      showTip(ev, html);
+    });
+    function showTip(ev, html) {
+      tooltip.innerHTML = html;
+      tooltip.style.display = 'block';
+      const rect = svg.getBoundingClientRect();
+      const px = ev.clientX - rect.left, py = ev.clientY - rect.top;
+      const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+      let tx = px + 14, ty = py - th - 12;
+      if (tx + tw > W - 4) tx = px - tw - 14;
+      if (ty < 4) ty = py + 16;
+      tooltip.style.left = tx + 'px';
+      tooltip.style.top = ty + 'px';
+    }
+    life.on(svg, 'mouseleave', clearHover);
+
+    // The links are the data a reader would tabulate: what moved from where to
+    // where. They are what the accessible table publishes.
+    const round = v => +(+v).toPrecision(12);
+    const getLinks = () => links.filter(l => !l.synthetic).map(l => ({ from: l.source.name, to: l.target.name, weight: round(l.value) }));
+    const getNodes = () => nodes.filter(n => !n.synthetic).map(n => ({ id: n.id, name: n.name, column: n.col,
+      in: round(n.inValue), out: round(n.outValue), value: round(n.value),
+      unaccounted: round(n.drop) }));
+
+    return chartAPI(life, {
+      // Withheld for the reason waterfall withholds it: the generic describer
+      // would read [from, to, weight] triples as [x, y] points.
+      opts: Object.assign({}, opts, { series: null }),
+      typeName: 'Sankey',
+      getData: getLinks,
+      redraw: () => { life.release(); Chart(container, opts); },
+      extras: { getLinks: getLinks, getNodes: getNodes }
+    });
+  }
+
+    Charts.sankey = Chart;
+})();
+
+// ─── table ────────────────────────────────────────────
+
+/*
+ * Clean-charts-styled TABLE engine (Charts.table).
+ *
+ * The exhibit for when the exact numbers are the point: a reader is going to
+ * look a figure up, not estimate it off a bar. Rows may be grouped under
+ * headings, columns may be grouped under a spanning header, and a column can
+ * colour its cells by value so the pattern is visible before the digits are
+ * read.
+ *
+ *                     FY 2025 (Actuals)             FY 2026 (Projections)
+ *                  Headcount  Budget  YoY        Headcount  Budget  YoY
+ *   ───────────────────────────────────────────────────────────────────────
+ *   Software Engineering
+ *   Backend Team      45,000 [$3,100M] [+8.2%]      48,500 [$3,450M] [+5.5%]
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Cream bg, Inter, top-left title/subtitle at the same metrics as the other
+ *    engines, content starting at the same headingGutter
+ *  - The shared text roles only: row-group headings and column-group headers
+ *    take the category role, column headers the subtitle's secondary color,
+ *    cells the quiet tick role — a table is all values, and all of them bold
+ *    is none of them emphasised
+ *  - Theme tokens only. `sign` cells take aboveThreshold / belowThreshold,
+ *    the same pair a bar above or below its threshold takes; `scale` cells
+ *    walk the series ramp from s2 (colors minus s1, which is black and
+ *    would drown its own number: lightest for the smallest value, s2 for the largest), or diverge through the threshold pair when
+ *    the column crosses zero. The ink on a filled cell is whichever of
+ *    titleColor / inverseText contrasts more with that fill.
+ *  - Hairline rules between rows, never boxes around cells
+ *  - Grows to its content when the container has no height
+ *
+ * NUMBERS ARE NEVER TRUNCATED. A clipped label costs a word; a clipped number
+ * is a different number. Header and row-label text wraps; if the numbers
+ * still do not fit the width, the table is drawn at its natural width and the
+ * container scrolls sideways.
+ *
+ * A BLANK IS NOT ZERO. A missing value is drawn as a dash with no fill, and it
+ * is left out of its column's colour scale, so it neither reads as nothing
+ * happened nor drags the ramp towards zero.
+ *
+ * REFUSALS (shared with Charts.validate via tableProblems in _shared.js):
+ *  - no columns or no rows
+ *  - a column without a key, or two columns with the same one
+ *  - a column coloured by value that holds no numbers
+ *  - columns sharing a colour scale but not a unit — one shade would stand
+ *    for dollars in one column and percent in the next
+ *  - column groups on some columns but not all — the header would show two
+ *    levels for some columns and one for the rest
+ *  - the rows of one group not next to each other, which would draw the
+ *    heading twice and read as two groups
+ */
+(function () {
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, resolveTheme, chartAPI, createLifecycle, el, txt,
+          wrapHeading, textW, cssColor, tableProblems, tableIsBlank, allocateWidths,
+          parseColor, mix, contrast, NS } = window.ChartsShared;
+
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  const PAD_X = 8;           // text inset inside a cell
+  const PILL_X = 2, PILL_Y = 4;
+  const GROUP_GAP = 20;      // air between two column groups
+  const LABEL_GAP = 28;      // air between the row labels and the first column
+  const LABEL_KEEP = 180;    // a label up to this wide is never wrapped to make room
+  const HEAD_LINES = 3;      // column headers wrap to at most this
+  const TEXT_MIN = 140;      // a text column narrower than this wraps word by word
+  const TEXT_MAX = 280;      // and never wider than this; longer prose wraps
+  const NUM_AIR = 28;        // room a number column asks for beyond its widest value
+  const NUM_MIN = 76;        // and the narrowest it would like to be
+  const CELL_LINES = 12;     // a text cell is never clipped short of this
+
+  function Chart(container, opts) {
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    let BG, GRID, AXIS, TITLE_COL, SUB_COL, SEC_COL, LABEL_COL, POS_COL, NEG_COL, MUTED, INVERSE, HOVER_INK, RAMP;
+    let CAT_COL, CAT_FW, TICK_FW, FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, F_NOTICE;
+    let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, PLOT_GAP, SPINE_W, GRID_W;
+    let TITLE_LH, SUB_LH;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      BG = t.bg; GRID = t.grid; AXIS = t.axis;
+      TITLE_COL = t.titleColor; SUB_COL = t.subtitleColor; SEC_COL = t.secondaryColor;
+      LABEL_COL = t.labelColor;
+      POS_COL = t.aboveThreshold; NEG_COL = t.belowThreshold;
+      MUTED = t.muted; RAMP = (t.colors && t.colors.length > 2) ? t.colors.slice(1) : (t.colors && t.colors.length ? t.colors : [t.defaultColor]); INVERSE = t.inverseText; HOVER_INK = t.hoverInk;
+      CAT_COL = t.categoryColor; CAT_FW = t.categoryWeight; TICK_FW = t.tickWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize; F_SUB = t.subtitleSize; F_LABEL = t.labelSize;
+      F_TICK = t.tickSize; F_VALUE = t.valueSize; F_NOTICE = t.noticeSize;
+      TITLE_FW = t.titleWeight; SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop; HEAD_SUB_GAP = t.headingSubGap; HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter; PLOT_GAP = t.plotGap;
+      SPINE_W = t.spineWidth; GRID_W = t.gridWidth;
+    }
+
+    // Refusal panel, same shape as the other engines'.
+    function errorChart(W, H, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib table] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+            fill: TITLE_COL, 'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE,
+        'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => txt(l, {
+        x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * SUB_LH,
+        'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
+      return chartAPI(createLifecycle(container), {
+        opts: opts, typeName: 'Table',
+        getData: function () { return []; },
+        extras: { getRows: function () { return []; }, error: headline }
+      });
+    }
+
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    const life = createLifecycle(container);
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
+
+    // Measured while the container is still empty — see barinsighttable.js for
+    // why an svg already in the DOM would be mistaken for an authored height.
+    if (container.dataset.chartsGrew === '1') container.style.height = '';
+    const authoredH = container.clientHeight;
+    const W = container.clientWidth || 800;
+    const plot = (opts.plotOptions && opts.plotOptions.table) || {};
+
+    const problems = tableProblems(opts);
+    if (problems.length) {
+      const first = problems[0];
+      const dot = first.indexOf('. ');
+      return errorChart(W, authoredH || 320,
+        dot > 0 ? first.slice(0, dot + 1) : first,
+        dot > 0 ? first.slice(dot + 2) : 'Charts.validate("table", config) lists every problem at once.');
+    }
+
+    const columns = opts.columns.map((c, i) => Object.assign({ i: i }, c));
+    const rows = opts.rows.map((r, i) => ({ i: i, src: r,
+      name: r.name != null ? String(r.name) : '', group: r.group != null ? String(r.group) : null }));
+
+    // ── Formatting ──────────────────────────────────────────────────────
+    // The sign goes outside the prefix, as in the waterfall: "-$230", never
+    // "$-230". `decimals` is honoured by handing the formatter a fixed-point
+    // string, which it keeps — so a locale still decides the separator.
+    const numeric = v => typeof v === 'number' && isFinite(v);
+    function fmt(col, v, row) {
+      if (tableIsBlank(v)) return plot.blank != null ? String(plot.blank) : '–';
+      if (typeof col.format === 'function') return String(col.format(v, row));
+      if (!numeric(v)) return String(v);
+      const abs = Math.abs(v);
+      const body = addCommas(col.decimals != null ? abs.toFixed(col.decimals) : abs);
+      const sign = v < 0 ? '-' : (col.showSign && v > 0 ? '+' : '');
+      return sign + (col.prefix || '') + body + (col.suffix || '');
+    }
+    columns.forEach(c => {
+      c.align = c.align || (rows.some(r => numeric(r.src[c.key])) ? 'right' : 'left');
+      c.texts = rows.map(r => fmt(c, r.src[c.key], r.src));
+      // A column of text wraps; a column with any number in it does not. A
+      // sentence cut across two lines is still the sentence, a number is not.
+      c.wraps = c.wrap != null ? !!c.wrap : !rows.some(r => numeric(r.src[c.key]));
+    });
+
+    // ── Colour scales ───────────────────────────────────────────────────
+    // A scale's domain is the column's own numbers, or the numbers of every
+    // column sharing its `scale` id, so the same budget reads as the same
+    // shade in FY25 and FY26. Blanks are not in the domain.
+    const domains = {};
+    columns.forEach(c => {
+      if (c.highlight !== 'scale') return;
+      const id = c.scale != null ? 's:' + c.scale : 'c:' + c.i;
+      const d = domains[id] || (domains[id] = { lo: Infinity, hi: -Infinity });
+      rows.forEach(r => {
+        const v = r.src[c.key];
+        if (numeric(v)) { d.lo = Math.min(d.lo, v); d.hi = Math.max(d.hi, v); }
+      });
+      c.domain = d;
+    });
+    const threshold = plot.threshold != null ? +plot.threshold : 0;
+    function fillOf(col, v, row) {
+      const h = col.highlight;
+      if (typeof h === 'function') {
+        const out = h(v, row, col);
+        return out ? cssColor(out, null) : null;
+      }
+      if (!numeric(v)) return null;
+      if (h === 'sign') {
+        // Exactly on the threshold is neither side of it, so it takes no fill.
+        return v > threshold ? (col.upColor || POS_COL) : v < threshold ? (col.downColor || NEG_COL) : null;
+      }
+      if (h === 'scale') {
+        const d = col.domain;
+        if (d.lo < 0 && d.hi > 0) {
+          // Diverging: the intensity is the distance from zero, so a colour
+          // means the same size in either direction.
+          // Zero is the midpoint, and like a sign cell on its threshold it
+          // takes no fill rather than a box the colour of the canvas.
+          if (v === 0) return null;
+          const m = Math.max(-d.lo, d.hi);
+          return mix(BG, v >= 0 ? (col.upColor || POS_COL) : (col.downColor || NEG_COL), Math.abs(v) / m);
+        }
+        // Sequential. The larger the magnitude, the further along the series
+        // ramp: the lightest step for the smallest, s2 for the largest. The
+        // lightest step is still a visible fill, so the smallest value does
+        // not read as a cell with no data.
+        const t = d.hi === d.lo ? 1 : (v - d.lo) / (d.hi - d.lo);
+        const k = d.hi > 0 ? t : 1 - t;
+        if (col.color) return mix(BG, col.color, 0.12 + 0.88 * k);
+        return rampAt(k);
+      }
+      return null;
+    }
+    // The series palette read light → dark, interpolated between its steps.
+    function rampAt(k) {
+      const stops = RAMP.slice().reverse();
+      if (stops.length === 1) return stops[0];
+      const p = Math.max(0, Math.min(1, k)) * (stops.length - 1);
+      const i = Math.min(stops.length - 2, Math.floor(p));
+      return mix(stops[i], stops[i + 1], p - i);
+    }
+    const inkOn = fill => (contrast(fill, INVERSE) > contrast(fill, TITLE_COL) ? INVERSE : TITLE_COL);
+
+    // ── Heading ─────────────────────────────────────────────────────────
+    const titleLines = opts.title ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = opts.subtitle ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (titleLines.length ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (subLines.length ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
+
+    // ── Column groups ───────────────────────────────────────────────────
+    // Consecutive columns with the same `group` form one span. A group that
+    // reappears later is a second span of the same name, which is allowed —
+    // columns are the author's order, not a hierarchy to be sorted.
+    const colGroups = [];
+    columns.forEach(c => {
+      const g = c.group != null ? String(c.group) : null;
+      const last = colGroups[colGroups.length - 1];
+      if (last && last.name === g) last.cols.push(c);
+      else colGroups.push({ name: g, cols: [c] });
+    });
+    const hasColGroups = colGroups.some(g => g.name != null);
+    columns.forEach(c => {
+      const gi = colGroups.findIndex(g => g.cols.indexOf(c) >= 0);
+      c.gapBefore = gi > 0 && colGroups[gi].cols[0] === c ? GROUP_GAP : 0;
+    });
+    const hasRowGroups = rows.some(r => r.group != null);
+
+    // ── Widths ──────────────────────────────────────────────────────────
+    // Each column states two widths and allocateWidths (in _shared.js) shares
+    // the room out between them, the way a browser lays out an auto table:
+    //
+    //   min  the narrowest it can go without breaking something: its widest
+    //        number, its longest word of prose, its longest header word
+    //   max  the width it would like: numbers with air around them, prose
+    //        up to a modest measure, the header in no more than two lines
+    //
+    // A column whose min and max are equal — a column of numbers — keeps its
+    // width when room is short, and the prose and the long headers wrap
+    // instead. When there is room to spare it goes out in proportion to what
+    // each column wanted, so a wide column is not left cramped beside a
+    // narrow one handed the same share. Prose never takes spare: a long
+    // paragraph is no more important than a short number, and wrapping it
+    // onto another line costs less than crowding the numbers together.
+    const longestWord = (s, size, bold) => String(s || '').split(/\s+/)
+      .reduce((a, w) => Math.max(a, textW(w, size, bold)), 0);
+    const widest = (list, size, bold) => list.reduce((a, s) => Math.max(a, textW(s, size, bold)), 0);
+    // A header may take two lines, so it asks for about half its length —
+    // never less than its longest word, which cannot break.
+    const headerWant = (name, size, bold) => name == null ? 0
+      : Math.max(longestWord(name, size, bold), textW(name, size, bold) * 0.55);
+
+    columns.forEach(c => {
+      const cells = widest(c.texts, F_VALUE, false);
+      const headMin = longestWord(c.name, F_TICK, false);
+      const headMax = headerWant(c.name, F_TICK, false);
+      if (c.wraps) {
+        const words = c.texts.reduce((a, t) => Math.max(a, longestWord(t, F_VALUE, false)), 0);
+        c.minW = Math.max(words, headMin, Math.min(cells, TEXT_MIN));
+        c.maxW = Math.max(c.minW, headMax, Math.min(cells, TEXT_MAX));
+        c.cap = c.maxW;
+      } else {
+        c.minW = Math.max(cells, headMin);
+        // The min is tight — the numbers just fit — so the preference adds air.
+        // That is what the columns give back first when room is short.
+        c.maxW = Math.max(c.minW + NUM_AIR, headMax, NUM_MIN);
+        c.cap = Infinity;
+      }
+      c.minW = Math.ceil(c.minW + PAD_X * 2);
+      c.maxW = Math.ceil(c.maxW + PAD_X * 2);
+      c.cap += PAD_X * 2;
+      if (c.width != null) c.minW = c.maxW = c.cap = Math.max(c.minW, +c.width);
+    });
+
+    // A spanning group header needs its span to hold it: widen the columns
+    // under it evenly until its longest word fits (the floor) and it fits in
+    // two lines (the preference).
+    colGroups.forEach(g => {
+      if (g.name == null) return;
+      const inner = g.cols.slice(1).reduce((a, c) => a + c.gapBefore, 0);
+      const need = (key, want) => {
+        const have = g.cols.reduce((a, c) => a + c[key], 0) + inner;
+        if (want > have) g.cols.forEach(c => { c[key] += (want - have) / g.cols.length; });
+      };
+      need('minW', longestWord(g.name, F_LABEL, true) + PAD_X * 2);
+      need('maxW', headerWant(g.name, F_LABEL, true) + PAD_X * 2);
+      g.cols.forEach(c => { c.maxW = Math.max(c.maxW, c.minW); c.cap = Math.max(c.cap, c.maxW); });
+    });
+
+    const labelHeader = plot.labelHeader != null ? String(plot.labelHeader) : '';
+    const groupNames = rows.filter(r => r.group != null).map(r => r.group);
+    const labelMin = Math.ceil(Math.max(60,
+      rows.reduce((a, r) => Math.max(a, longestWord(r.name, F_LABEL, false)), 0),
+      groupNames.reduce((a, g) => Math.max(a, longestWord(g, F_LABEL, true)), 0),
+      longestWord(labelHeader, F_TICK, false)) + PAD_X);
+    const labelMax = Math.max(labelMin, Math.ceil(Math.max(
+      widest(rows.map(r => r.name), F_LABEL, false),
+      widest(groupNames, F_LABEL, true),
+      textW(labelHeader, F_TICK, false)) + PAD_X * 2));
+
+    // A gutter after the labels, as in reportTable, so a long label does not
+    // read as the first cell; and a label that fits on one line in modest room
+    // keeps it, the columns giving first when space is short.
+    const labelGap = plot.labelGap != null ? Math.max(0, +plot.labelGap) : LABEL_GAP;
+    const labelFloor = Math.max(labelMin, Math.min(labelMax, LABEL_KEEP));
+    const gaps = columns.reduce((a, c) => a + c.gapBefore, 0) + labelGap;
+    const widths = allocateWidths(
+      [{ min: labelFloor, max: labelMax }].concat(columns.map(c => ({ min: c.minW, max: c.maxW, cap: c.cap }))),
+      W - HEAD_X * 2 - gaps);
+    const labelW = widths[0];
+    columns.forEach((c, k) => { c.w = widths[k + 1]; });
+    const contentW = Math.ceil(labelW + columns.reduce((a, c) => a + c.w, 0) + gaps);
+    // Wider than the container only if it must be. The widths above are
+    // ceiled, so a table that fits can come out a pixel over; that is not a
+    // reason to show a scrollbar.
+    const SW = contentW + HEAD_X * 2 > W + 2 ? contentW + HEAD_X * 2 : W;
+    let x = HEAD_X + labelW + labelGap;
+    columns.forEach(c => { x += c.gapBefore; c.x = x; x += c.w; });
+    colGroups.forEach(g => { g.x = g.cols[0].x; g.w = g.cols[g.cols.length - 1].x + g.cols[g.cols.length - 1].w - g.x; });
+    const tableR = HEAD_X + contentW;
+
+    // ── Heights ─────────────────────────────────────────────────────────
+    const LH = Math.round(F_VALUE * 1.3);
+    colGroups.forEach(g => {
+      g.lines = g.name != null ? wrapHeading(g.name, F_LABEL, Math.max(20, g.w - PAD_X * 2), 2, true) : [];
+    });
+    columns.forEach(c => {
+      c.head = c.name != null ? wrapHeading(c.name, F_TICK, Math.max(20, c.w - PAD_X * 2), HEAD_LINES, false) : [];
+    });
+    const groupHeadH = hasColGroups ? Math.max(...colGroups.map(g => g.lines.length)) * LH + 14 : 0;
+    const colHeadLines = Math.max(1, ...columns.map(c => c.head.length));
+    const colHeadH = colHeadLines * LH + 10;
+    const ROW_MIN = Math.round(F_VALUE * 2.9);
+    rows.forEach(r => {
+      r.lines = wrapHeading(r.name, F_LABEL, Math.max(20, labelW - PAD_X * 2), 3, false);
+      r.cells = columns.map((c, k) => c.wraps
+        ? wrapHeading(c.texts[r.i], F_VALUE, Math.max(20, c.w - PAD_X * 2), CELL_LINES, false)
+        : [c.texts[r.i]]);
+      const most = Math.max(r.lines.length, ...r.cells.map(l => l.length));
+      r.h = Math.max(ROW_MIN, most * LH + 16);
+    });
+    const GROUP_ROW = Math.round(F_LABEL * 2.8);
+    const groupStarts = rows.filter((r, k) => r.group != null && (k === 0 || rows[k - 1].group !== r.group));
+    const headTop = titleBlockH + PLOT_GAP;
+    const bodyTop = headTop + groupHeadH + colHeadH;
+    const bodyH = () => rows.reduce((a, r) => a + r.h, 0) + groupStarts.length * GROUP_ROW;
+    const BOTTOM = 20;
+
+    let H = Math.round(bodyTop + bodyH() + BOTTOM);
+    if (authoredH > 0 && authoredH > H) {
+      // A taller cell than the table needs: open the rows up, to half again
+      // their height, and leave any rest as canvas. Past that a table stops
+      // reading as rows and starts reading as stripes.
+      const perRow = Math.min((authoredH - H) / rows.length, ROW_MIN * 0.5);
+      rows.forEach(r => { r.h += perRow; });
+      H = authoredH;
+      delete container.dataset.chartsGrew;
+    } else if (authoredH > 0 && authoredH === H) {
+      delete container.dataset.chartsGrew;
+    } else {
+      // No height, or not enough of one. Grow rather than clip rows off the
+      // bottom: a table missing its last rows looks complete.
+      container.style.height = H + 'px';
+      container.dataset.chartsGrew = '1';
+    }
+    container.style.overflowX = SW > W ? 'auto' : '';
+    container.style.overflowY = SW > W ? 'hidden' : '';
+
+    const svg = el('svg', { xmlns: NS, width: SW, height: H, viewBox: '0 0 ' + SW + ' ' + H });
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+    svg.style.display = 'block';
+    container.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: HEAD_X, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: HEAD_X, y: subY0 + i * SUB_LH,
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
+
+    const anchorX = (c, align) => align === 'right' ? c.x + c.w - PAD_X
+      : align === 'center' ? c.x + c.w / 2 : c.x + PAD_X;
+    const ANCHOR = { left: 'start', right: 'end', center: 'middle' };
+
+    // ── Header ──────────────────────────────────────────────────────────
+    const gHead = el('g', {}, svg);
+    if (hasColGroups) {
+      colGroups.forEach(g => {
+        if (g.name == null) return;
+        // A span of one column aligns like that column; a real span centres over it.
+        const one = g.cols.length === 1;
+        const align = one ? (g.cols[0].headerAlign || g.cols[0].align) : 'center';
+        const gx = one ? anchorX(g.cols[0], align) : g.x + g.w / 2;
+        const y0 = headTop + groupHeadH - 14 - (g.lines.length - 1) * LH + F_LABEL * 0.8;
+        g.lines.forEach((ln, li) => txt(ln, { x: gx, y: y0 + li * LH, 'text-anchor': ANCHOR[align],
+          'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gHead));
+      });
+    }
+    // Column headers sit on the rule, bottom-aligned, so a one-line header and
+    // a wrapped one share a baseline.
+    const headBase = bodyTop - 8;
+    columns.forEach(c => {
+      const align = c.headerAlign || c.align;
+      const n = c.head.length;
+      c.head.forEach((ln, li) => txt(ln, { x: anchorX(c, align), y: headBase - (n - 1 - li) * LH,
+        'text-anchor': ANCHOR[align], 'font-size': F_TICK, 'font-weight': TICK_FW,
+        fill: SEC_COL, 'font-family': FONT }, gHead));
+    });
+    if (labelHeader) {
+      txt(labelHeader, { x: HEAD_X, y: headBase, 'font-size': F_TICK, 'font-weight': TICK_FW,
+        fill: SEC_COL, 'font-family': FONT }, gHead);
+    }
+    el('line', { x1: HEAD_X, x2: tableR, y1: bodyTop, y2: bodyTop,
+      stroke: AXIS, 'stroke-width': SPINE_W }, gHead);
+
+    // ── Body ────────────────────────────────────────────────────────────
+    const gHover = el('g', {}, svg);
+    const gRules = el('g', {}, svg);
+    const gCells = el('g', {}, svg);
+    const striped = !!plot.striped;
+    let y = bodyTop, stripe = 0;
+    rows.forEach((r, k) => {
+      if (groupStarts.indexOf(r) >= 0) {
+        // Between groups the rule is heavier than between rows: the heading
+        // below it starts a new set, not the next line of the same one.
+        if (k > 0 && plot.rowGroupDivider !== false) {
+          el('line', { x1: HEAD_X, x2: tableR, y1: y, y2: y,
+            stroke: MUTED, 'stroke-width': GRID_W * 1.5 }, gRules);
+        }
+        txt(r.group, { x: HEAD_X, y: y + GROUP_ROW - F_LABEL * 0.75, 'font-size': F_LABEL,
+          'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gCells);
+        y += GROUP_ROW;
+        stripe = 0;
+      }
+      r.y = y;
+      r._hover = el('rect', { x: HEAD_X, y: y, width: contentW, height: r.h,
+        fill: striped && stripe % 2 ? GRID : HOVER_INK,
+        'fill-opacity': striped && stripe % 2 ? 0.45 : 0, 'data-row': k, class: 'tb-row' }, gHover);
+      // What the row goes back to after a hover: the stripe, or nothing.
+      r._rest = striped && stripe % 2 ? { fill: GRID, opacity: 0.45 } : { fill: HOVER_INK, opacity: 0 };
+      stripe++;
+
+      const mid = y + r.h / 2;
+      const top = mid - ((r.lines.length - 1) * LH) / 2 + F_LABEL * 0.36;
+      r.lines.forEach((ln, li) => txt(ln, { x: HEAD_X, y: top + li * LH, 'font-size': F_LABEL,
+        'font-weight': TICK_FW, fill: LABEL_COL, 'font-family': FONT, 'pointer-events': 'none' }, gCells));
+
+      columns.forEach(c => {
+        const v = r.src[c.key];
+        const blank = tableIsBlank(v);
+        const fill = blank ? null : fillOf(c, v, r.src);
+        if (fill && plot.pills !== false) {
+          el('rect', { x: c.x + PILL_X, y: y + PILL_Y, width: c.w - PILL_X * 2,
+            height: r.h - PILL_Y * 2, fill: fill, 'pointer-events': 'none' }, gCells);
+        }
+        const ink = fill && plot.pills !== false ? inkOn(fill) : (blank ? SEC_COL : (fill || LABEL_COL));
+        const lines = r.cells[c.i];
+        const y0 = mid - ((lines.length - 1) * LH) / 2 + F_VALUE * 0.36;
+        lines.forEach((ln, li) => txt(ln, { x: anchorX(c, c.align), y: y0 + li * LH,
+          'text-anchor': ANCHOR[c.align], 'font-size': F_VALUE, 'font-weight': c.bold ? CAT_FW : TICK_FW,
+          fill: ink, 'font-family': FONT, 'pointer-events': 'none' }, gCells));
+      });
+
+      y += r.h;
+      const lastInGroup = k === rows.length - 1 || rows[k + 1].group !== r.group;
+      if (!lastInGroup || k === rows.length - 1) {
+        el('line', { x1: HEAD_X, x2: tableR, y1: y, y2: y, stroke: GRID, 'stroke-width': GRID_W }, gRules);
+      }
+    });
+
+    // A hairline between column groups, on by default: with the gap alone a
+    // wide group reads as running into the next. `columnGroupDivider: false`
+    // leaves only the gap.
+    if (plot.columnGroupDivider !== false && hasColGroups) {
+      colGroups.slice(1).forEach(g => {
+        const gx = g.x - GROUP_GAP / 2;
+        el('line', { x1: gx, x2: gx, y1: headTop, y2: y, stroke: GRID, 'stroke-width': GRID_W }, gRules);
+      });
+    }
+
+    // ── Hover ───────────────────────────────────────────────────────────
+    // A wash across the row under the pointer, so a reader tracing a line
+    // across twelve columns does not drop to the next one. No tooltip: every
+    // value it could show is already printed in the cell.
+    let hovered = null;
+    const unhover = () => {
+      if (hovered) {
+        hovered._hover.setAttribute('fill', hovered._rest.fill);
+        hovered._hover.setAttribute('fill-opacity', hovered._rest.opacity);
+      }
+      hovered = null;
+    };
+    life.on(svg, 'mousemove', ev => {
+      const t = ev.target;
+      const r = t && t.classList && t.classList.contains('tb-row') ? rows[+t.getAttribute('data-row')] : null;
+      if (r === hovered) return;
+      unhover();
+      if (!r) return;
+      hovered = r;
+      r._hover.setAttribute('fill', HOVER_INK);
+      r._hover.setAttribute('fill-opacity', 0.05);
+    });
+    life.on(svg, 'mouseleave', unhover);
+
+    // The rows as a reader would transcribe them. Column names carry their
+    // group, because "Headcount" alone is two different columns here.
+    const getRows = () => rows.map(r => {
+      const out = {};
+      if (hasRowGroups) out.group = r.group;
+      out.row = r.name;
+      columns.forEach(c => {
+        const label = (c.group != null ? c.group + ' ' : '') + (c.name != null ? c.name : c.key);
+        const v = r.src[c.key];
+        out[label] = tableIsBlank(v) ? null : v;
+      });
+      return out;
+    });
+
+    return chartAPI(life, {
+      opts: Object.assign({}, opts, { series: null }),
+      typeName: 'Table',
+      getData: getRows,
+      redraw: () => { life.release(); Chart(container, opts); },
+      extras: { getRows: getRows }
+    });
+  }
+
+    Charts.table = Chart;
+})();
+
+// ─── reportTable ──────────────────────────────────────
+
+/*
+ * Clean-charts-styled REPORT TABLE engine (Charts.reportTable).
+ *
+ * A table whose cells are not only numbers. Each column has a `kind`, and the
+ * kind decides what every cell in it draws:
+ *
+ *                         Performance                    What happened          YoY
+ *              Last 12 months       Mix
+ *   ─────────────────────────────────────────────────────────────────────────────────
+ *   Income
+ *   Revenue    ╱╲_╱‾‾╲_╱‾         ◔ donut      Topline growth           +12.4%
+ *                                               Renewals landed early    vs plan
+ *
+ *   text     a paragraph that wraps
+ *   insight  a bold headline with a description under it
+ *   kpi      one large number, optionally coloured by its sign, with a note
+ *   chart    a real chart of any type — line, column, bar, barList, donut,
+ *            dumbbell, waffle, radar, … — except the ones that are whole
+ *            exhibits themselves (panels, table, barInsightTable, reportTable)
+ *
+ * Design language shared with the rest of charts-lib:
+ *  - Everything a Charts.table does, this does the same way: the row label
+ *    from `row.name`, row groups as headings over contiguous runs, column
+ *    groups as spanning headers, `sign` / `scale` fills from the same tokens,
+ *    hairline rules between rows, widths shared out by allocateWidths
+ *  - The insight and kpi kinds take barInsightTable's sizes and roles: the
+ *    headline is labelSize + 1.5 in the category role, the description the
+ *    tick size in secondaryColor, the stat round(titleSize × 1.5) in the
+ *    value role
+ *  - Chart cells are real charts — tooltip and hover included — made by the
+ *    same factories a page calls, with their heading band and legend taken
+ *    away. When the charts in a column carry named series, the names are
+ *    shown once as a legend above the table instead of once per cell.
+ *  - One scale per chart column: every line / column / bar / dumbbell cell in
+ *    a column is handed the same value range, so rows are comparable. A
+ *    per-cell scale would make a small row's bars look as long as a big one's.
+ *
+ * REFUSALS (shared with Charts.validate via reportTableProblems in _shared.js):
+ *  - everything Charts.table refuses about keys, column groups and row groups
+ *  - a column with no kind, or kind "number": a table-sized figure looks small
+ *    beside charts and stats, so figures are kpi columns
+ *  - a column kind it does not know
+ *  - a chart column naming no chart, an unknown chart, or a chart that is a
+ *    whole exhibit (panels, table, barInsightTable, reportTable)
+ */
+(function () {
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { makeNumberFormatter, resolveTheme, chartAPI, createLifecycle, el, txt,
+          wrapHeading, textW, cssColor, reportTableProblems, tableIsBlank, allocateWidths,
+          mix, contrast, NS } = window.ChartsShared;
+
+  const TITLE_LINES = 2, SUB_LINES = 3;
+  const PAD_X = 8;           // text inset inside a cell
+  const PAD_Y = 10;          // and above / below a cell's content
+  const PILL_X = 2, PILL_Y = 4;
+  const GROUP_GAP = 20;      // air between two column groups
+  const LABEL_GAP = 28;      // air between the row labels and the first column
+  const LABEL_KEEP = 180;    // a label up to this wide is never wrapped to make room
+  const HEAD_LINES = 3;      // column headers wrap to at most this
+  const TEXT_MIN = 140;      // a text column narrower than this wraps word by word
+  const TEXT_MAX = 280;      // and never wider than this; longer prose wraps
+  const INSIGHT_MAX = 240;
+  const NUM_AIR = 28;        // room a kpi column asks for beyond its widest stat
+  const NUM_MIN = 76;
+  const CHART_MIN = 160;     // a chart column narrower than this has no plot left
+  const CHART_MAX = 260;
+  const CELL_LINES = 12;     // a text cell is never clipped short of this
+  const CHART_ROW = 140;     // default height of a row holding a chart
+  const PIE_MIN = 220;       // a pie or donut column narrower than this crowds its slice labels
+  const KEY_SLICES = 4;      // past this many slices, a pie cell trades its callouts for a key
+  const KEY_SWATCH = 8, KEY_GAP = 6;
+
+  // Series-based types whose value axis can be pinned with yAxis.min/max, so
+  // a column of them can share one scale.
+  const SHARED_Y = { line: 1, column: 1, bar: 1, dumbbell: 1 };
+  // Engines that grow to their content; in a cell they fill the cell instead.
+  const AUTO_HEIGHT = { barList: 1, dumbbell: 1, waffle: 1 };
+  // A chart in a cell has no heading of its own, so none of the heading band.
+  // A compact chart keeps its own small headroom for value labels; one with
+  // axes needs a little more so its top label is not clipped.
+  const CELL_THEME = { headingPadTop: 0, headingGap: 0, plotGap: 6 };
+  const CELL_THEME_AXES = { headingPadTop: 0, headingGap: 0, plotGap: 14 };
+
+  // `rowFloor` is internal: the heights a first pass found its charts needed.
+  function Chart(container, opts, rowFloor) {
+    rowFloor = rowFloor || {};
+    const addCommas = makeNumberFormatter(resolveTheme(opts));
+    let BG, GRID, AXIS, TITLE_COL, SUB_COL, SEC_COL, LABEL_COL, POS_COL, NEG_COL, MUTED, INVERSE, HOVER_INK, RAMP, COLORS;
+    let CAT_COL, CAT_FW, TICK_FW, VAL_COL, VAL_FW, FONT, F_TITLE, F_SUB, F_LABEL, F_TICK, F_VALUE, F_NOTICE;
+    let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, PLOT_GAP, SPINE_W, GRID_W;
+    let TITLE_LH, SUB_LH, F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      BG = t.bg; GRID = t.grid; AXIS = t.axis;
+      TITLE_COL = t.titleColor; SUB_COL = t.subtitleColor; SEC_COL = t.secondaryColor;
+      LABEL_COL = t.labelColor;
+      POS_COL = t.aboveThreshold; NEG_COL = t.belowThreshold;
+      MUTED = t.muted; INVERSE = t.inverseText; HOVER_INK = t.hoverInk;
+      COLORS = t.colors && t.colors.length ? t.colors : [t.defaultColor];
+      RAMP = COLORS.length > 2 ? COLORS.slice(1) : COLORS;
+      CAT_COL = t.categoryColor; CAT_FW = t.categoryWeight; TICK_FW = t.tickWeight;
+      VAL_COL = t.valueColor; VAL_FW = t.valueWeight;
+      FONT = t.font;
+      F_TITLE = t.titleSize; F_SUB = t.subtitleSize; F_LABEL = t.labelSize;
+      F_TICK = t.tickSize; F_VALUE = t.valueSize; F_NOTICE = t.noticeSize;
+      TITLE_FW = t.titleWeight; SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop; HEAD_SUB_GAP = t.headingSubGap; HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter; PLOT_GAP = t.plotGap;
+      SPINE_W = t.spineWidth; GRID_W = t.gridWidth;
+      F_LEG = t.legendSize; LEG_FW = t.legendWeight; LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap; LEG_ICON = t.legendIconSize; LEG_ICON_GAP = t.legendIconGap;
+    }
+
+    // Refusal panel, same shape as the other engines'.
+    function errorChart(W, H, headline, detail) {
+      if (typeof console !== 'undefined' && console.warn) {
+        console.warn('[charts-lib reportTable] ' + headline + ' ' + detail);
+      }
+      const svg = el('svg', { xmlns: NS, width: W, height: H, viewBox: '0 0 ' + W + ' ' + H });
+      svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+      svg.style.display = 'block';
+      container.appendChild(svg);
+      let y = 34;
+      if (opts.title) {
+        wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true).forEach(l => {
+          txt(l, { x: HEAD_X, y: y, 'font-size': F_TITLE, 'font-weight': TITLE_FW,
+            fill: TITLE_COL, 'font-family': FONT }, svg);
+          y += TITLE_LH;
+        });
+        y += 10;
+      }
+      const cy = Math.max(y + 20, H / 2 - 10);
+      const headLines = wrapHeading(headline, F_NOTICE, W - 40, 2, true);
+      headLines.forEach((l, i) => txt(l, { x: HEAD_X, y: cy + i * 18, 'font-size': F_NOTICE,
+        'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
+      wrapHeading(detail, F_SUB, W - 40, 4, false).forEach((l, i) => txt(l, {
+        x: HEAD_X, y: cy + (headLines.length - 1) * 18 + 26 + i * SUB_LH,
+        'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
+      return chartAPI(createLifecycle(container), {
+        opts: opts, typeName: 'Report table',
+        getData: function () { return []; },
+        extras: { getRows: function () { return []; }, charts: [], error: headline }
+      });
+    }
+
+    applyTheme();
+    opts = opts || {};
+    if (typeof container === 'string') container = document.getElementById(container);
+    container.innerHTML = '';
+    const life = createLifecycle(container);
+    container.style.position = 'relative';
+    container.style.fontFamily = FONT;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
+
+    if (container.dataset.chartsGrew === '1') container.style.height = '';
+    const authoredH = container.clientHeight;
+    const W = container.clientWidth || 800;
+    const plot = (opts.plotOptions && opts.plotOptions.reportTable) || {};
+
+    const problems = reportTableProblems(opts);
+    if (problems.length) {
+      const first = problems[0];
+      const dot = first.indexOf('. ');
+      return errorChart(W, authoredH || 320,
+        dot > 0 ? first.slice(0, dot + 1) : first,
+        dot > 0 ? first.slice(dot + 2) : 'Charts.validate("reportTable", config) lists every problem at once.');
+    }
+
+    const columns = opts.columns.map((c, i) => Object.assign({ i: i }, c));
+    // A row label is plain text, or an insight — { head, body } — when the
+    // row needs a line of explanation under its name.
+    const rows = opts.rows.map((r, i) => {
+      const n = r.name;
+      const rich = n != null && typeof n === 'object';
+      return { i: i, src: r,
+        name: rich ? (n.head != null ? String(n.head) : '') : (n != null ? String(n) : ''),
+        body: rich && n.body != null ? String(n.body) : '',
+        rich: rich,
+        group: r.group != null ? String(r.group) : null };
+    });
+    const numeric = v => typeof v === 'number' && isFinite(v);
+    const blankText = plot.blank != null ? String(plot.blank) : '–';
+
+    // ── Formatting ──────────────────────────────────────────────────────
+    // As in Charts.table: the sign outside the prefix ("-$230"), `decimals`
+    // kept as fixed point so a locale still picks the separator.
+    function fmt(col, v, row, showSign) {
+      if (tableIsBlank(v)) return blankText;
+      if (typeof col.format === 'function') return String(col.format(v, row));
+      if (!numeric(v)) return String(v);
+      const abs = Math.abs(v);
+      const body = addCommas(col.decimals != null ? abs.toFixed(col.decimals) : abs);
+      const sign = v < 0 ? '-' : (showSign && v > 0 ? '+' : '');
+      return sign + (col.prefix || '') + body + (col.suffix || '');
+    }
+
+    // ── Cell content, per kind ──────────────────────────────────────────
+    // Each cell is read once into a small record, so measuring and drawing
+    // agree on what is in it.
+    const F_INSIGHT = plot.insightSize != null ? plot.insightSize : F_LABEL + 1.5;
+    const F_DESC = plot.descriptionSize != null ? plot.descriptionSize : F_TICK;
+    const F_STAT = plot.statSize != null ? plot.statSize : Math.round(F_TITLE * 1.5);
+    const LH = Math.round(F_VALUE * 1.3);
+    const INS_LH = Math.round(F_INSIGHT * 1.3);
+    const DESC_LH = Math.round(F_DESC * 1.4);
+    const descLines = plot.descriptionLines != null ? plot.descriptionLines : 3;
+
+    // ── Cell fills ──────────────────────────────────────────────────────
+    // A kpi column with colorByScale fills each cell by its value, exactly as
+    // a Charts.table `scale` column does: sequential along the series ramp, or
+    // diverging through the threshold pair when the values cross zero, over
+    // the column's own numbers or every column sharing its `scale` id. Any kpi,
+    // text or insight cell can also carry its own `fill`, which wins. The text
+    // on a fill takes whichever of titleColor / inverseText contrasts more.
+    const kpiValue = v => (v != null && typeof v === 'object' ? v.value : v);
+    const domains = {};
+    columns.forEach(c => {
+      if (c.kind !== 'kpi' || !c.colorByScale) return;
+      const id = c.scale != null ? 's:' + c.scale : 'c:' + c.i;
+      const d = domains[id] || (domains[id] = { lo: Infinity, hi: -Infinity });
+      rows.forEach(r => {
+        const v = kpiValue(r.src[c.key]);
+        if (numeric(v)) { d.lo = Math.min(d.lo, v); d.hi = Math.max(d.hi, v); }
+      });
+      c.domain = d;
+    });
+    function rampAt(k) {
+      const stops = RAMP.slice().reverse();
+      if (stops.length === 1) return stops[0];
+      const p = Math.max(0, Math.min(1, k)) * (stops.length - 1);
+      const i = Math.min(stops.length - 2, Math.floor(p));
+      return mix(stops[i], stops[i + 1], p - i);
+    }
+    function scaleFill(col, v) {
+      if (!col.colorByScale || !numeric(v)) return null;
+      const d = col.domain;
+      if (d.lo < 0 && d.hi > 0) {
+        if (v === 0) return null;
+        const m = Math.max(-d.lo, d.hi);
+        return mix(BG, v > 0 ? (col.upColor || POS_COL) : (col.downColor || NEG_COL), Math.abs(v) / m);
+      }
+      const t = d.hi === d.lo ? 1 : (v - d.lo) / (d.hi - d.lo);
+      const k = d.hi > 0 ? t : 1 - t;
+      return col.color ? mix(BG, col.color, 0.12 + 0.88 * k) : rampAt(k);
+    }
+    const ownFill = v => (v != null && typeof v === 'object' && v.fill ? cssColor(v.fill, null) : null);
+    const inkOn = fill => (contrast(fill, INVERSE) > contrast(fill, TITLE_COL) ? INVERSE : TITLE_COL);
+
+    function readCell(col, v, row) {
+      switch (col.kind) {
+        case 'text': {
+          const t = v != null && typeof v === 'object' ? v.text : v;
+          return { text: tableIsBlank(t) ? blankText : String(t), blank: tableIsBlank(t), fill: ownFill(v) };
+        }
+        case 'insight': {
+          if (tableIsBlank(v)) return { head: blankText, body: '', blank: true };
+          if (typeof v !== 'object') return { head: String(v), body: '' };
+          return { head: v.head != null ? String(v.head) : '', body: v.body != null ? String(v.body) : '', fill: ownFill(v) };
+        }
+        case 'kpi': {
+          const o = v != null && typeof v === 'object' ? v : { value: v };
+          const val = o.value;
+          const showSign = col.showSign != null ? col.showSign : !!col.colorBySign;
+          const fill = ownFill(o) || scaleFill(col, val);
+          // On a fill the stat takes the contrasting ink; a sign tint would
+          // fight the fill for the same job.
+          let color = o.color || (fill ? inkOn(fill) : (col.colorByScale ? VAL_COL : (col.color || VAL_COL)));
+          if (!o.color && !fill && col.colorBySign && numeric(val)) {
+            color = val > 0 ? (col.upColor || POS_COL) : val < 0 ? (col.downColor || NEG_COL) : VAL_COL;
+          }
+          return { stat: fmt(col, val, row, showSign), note: o.note != null ? String(o.note) : '',
+            color: tableIsBlank(val) && !fill ? SEC_COL : cssColor(color, VAL_COL), blank: tableIsBlank(val), fill: fill };
+        }
+        default:   // chart
+          return { blank: v == null };
+      }
+    }
+    columns.forEach(c => {
+      c.cells = rows.map(r => readCell(c, r.src[c.key], r.src));
+      c.align = c.align || (c.kind === 'kpi' ? 'right' : 'left');
+    });
+
+    // ── Chart cell configs ──────────────────────────────────────────────
+    // A cell's chart is the column's `chart` defaults with the row's value
+    // laid over them. A bare array is shorthand for one series of that data.
+    // plotOptions and theme merge one level deeper, so a row can change one
+    // option without restating the column's.
+    function cellConfig(col, v) {
+      const base = Object.assign({}, col.chart);
+      delete base.type;
+      const own = Array.isArray(v) ? { series: [{ data: v }] } : Object.assign({}, v);
+      const cfg = Object.assign({}, base, own);
+      const po = Object.assign({}, base.plotOptions);
+      for (const k in own.plotOptions) po[k] = Object.assign({}, po[k], own.plotOptions[k]);
+      cfg.plotOptions = po;
+      // Compact unless the column (or the cell) asks for axes: in a row of
+      // a table the rows are the comparison, and every cell repeating its
+      // own axis is the busiest thing on the page.
+      const compact = col.compact != null ? !!col.compact : plot.compact !== false;
+      // Transparent too: a cell's chart sits on the table's own canvas, so a
+      // stripe or the row hover shows through it instead of a box of bg.
+      cfg.chart = Object.assign({ compact: compact, transparent: true }, base.chart, own.chart);
+      cfg.theme = Object.assign({}, opts.theme, cfg.chart.compact ? CELL_THEME : CELL_THEME_AXES, base.theme, own.theme);
+      // The table carries the heading and the legend; a cell repeating them
+      // would print the same words once per row.
+      delete cfg.title; delete cfg.subtitle;
+      if (own.legend == null && base.legend == null) cfg.legend = { enabled: false };
+      const type = col.chart.type;
+      if (AUTO_HEIGHT[type]) {
+        const p = Object.assign({}, po[type]);
+        if (p.autoHeight == null) p.autoHeight = false;
+        po[type] = p;
+      }
+      return cfg;
+    }
+    // Every numeric y a series list holds, whatever shape its points take.
+    function valuesOf(series) {
+      const out = [];
+      (series || []).forEach(s => (s && s.data || []).forEach(p => {
+        if (Array.isArray(p)) p.slice(1).forEach(y => { if (numeric(y)) out.push(y); });
+        else if (p && typeof p === 'object') {
+          ['y', 'low', 'high'].forEach(k => { if (numeric(p[k])) out.push(p[k]); });
+        } else if (numeric(p)) out.push(p);
+      }));
+      return out;
+    }
+    columns.forEach(c => {
+      if (c.kind !== 'chart') return;
+      c.configs = rows.map(r => (r.src[c.key] == null ? null : cellConfig(c, r.src[c.key])));
+      const type = c.chart.type;
+      const shared = c.sharedScale != null ? c.sharedScale : plot.sharedScale !== false;
+      if (shared && SHARED_Y[type]) {
+        const stacked = cfg => {
+          const po = cfg.plotOptions || {};
+          return Object.keys(po).some(k => po[k] && po[k].stacking);
+        };
+        const live = c.configs.filter(cfg => cfg && !stacked(cfg));
+        const all = [].concat(...live.map(cfg => valuesOf(cfg.series)));
+        if (all.length) {
+          let lo = Math.min(...all), hi = Math.max(...all);
+          // Bars are measured from zero, so zero is always in their range.
+          if (type !== 'line' && type !== 'dumbbell') { lo = Math.min(0, lo); hi = Math.max(0, hi); }
+          live.forEach(cfg => {
+            const y = cfg.yAxis = Object.assign({}, cfg.yAxis);
+            if (y.min == null) y.min = lo;
+            if (y.max == null) y.max = hi;
+          });
+        }
+      } else if (type === 'line') {
+        // Out of a shared scale, a line still spans its own cell: a trend in a
+        // row is read for its shape, and an axis starting at zero flattens a
+        // 30 → 48 climb into a level line.
+        c.configs.forEach(cfg => {
+          if (!cfg) return;
+          const vals = valuesOf(cfg.series);
+          if (!vals.length) return;
+          const y = cfg.yAxis = Object.assign({}, cfg.yAxis);
+          if (y.min == null) y.min = Math.min(...vals);
+          if (y.max == null) y.max = Math.max(...vals);
+        });
+      }
+    });
+
+    // ── One colour per name, across the whole table ─────────────────────
+    // Each engine colours its series by position, so on its own "Plan" is
+    // black in a cell that lists it first and blue in one that lists it
+    // second, and two columns with different names both start at black. The
+    // table therefore decides: every series name gets one colour, in the
+    // order names first appear (an explicit series colour, where one is
+    // given, is the colour for that name), and every cell is handed it. The
+    // legend is read from the same map, so it cannot disagree with a cell.
+    // Donut and pie slices get the same treatment in a map of their own:
+    // "Direct" is one colour in every donut, however many slices sit beside it.
+    const SLICED = { donut: 1, pie: 1 };
+    const BY_SERIES = { line: 1, column: 1, bar: 1, dumbbell: 1, radar: 1, scatter: 1 };
+    const cellLegend = c => { const l = c.chart.legend; return !!(l && l.enabled !== false); };
+    const seriesColors = new Map(), sliceColors = new Map();
+    const inLegend = new Set();
+    // Colours for n names. Up to the palette's length, the palette itself; past
+    // it, n evenly spaced steps along the palette, so every name still gets a
+    // colour of its own instead of the list wrapping round to black again.
+    function spread(n) {
+      if (n <= COLORS.length) return COLORS.slice(0, n);
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        const pos = i * (COLORS.length - 1) / (n - 1);
+        const lo = Math.floor(pos), hi = Math.min(COLORS.length - 1, lo + 1);
+        out.push(mix(COLORS[lo], COLORS[hi], pos - lo));
+      }
+      return out;
+    }
+    // Names first, colours after: how many colours are needed is only known
+    // once every name has been seen. An explicit colour is kept as given.
+    function settle(map) {
+      const open = [...map.keys()].filter(k => map.get(k) == null);
+      const cols = spread(open.length);
+      open.forEach((k, i) => map.set(k, cols[i]));
+    }
+    const chartCols = columns.filter(c => c.kind === 'chart');
+    chartCols.forEach(c => {
+      if (SLICED[c.chart.type]) return;
+      c.configs.forEach(cfg => {
+        const list = (cfg && cfg.series) || [];
+        if (list.length < 2) return;
+        list.forEach(x => {
+          if (!x || x.name == null) return;
+          const name = String(x.name);
+          if (!seriesColors.has(name)) seriesColors.set(name, x.color ? cssColor(x.color, null) : null);
+          // A column that draws a legend in every cell has already said what
+          // its colours mean; repeating the names above the table says it twice.
+          if (!cellLegend(c)) inLegend.add(name);
+        });
+      });
+    });
+    settle(seriesColors);
+    chartCols.forEach(c => {
+      if (!SLICED[c.chart.type]) return;
+      c.configs.forEach(cfg => ((cfg && cfg.series) || []).forEach(x => ((x && x.data) || []).forEach(d => {
+        const name = Array.isArray(d) ? d[0] : (d && typeof d === 'object' ? d.name : null);
+        const color = d && !Array.isArray(d) && typeof d === 'object' ? d.color : null;
+        if (name != null && !sliceColors.has(String(name))) sliceColors.set(String(name), color ? cssColor(color, null) : null);
+      })));
+    });
+    settle(sliceColors);
+    // A single unnamed series stands for no legend entry, so while a legend is
+    // showing it must not wear one of the legend's colours: the first palette
+    // step past the named ones, or the muted tone once the palette runs out.
+    const loneColor = seriesColors.size < COLORS.length ? COLORS[seriesColors.size] : MUTED;
+    chartCols.forEach(c => {
+      c.configs.forEach(cfg => {
+        if (!cfg || !Array.isArray(cfg.series)) return;
+        if (SLICED[c.chart.type]) {
+          cfg.series = cfg.series.map(x => {
+            if (!x || !Array.isArray(x.data)) return x;
+            return Object.assign({}, x, { data: x.data.map(d => {
+              const pt = Array.isArray(d) ? { name: d[0], y: d[1] } : (d && typeof d === 'object' ? Object.assign({}, d) : null);
+              if (!pt || pt.name == null) return d;
+              const name = String(pt.name);
+              if (!pt.color) pt.color = sliceColors.get(name);
+              return pt;
+            }) });
+          });
+          return;
+        }
+        if (!BY_SERIES[c.chart.type]) return;
+        cfg.series = cfg.series.map(x => {
+          if (!x || x.color) return x;
+          const name = x.name != null ? String(x.name) : null;
+          if (name != null && seriesColors.has(name)) return Object.assign({}, x, { color: seriesColors.get(name) });
+          if (cfg.series.length === 1 && inLegend.size) return Object.assign({}, x, { color: loneColor });
+          return x;
+        });
+      });
+    });
+
+    // ── Slice keys ──────────────────────────────────────────────────────
+    // A pie in a table cell has room for a handful of callouts, not a dozen:
+    // past KEY_SLICES (plotOptions.reportTable.sliceKeyAt) the stubs and names
+    // pile on top of each other. Such a cell turns its callouts off and draws
+    // a small key beside the pie instead — swatch, name and value per slice,
+    // in the slice's own colour from the table-wide slice map.
+    const keyAt = plot.sliceKeyAt != null ? +plot.sliceKeyAt : KEY_SLICES;
+    const F_KEY = F_TICK;
+    const KEY_LH = Math.round(F_KEY * 1.45);
+    chartCols.forEach(c => {
+      if (!SLICED[c.chart.type]) return;
+      c.keys = c.configs.map(cfg => {
+        const pts = (cfg && cfg.series && cfg.series[0] && cfg.series[0].data) || [];
+        if (pts.length <= keyAt) return null;
+        const po = cfg.plotOptions = Object.assign({}, cfg.plotOptions);
+        po.pie = Object.assign({}, po.pie, { dataLabels: false });
+        const items = pts.map(d => {
+          const pt = Array.isArray(d) ? { name: d[0], y: d[1] } : (d && typeof d === 'object' ? d : { y: d });
+          return { name: pt.name != null ? String(pt.name) : '', y: pt.y,
+            color: cssColor(pt.color || (pt.name != null ? sliceColors.get(String(pt.name)) : null), COLORS[0]) };
+        });
+        const total = items.reduce((a, it) => a + (numeric(it.y) && it.y > 0 ? it.y : 0), 0);
+        items.forEach(it => { it.value = total > 0 && numeric(it.y) ? Math.round(it.y / total * 100) + '%' : ''; });
+        const nameW = widestText(items.map(it => it.name), F_KEY, false);
+        const valW = widestText(items.map(it => it.value), F_KEY, true);
+        return { items: items, w: Math.ceil(KEY_SWATCH + KEY_GAP + nameW + KEY_GAP + valW + PAD_X), h: items.length * KEY_LH };
+      });
+    });
+    function widestText(list, size, bold) { return list.reduce((a, t) => Math.max(a, textW(t, size, bold)), 0); }
+
+    // ── Heading ─────────────────────────────────────────────────────────
+    const titleLines = opts.title ? wrapHeading(opts.title, F_TITLE, W - HEAD_X * 2, TITLE_LINES, true) : [];
+    const subLines = opts.subtitle ? wrapHeading(opts.subtitle, F_SUB, W - HEAD_X * 2, SUB_LINES, false) : [];
+    const subY0 = HEAD_TOP + F_TITLE
+      + (titleLines.length ? (titleLines.length - 1) * TITLE_LH + F_SUB + HEAD_SUB_GAP : 0);
+    const titleBlockH = (titleLines.length ? TITLE_LH + 3 + (titleLines.length - 1) * TITLE_LH : 0)
+                      + (subLines.length ? SUB_LH + 6 + (subLines.length - 1) * SUB_LH : 0) + HEAD_GAP;
+
+    // ── Legend ──────────────────────────────────────────────────────────
+    // Same metrics as the column/bar legend. Not clickable: toggling a series
+    // here would have to reach into every cell, and the cells are small
+    // enough that a hidden series is more confusing than a busy one.
+    const legendItems = [];
+    if (!(opts.legend && opts.legend.enabled === false)) {
+      seriesColors.forEach((color, name) => { if (inLegend.has(name)) legendItems.push({ name: name, color: color }); });
+    }
+    const legendRows = [];
+    {
+      let row = [], x = 0;
+      legendItems.forEach(it => {
+        const w = LEG_ICON + LEG_ICON_GAP + textW(it.name, F_LEG, false);
+        if (row.length && x + w > W - HEAD_X * 2) { legendRows.push(row); row = []; x = 0; }
+        row.push({ item: it, x: x });
+        x += w + LEG_GAP;
+      });
+      if (row.length) legendRows.push(row);
+    }
+    const legendH = legendRows.length * LEG_ROW;
+
+    // ── Column groups ───────────────────────────────────────────────────
+    const colGroups = [];
+    columns.forEach(c => {
+      const g = c.group != null ? String(c.group) : null;
+      const last = colGroups[colGroups.length - 1];
+      if (last && last.name === g) last.cols.push(c);
+      else colGroups.push({ name: g, cols: [c] });
+    });
+    const hasColGroups = colGroups.some(g => g.name != null);
+    columns.forEach(c => {
+      const gi = colGroups.findIndex(g => g.cols.indexOf(c) >= 0);
+      c.gapBefore = gi > 0 && colGroups[gi].cols[0] === c ? GROUP_GAP : 0;
+    });
+    const hasRowGroups = rows.some(r => r.group != null);
+
+    // ── Widths ──────────────────────────────────────────────────────────
+    // Each kind states how narrow it can go, how wide it would like to be and
+    // how far it may grow, and allocateWidths shares the room out exactly as
+    // it does for Charts.table. Chart columns are offered the spare first:
+    // a wider plot shows more, where a wider paragraph only shows fewer lines.
+    const longestWord = (s, size, bold) => String(s || '').split(/\s+/)
+      .reduce((a, w) => Math.max(a, textW(w, size, bold)), 0);
+    const widest = (list, size, bold) => list.reduce((a, s) => Math.max(a, textW(s, size, bold)), 0);
+    const headerWant = (name, size, bold) => name == null ? 0
+      : Math.max(longestWord(name, size, bold), textW(name, size, bold) * 0.55);
+
+    columns.forEach(c => {
+      const headMin = longestWord(c.name, F_TICK, false);
+      const headMax = headerWant(c.name, F_TICK, false);
+      const words = (list, size, bold) => list.reduce((a, t) => Math.max(a, longestWord(t, size, bold)), 0);
+      if (c.kind === 'chart') {
+        c.minW = Math.max(c.chart.type === 'pie' || c.chart.type === 'donut' ? PIE_MIN : CHART_MIN, headMin);
+        c.maxW = Math.max(c.minW, CHART_MAX, headMax);
+        c.cap = Infinity;
+        c.first = true;
+      } else if (c.kind === 'kpi') {
+        const stats = widest(c.cells.map(x => x.stat), F_STAT, true);
+        c.minW = Math.max(stats, words(c.cells.map(x => x.note), F_DESC, false), headMin);
+        c.maxW = Math.max(c.minW + NUM_AIR, widest(c.cells.map(x => x.note), F_DESC, false), headMax, NUM_MIN);
+        c.cap = c.maxW;
+      } else if (c.kind === 'insight') {
+        const heads = c.cells.map(x => x.head), bodies = c.cells.map(x => x.body);
+        c.minW = Math.max(words(heads, F_INSIGHT, true), words(bodies, F_DESC, false), headMin,
+          Math.min(Math.max(widest(heads, F_INSIGHT, true), widest(bodies, F_DESC, false)), TEXT_MIN));
+        c.maxW = Math.max(c.minW, headMax,
+          Math.min(Math.max(widest(heads, F_INSIGHT, true), widest(bodies, F_DESC, false)), INSIGHT_MAX));
+        c.cap = c.maxW;
+      } else {   // text
+        const texts = c.cells.map(x => x.text);
+        const cells = widest(texts, F_VALUE, false);
+        c.minW = Math.max(words(texts, F_VALUE, false), headMin, Math.min(cells, TEXT_MIN));
+        c.maxW = Math.max(c.minW, headMax, Math.min(cells, TEXT_MAX));
+        c.cap = c.maxW;
+      }
+      c.minW = Math.ceil(c.minW + PAD_X * 2);
+      c.maxW = Math.ceil(c.maxW + PAD_X * 2);
+      c.cap += PAD_X * 2;
+      if (c.width != null) c.minW = c.maxW = c.cap = Math.max(c.kind === 'chart' ? 60 : c.minW, +c.width);
+    });
+
+    colGroups.forEach(g => {
+      if (g.name == null) return;
+      const inner = g.cols.slice(1).reduce((a, c) => a + c.gapBefore, 0);
+      const need = (key, want) => {
+        const have = g.cols.reduce((a, c) => a + c[key], 0) + inner;
+        if (want > have) g.cols.forEach(c => { c[key] += (want - have) / g.cols.length; });
+      };
+      need('minW', longestWord(g.name, F_LABEL, true) + PAD_X * 2);
+      need('maxW', headerWant(g.name, F_LABEL, true) + PAD_X * 2);
+      g.cols.forEach(c => { c.maxW = Math.max(c.maxW, c.minW); c.cap = Math.max(c.cap, c.maxW); });
+    });
+
+    const labelHeader = plot.labelHeader != null ? String(plot.labelHeader) : '';
+    const hasLabels = rows.some(r => r.name !== '') || !!labelHeader;
+    const groupNames = rows.filter(r => r.group != null).map(r => r.group);
+    // Insight labels size like an insight column: the headline and the body
+    // each ask for their own measure, prose capped at the insight width.
+    const rich = rows.filter(r => r.rich);
+    const labelMin = !hasLabels ? 0 : Math.ceil(Math.max(60,
+      rows.reduce((a, r) => Math.max(a, longestWord(r.name, r.rich ? F_INSIGHT : F_LABEL, r.rich)), 0),
+      rich.reduce((a, r) => Math.max(a, longestWord(r.body, F_DESC, false)), 0),
+      rich.length ? Math.min(TEXT_MIN, Math.max(widest(rich.map(r => r.name), F_INSIGHT, true),
+        widest(rich.map(r => r.body), F_DESC, false))) : 0,
+      groupNames.reduce((a, g) => Math.max(a, longestWord(g, F_LABEL, true)), 0),
+      longestWord(labelHeader, F_TICK, false)) + PAD_X);
+    const labelMax = !hasLabels ? 0 : Math.max(labelMin, Math.ceil(Math.max(
+      widest(rows.filter(r => !r.rich).map(r => r.name), F_LABEL, false),
+      Math.min(INSIGHT_MAX, widest(rich.map(r => r.name), F_INSIGHT, true)),
+      Math.min(INSIGHT_MAX, widest(rich.map(r => r.body), F_DESC, false)),
+      widest(groupNames, F_LABEL, true),
+      textW(labelHeader, F_TICK, false)) + PAD_X * 2));
+
+    // The labels name the rows; the columns are what the rows say. A clear
+    // gutter keeps a long label from reading as the first cell of the row.
+    const labelGap = !hasLabels ? 0 : (plot.labelGap != null ? Math.max(0, +plot.labelGap) : LABEL_GAP);
+    const gaps = columns.reduce((a, c) => a + c.gapBefore, 0) + labelGap;
+    // A row label that fits on one line in modest room keeps that line: when
+    // space is short the columns give first, since a wrapped name is harder to
+    // scan down than a narrower chart. Long labels still wrap.
+    const labelFloor = Math.max(labelMin, Math.min(labelMax, LABEL_KEEP));
+    const widths = allocateWidths(
+      [{ min: labelFloor, max: labelMax, cap: labelMax }]
+        .concat(columns.map(c => ({ min: c.minW, max: c.maxW, cap: c.cap, first: c.first }))),
+      W - HEAD_X * 2 - gaps);
+    const labelW = widths[0];
+    columns.forEach((c, k) => { c.w = widths[k + 1]; });
+    const contentW = Math.ceil(labelW + columns.reduce((a, c) => a + c.w, 0) + gaps);
+    const SW = contentW + HEAD_X * 2 > W + 2 ? contentW + HEAD_X * 2 : W;
+    let x = HEAD_X + labelW + labelGap;
+    columns.forEach(c => { x += c.gapBefore; c.x = x; x += c.w; });
+    colGroups.forEach(g => { g.x = g.cols[0].x; g.w = g.cols[g.cols.length - 1].x + g.cols[g.cols.length - 1].w - g.x; });
+    const tableR = HEAD_X + contentW;
+
+    // ── Heights ─────────────────────────────────────────────────────────
+    colGroups.forEach(g => {
+      g.lines = g.name != null ? wrapHeading(g.name, F_LABEL, Math.max(20, g.w - PAD_X * 2), 2, true) : [];
+    });
+    columns.forEach(c => {
+      c.head = c.name != null ? wrapHeading(c.name, F_TICK, Math.max(20, c.w - PAD_X * 2), HEAD_LINES, false) : [];
+    });
+    const groupHeadH = hasColGroups ? Math.max(...colGroups.map(g => g.lines.length)) * LH + 14 : 0;
+    const colHeadLines = Math.max(1, ...columns.map(c => c.head.length));
+    const colHeadH = colHeadLines * LH + 10;
+    const ROW_MIN = Math.round(F_VALUE * 2.9);
+    const chartRow = plot.rowHeight != null ? +plot.rowHeight : CHART_ROW;
+
+    // Lay out one cell's lines at its final width; returns its content height.
+    function layoutCell(c, cell) {
+      const inner = Math.max(20, c.w - PAD_X * 2);
+      if (c.kind === 'chart') return 0;
+      if (c.kind === 'insight') {
+        cell.headLines = cell.head ? wrapHeading(cell.head, F_INSIGHT, inner, 2, true) : [];
+        cell.bodyLines = cell.body ? wrapHeading(cell.body, F_DESC, inner, descLines, false) : [];
+        return cell.headLines.length * INS_LH + (cell.bodyLines.length ? 3 + cell.bodyLines.length * DESC_LH : 0);
+      }
+      if (c.kind === 'kpi') {
+        cell.noteLines = cell.note ? wrapHeading(cell.note, F_DESC, inner, 2, false) : [];
+        return F_STAT * 1.15 + cell.noteLines.length * DESC_LH;
+      }
+      cell.lines = wrapHeading(cell.text, F_VALUE, inner, CELL_LINES, false);
+      return cell.lines.length * LH;
+    }
+    rows.forEach(r => {
+      const labelInner = Math.max(20, labelW - PAD_X * 2);
+      let content;
+      if (r.rich && labelW) {
+        r.headLines = r.name ? wrapHeading(r.name, F_INSIGHT, labelInner, 2, true) : [];
+        r.bodyLines = r.body ? wrapHeading(r.body, F_DESC, labelInner, descLines, false) : [];
+        r.lines = [];
+        content = r.headLines.length * INS_LH + (r.bodyLines.length ? 3 + r.bodyLines.length * DESC_LH : 0);
+      } else {
+        r.lines = labelW ? wrapHeading(r.name, F_LABEL, labelInner, 3, false) : [];
+        content = r.lines.length * LH;
+      }
+      let hasChart = false;
+      columns.forEach(c => {
+        const cell = c.cells[r.i];
+        content = Math.max(content, layoutCell(c, cell));
+        if (c.kind === 'chart' && c.configs[r.i]) hasChart = true;
+        const key = c.keys && c.keys[r.i];
+        if (key) content = Math.max(content, key.h);
+      });
+      r.h = Math.max(ROW_MIN, content + PAD_Y * 2, hasChart ? chartRow : 0, rowFloor[r.i] || 0);
+    });
+    const GROUP_ROW = Math.round(F_LABEL * 2.8);
+    const groupStarts = rows.filter((r, k) => r.group != null && (k === 0 || rows[k - 1].group !== r.group));
+    const legendTop = titleBlockH + (legendH ? PLOT_GAP / 2 : 0);
+    const headTop = legendTop + legendH + PLOT_GAP;
+    const bodyTop = headTop + groupHeadH + colHeadH;
+    const bodyH = () => rows.reduce((a, r) => a + r.h, 0) + groupStarts.length * GROUP_ROW;
+    const BOTTOM = 20;
+
+    let H = Math.round(bodyTop + bodyH() + BOTTOM);
+    if (authoredH > 0 && authoredH > H) {
+      const perRow = Math.min((authoredH - H) / rows.length, ROW_MIN * 0.5);
+      rows.forEach(r => { r.h += perRow; });
+      H = authoredH;
+      delete container.dataset.chartsGrew;
+    } else if (authoredH > 0 && authoredH === H) {
+      delete container.dataset.chartsGrew;
+    } else {
+      container.style.height = H + 'px';
+      container.dataset.chartsGrew = '1';
+    }
+    container.style.overflowX = SW > W ? 'auto' : '';
+    container.style.overflowY = SW > W ? 'hidden' : '';
+
+    // One svg under everything — heading, rules, text — and the chart cells
+    // as positioned boxes over it, so a cell's chart keeps its own events.
+    const stage = document.createElement('div');
+    stage.style.cssText = 'position:relative;width:' + SW + 'px;height:' + H + 'px;';
+    container.appendChild(stage);
+    const svg = el('svg', { xmlns: NS, width: SW, height: H, viewBox: '0 0 ' + SW + ' ' + H });
+    svg.style.background = window.ChartsShared.canvasColor(opts, BG);
+    svg.style.display = 'block';
+    stage.appendChild(svg);
+
+    titleLines.forEach((ln, i) => txt(ln, { x: HEAD_X, y: HEAD_TOP + F_TITLE + i * TITLE_LH,
+      'font-size': F_TITLE, 'font-weight': TITLE_FW, fill: TITLE_COL, 'font-family': FONT }, svg));
+    subLines.forEach((ln, i) => txt(ln, { x: HEAD_X, y: subY0 + i * SUB_LH,
+      'font-size': F_SUB, 'font-weight': SUB_FW, fill: SUB_COL, 'font-family': FONT }, svg));
+
+    legendRows.forEach((row, ri) => {
+      const cy = legendTop + ri * LEG_ROW + LEG_ROW / 2;
+      row.forEach(({ item, x }) => {
+        el('rect', { x: HEAD_X + x, y: cy - LEG_ICON / 2, width: LEG_ICON, height: LEG_ICON,
+          rx: 2, fill: item.color }, svg);
+        txt(item.name, { x: HEAD_X + x + LEG_ICON + LEG_ICON_GAP, y: cy + F_LEG * 0.36,
+          'font-size': F_LEG, 'font-weight': LEG_FW, fill: LABEL_COL, 'font-family': FONT }, svg);
+      });
+    });
+
+    const anchorX = (c, align) => align === 'right' ? c.x + c.w - PAD_X
+      : align === 'center' ? c.x + c.w / 2 : c.x + PAD_X;
+    const ANCHOR = { left: 'start', right: 'end', center: 'middle' };
+
+    // ── Header ──────────────────────────────────────────────────────────
+    const gHead = el('g', {}, svg);
+    if (hasColGroups) {
+      colGroups.forEach(g => {
+        if (g.name == null) return;
+        const one = g.cols.length === 1;
+        const align = one ? (g.cols[0].headerAlign || g.cols[0].align) : 'center';
+        const gx = one ? anchorX(g.cols[0], align) : g.x + g.w / 2;
+        const y0 = headTop + groupHeadH - 14 - (g.lines.length - 1) * LH + F_LABEL * 0.8;
+        g.lines.forEach((ln, li) => txt(ln, { x: gx, y: y0 + li * LH, 'text-anchor': ANCHOR[align],
+          'font-size': F_LABEL, 'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gHead));
+      });
+    }
+    const headBase = bodyTop - 8;
+    columns.forEach(c => {
+      const align = c.headerAlign || c.align;
+      const n = c.head.length;
+      c.head.forEach((ln, li) => txt(ln, { x: anchorX(c, align), y: headBase - (n - 1 - li) * LH,
+        'text-anchor': ANCHOR[align], 'font-size': F_TICK, 'font-weight': TICK_FW,
+        fill: SEC_COL, 'font-family': FONT }, gHead));
+    });
+    if (labelHeader) {
+      txt(labelHeader, { x: HEAD_X, y: headBase, 'font-size': F_TICK, 'font-weight': TICK_FW,
+        fill: SEC_COL, 'font-family': FONT }, gHead);
+    }
+    el('line', { x1: HEAD_X, x2: tableR, y1: bodyTop, y2: bodyTop,
+      stroke: AXIS, 'stroke-width': SPINE_W }, gHead);
+
+    // ── Body ────────────────────────────────────────────────────────────
+    const gHover = el('g', {}, svg);
+    const gRules = el('g', {}, svg);
+    const gCells = el('g', {}, svg);
+    const striped = !!plot.striped;
+    const chartBoxes = [];
+    let y = bodyTop, stripe = 0;
+
+    // The fill behind a cell spans the whole cell, inset by the same hairline
+    // as a chart box, so a coloured cell reads as the cell rather than a
+    // highlight on its text.
+    function drawFill(c, cell, r, mid) {
+      if (!cell.fill) return;
+      const h = r.h - PILL_Y * 2;
+      el('rect', { x: c.x + PILL_X, y: mid - h / 2, width: c.w - PILL_X * 2, height: h,
+        fill: cell.fill, 'pointer-events': 'none' }, gCells);
+    }
+
+    function truncateText(str, size, maxW) {
+      if (textW(str, size, false) <= maxW) return str;
+      let t = str;
+      while (t.length > 1 && textW(t + '…', size, false) > maxW) t = t.slice(0, -1);
+      return t + '…';
+    }
+
+    function drawCell(c, cell, r, top, mid) {
+      const common = { 'font-family': FONT, 'pointer-events': 'none' };
+      // On a fill, every line of the cell takes the contrasting ink; the
+      // secondary lines stay a step quieter through opacity, not a grey that
+      // may vanish into the fill.
+      const ink = cell.fill ? inkOn(cell.fill) : null;
+      const quiet = ink ? { fill: ink, 'fill-opacity': 0.8 } : { fill: SEC_COL };
+      if (c.kind === 'insight') {
+        const h = cell.headLines.length * INS_LH + (cell.bodyLines.length ? 3 + cell.bodyLines.length * DESC_LH : 0);
+        drawFill(c, cell, r, mid);
+        let ty = mid - h / 2;
+        cell.headLines.forEach(ln => {
+          txt(ln, Object.assign({ x: anchorX(c, c.align), y: ty + INS_LH * 0.78, 'text-anchor': ANCHOR[c.align],
+            'font-size': F_INSIGHT, 'font-weight': CAT_FW, fill: ink || (cell.blank ? SEC_COL : CAT_COL) }, common), gCells);
+          ty += INS_LH;
+        });
+        if (cell.bodyLines.length) ty += 3;
+        cell.bodyLines.forEach(ln => {
+          txt(ln, Object.assign({ x: anchorX(c, c.align), y: ty + DESC_LH * 0.74, 'text-anchor': ANCHOR[c.align],
+            'font-size': F_DESC, 'font-weight': TICK_FW }, quiet, common), gCells);
+          ty += DESC_LH;
+        });
+        return;
+      }
+      if (c.kind === 'kpi') {
+        const h = F_STAT * 1.15 + cell.noteLines.length * DESC_LH;
+        drawFill(c, cell, r, mid);
+        let ty = mid - h / 2 + F_STAT * 0.9;
+        txt(cell.stat, Object.assign({ x: anchorX(c, c.align), y: ty, 'text-anchor': ANCHOR[c.align],
+          'font-size': F_STAT, 'font-weight': VAL_FW, fill: cell.color }, common), gCells);
+        ty += F_STAT * 0.25;
+        cell.noteLines.forEach(ln => {
+          txt(ln, Object.assign({ x: anchorX(c, c.align), y: ty + DESC_LH * 0.74, 'text-anchor': ANCHOR[c.align],
+            'font-size': F_DESC, 'font-weight': TICK_FW }, quiet, common), gCells);
+          ty += DESC_LH;
+        });
+        return;
+      }
+      if (c.kind === 'chart') {
+        const cfg = c.configs[r.i];
+        if (!cfg) {
+          txt(blankText, Object.assign({ x: c.x + c.w / 2, y: mid + F_VALUE * 0.36, 'text-anchor': 'middle',
+            'font-size': F_VALUE, fill: SEC_COL }, common), gCells);
+          return;
+        }
+        const key = c.keys && c.keys[r.i];
+        if (key) {
+          // The pie keeps at least half the cell; the key takes what it needs
+          // of the rest and clips a long name before it squeezes the pie.
+          const keyW = Math.min(key.w, Math.floor(c.w * 0.5));
+          const kx = c.x + c.w - keyW;
+          let ky = mid - key.h / 2 + KEY_LH * 0.5;
+          key.items.forEach(it => {
+            el('rect', { x: kx, y: ky - KEY_SWATCH / 2, width: KEY_SWATCH, height: KEY_SWATCH, rx: 1.5,
+              fill: it.color, 'pointer-events': 'none' }, gCells);
+            const valW = textW(it.value, F_KEY, true);
+            const room = Math.max(10, keyW - KEY_SWATCH - KEY_GAP * 2 - valW - PAD_X);
+            txt(truncateText(it.name, F_KEY, room), Object.assign({ x: kx + KEY_SWATCH + KEY_GAP, y: ky + F_KEY * 0.36,
+              'font-size': F_KEY, 'font-weight': TICK_FW, fill: LABEL_COL }, common), gCells);
+            txt(it.value, Object.assign({ x: c.x + c.w - PAD_X, y: ky + F_KEY * 0.36, 'text-anchor': 'end',
+              'font-size': F_KEY, 'font-weight': VAL_FW, fill: VAL_COL }, common), gCells);
+            ky += KEY_LH;
+          });
+          chartBoxes.push({ col: c, row: r, cfg: cfg, x: c.x, y: top + PILL_Y, w: c.w - keyW, h: r.h - PILL_Y * 2 });
+          return;
+        }
+        chartBoxes.push({ col: c, row: r, cfg: cfg, x: c.x, y: top + PILL_Y, w: c.w, h: r.h - PILL_Y * 2 });
+        return;
+      }
+      // text
+      drawFill(c, cell, r, mid);
+      const y0 = mid - ((cell.lines.length - 1) * LH) / 2 + F_VALUE * 0.36;
+      cell.lines.forEach((ln, li) => txt(ln, Object.assign({ x: anchorX(c, c.align), y: y0 + li * LH,
+        'text-anchor': ANCHOR[c.align], 'font-size': F_VALUE, 'font-weight': TICK_FW,
+        fill: ink || SEC_COL }, common), gCells));
+    }
+
+    rows.forEach((r, k) => {
+      if (groupStarts.indexOf(r) >= 0) {
+        if (k > 0 && plot.rowGroupDivider !== false) {
+          el('line', { x1: HEAD_X, x2: tableR, y1: y, y2: y,
+            stroke: MUTED, 'stroke-width': GRID_W * 1.5 }, gRules);
+        }
+        txt(r.group, { x: HEAD_X, y: y + GROUP_ROW - F_LABEL * 0.75, 'font-size': F_LABEL,
+          'font-weight': CAT_FW, fill: CAT_COL, 'font-family': FONT }, gCells);
+        y += GROUP_ROW;
+        stripe = 0;
+      }
+      r.y = y;
+      r._hover = el('rect', { x: HEAD_X, y: y, width: contentW, height: r.h,
+        fill: striped && stripe % 2 ? GRID : HOVER_INK,
+        'fill-opacity': striped && stripe % 2 ? 0.45 : 0, 'data-row': k, class: 'tb-row' }, gHover);
+      r._rest = striped && stripe % 2 ? { fill: GRID, opacity: 0.45 } : { fill: HOVER_INK, opacity: 0 };
+      stripe++;
+
+      const mid = y + r.h / 2;
+      if (r.rich && labelW) {
+        // Same metrics as an insight cell, so a label and an insight column
+        // in one row read as the same kind of text.
+        const h = r.headLines.length * INS_LH + (r.bodyLines.length ? 3 + r.bodyLines.length * DESC_LH : 0);
+        let ty = mid - h / 2;
+        r.headLines.forEach(ln => {
+          txt(ln, { x: HEAD_X, y: ty + INS_LH * 0.78, 'font-size': F_INSIGHT, 'font-weight': CAT_FW,
+            fill: CAT_COL, 'font-family': FONT, 'pointer-events': 'none' }, gCells);
+          ty += INS_LH;
+        });
+        if (r.bodyLines.length) ty += 3;
+        r.bodyLines.forEach(ln => {
+          txt(ln, { x: HEAD_X, y: ty + DESC_LH * 0.74, 'font-size': F_DESC, 'font-weight': TICK_FW,
+            fill: SEC_COL, 'font-family': FONT, 'pointer-events': 'none' }, gCells);
+          ty += DESC_LH;
+        });
+      }
+      const top = mid - ((r.lines.length - 1) * LH) / 2 + F_LABEL * 0.36;
+      r.lines.forEach((ln, li) => txt(ln, { x: HEAD_X, y: top + li * LH, 'font-size': F_LABEL,
+        'font-weight': TICK_FW, fill: LABEL_COL, 'font-family': FONT, 'pointer-events': 'none' }, gCells));
+
+      columns.forEach(c => drawCell(c, c.cells[r.i], r, y, mid));
+
+      y += r.h;
+      const lastInGroup = k === rows.length - 1 || rows[k + 1].group !== r.group;
+      if (plot.dividers !== false && (!lastInGroup || k === rows.length - 1)) {
+        el('line', { x1: HEAD_X, x2: tableR, y1: y, y2: y, stroke: GRID, 'stroke-width': GRID_W }, gRules);
+      }
+    });
+
+    // A hairline between column groups, on by default: the gap alone lets a
+    // wide group read as running into the next. `columnGroupDivider: false`
+    // leaves only the gap.
+    if (plot.columnGroupDivider !== false && hasColGroups) {
+      colGroups.slice(1).forEach(g => {
+        const gx = g.x - GROUP_GAP / 2;
+        el('line', { x1: gx, x2: gx, y1: headTop, y2: y, stroke: GRID, 'stroke-width': GRID_W }, gRules);
+      });
+    }
+
+    // ── Chart cells ─────────────────────────────────────────────────────
+    // Two passes, as in panels: every box is placed before any chart is
+    // drawn, so each chart measures the size it will keep. The chart gets a
+    // box inside the positioned one, because every engine sets its own
+    // container to position: relative, which would undo the placement.
+    const made = [];
+    chartBoxes.forEach(b => {
+      const box = document.createElement('div');
+      box.className = 'rt-chart';
+      box.style.cssText = 'position:absolute;left:' + b.x + 'px;top:' + b.y + 'px;width:' + b.w +
+        'px;height:' + b.h + 'px;overflow:hidden;';
+      const cell = document.createElement('div');
+      cell.style.cssText = 'width:100%;height:100%;';
+      box.appendChild(cell);
+      stage.appendChild(box);
+      b.el = cell;
+    });
+    chartBoxes.forEach(b => {
+      b.chart = window.Charts[b.col.chart.type](b.el, b.cfg);
+      made.push(b.chart);
+    });
+
+    // A chart whose fixed parts — a headline stat, a caption, a row of labels —
+    // do not fit its cell draws taller than it and would be clipped silently,
+    // which is the same failure as a truncated number. So measure what each
+    // chart actually drew, and if any row was too short, lay the table out
+    // once more with those rows opened up. One more pass, never a loop.
+    if (!rowFloor.settled) {
+      const need = {};
+      chartBoxes.forEach(b => {
+        const s = b.el.querySelector('svg');
+        const drawn = Math.max(b.el.scrollHeight, s ? +s.getAttribute('height') || 0 : 0);
+        if (drawn > b.h + 1) need[b.row.i] = Math.max(need[b.row.i] || 0, Math.ceil(drawn + PILL_Y * 2));
+      });
+      if (Object.keys(need).length) {
+        made.forEach(m => m && m.destroy && m.destroy());
+        life.release();
+        const floor = Object.assign({}, rowFloor, { settled: true });
+        for (const k in need) floor[k] = Math.max(floor[k] || 0, need[k]);
+        return Chart(container, opts, floor);
+      }
+    }
+
+    // ── Hover ───────────────────────────────────────────────────────────
+    let hovered = null;
+    const unhover = () => {
+      if (hovered) {
+        hovered._hover.setAttribute('fill', hovered._rest.fill);
+        hovered._hover.setAttribute('fill-opacity', hovered._rest.opacity);
+      }
+      hovered = null;
+    };
+    life.on(svg, 'mousemove', ev => {
+      const t = ev.target;
+      const r = t && t.classList && t.classList.contains('tb-row') ? rows[+t.getAttribute('data-row')] : null;
+      if (r === hovered) return;
+      unhover();
+      if (!r) return;
+      hovered = r;
+      r._hover.setAttribute('fill', HOVER_INK);
+      r._hover.setAttribute('fill-opacity', 0.05);
+    });
+    life.on(svg, 'mouseleave', unhover);
+
+    // The rows as a reader would transcribe them. A chart cell is its data.
+    const getRows = () => rows.map(r => {
+      const out = {};
+      if (hasRowGroups) out.group = r.group;
+      out.row = r.name;
+      if (r.rich && r.body) out.description = r.body;
+      columns.forEach((c, ci) => {
+        const label = (c.group != null ? c.group + ' ' : '') + (c.name != null ? c.name : c.key);
+        const v = r.src[c.key];
+        if (c.kind === 'chart') {
+          const b = chartBoxes.find(x => x.col === c && x.row === r);
+          out[label] = b && b.chart && b.chart.getData ? b.chart.getData() : null;
+        } else if (c.kind === 'kpi') {
+          const val = v != null && typeof v === 'object' ? v.value : v;
+          out[label] = tableIsBlank(val) ? null : val;
+        } else {
+          out[label] = tableIsBlank(v) ? null : v;
+        }
+      });
+      return out;
+    });
+
+    return chartAPI(life, {
+      opts: Object.assign({}, opts, { series: null }),
+      typeName: 'Report table',
+      getData: getRows,
+      children: made,
+      redraw: () => { made.forEach(m => m.destroy && m.destroy()); life.release(); Chart(container, opts); },
+      extras: { getRows: getRows, charts: made }
+    });
+  }
+
+    Charts.reportTable = Chart;
+})();
 
 // ─── panels ─────────────────────────────────────────
 
@@ -11281,80 +12672,10 @@ Charts.histogramCumulative = function (container, opts) {
  * given the row's panel height.
  */
 (function () {
-  const NS = 'http://www.w3.org/2000/svg';
-
-  let BG, TITLE_COL, SUB_COL, SEC_COL;
-  let FONT, F_TITLE, F_SUB;
-  let TITLE_LH, SUB_LH;
-  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
-  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
-  function applyTheme() {
-    const t = (window.Charts && window.Charts.theme) || {};
-    BG = t.bg || '#f4f3f0';
-    TITLE_COL = t.titleColor || '#111111';
-    SUB_COL = t.subtitleColor || '#666666';
-    SEC_COL = t.secondaryColor || '#666666';
-    FONT = t.font || "'Inter','Segoe UI',Arial,Helvetica,sans-serif";
-    F_TITLE = t.titleSize != null ? t.titleSize : 17;
-    F_SUB = t.subtitleSize != null ? t.subtitleSize : 12;
-    F_TIP = t.tooltipSize != null ? t.tooltipSize : 12;
-    TITLE_FW = t.titleWeight != null ? t.titleWeight : 700;
-    SUB_FW = t.subtitleWeight != null ? t.subtitleWeight : 400;
-    TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
-    SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
-    HEAD_TOP = t.headingPadTop != null ? t.headingPadTop : 17;
-    HEAD_SUB_GAP = t.headingSubGap != null ? t.headingSubGap : 8;
-    HEAD_GAP = t.headingGap != null ? t.headingGap : 18;
-    HEAD_X = t.headingGutter != null ? t.headingGutter : 20;
-    F_LEG = t.legendSize != null ? t.legendSize : 12;
-    LEG_FW = t.legendWeight != null ? t.legendWeight : 600;
-    LEG_ROW = t.legendRowHeight != null ? t.legendRowHeight : 20;
-    LEG_GAP = t.legendGap != null ? t.legendGap : 18;
-    LEG_ICON = t.legendIconSize != null ? t.legendIconSize : 12;
-    LEG_ICON_GAP = t.legendIconGap != null ? t.legendIconGap : 6;
-  }
-
-  function el(tag, attrs, parent) {
-    const e = document.createElementNS(NS, tag);
-    if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
-    if (parent) parent.appendChild(e);
-    return e;
-  }
-  function txt(t, attrs, parent) {
-    const e = el('text', attrs, parent);
-    e.textContent = t;
-    return e;
-  }
-
+  // Helpers shared by every engine — see engines/_shared.js.
+  const { cssFont, cssNumber, cssColor, resolveTheme, chartAPI, createLifecycle, el, txt, wrapHeading, NS } = window.ChartsShared;
   // ── Heading wrapping — the same estimate-don't-measure approach the
   // engines use, so the layout is settled before anything hits the DOM.
-  function _headW(str, fontSize, bold) {
-    return String(str).length * fontSize * (bold ? 0.58 : 0.53);
-  }
-  function _clipLine(str, fontSize, maxW, bold) {
-    let s = String(str);
-    if (_headW(s, fontSize, bold) <= maxW) return s;
-    while (s.length > 1 && _headW(s + '…', fontSize, bold) > maxW) s = s.slice(0, -1);
-    return s.replace(/[\s.,;:]+$/, '') + '…';
-  }
-  function wrapHeading(str, fontSize, maxW, maxLines, bold) {
-    const words = String(str == null ? '' : str).split(/\s+/).filter(Boolean);
-    if (!words.length) return [];
-    const lines = [];
-    let cur = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = cur + ' ' + words[i];
-      if (_headW(next, fontSize, bold) > maxW) { lines.push(cur); cur = words[i]; }
-      else cur = next;
-    }
-    lines.push(cur);
-    if (lines.length > maxLines) {
-      const tail = lines.slice(maxLines - 1).join(' ');
-      lines.length = maxLines - 1;
-      lines.push(_clipLine(tail, fontSize, maxW, bold));
-    }
-    return lines.map(l => _clipLine(l, fontSize, maxW, bold));
-  }
   const TITLE_LINES = 2, SUB_LINES = 3;
 
   // Panels that grow their own container to fit their content. Forcing a
@@ -11372,13 +12693,51 @@ Charts.histogramCumulative = function (container, opts) {
 
   // ---------------- main ----------------
   function Chart(container, opts) {
+    // Theme tokens are per chart, not per module: two charts with
+    // different themes have to be able to share a page, and a redraw or a
+    // hover has to use the theme this chart was built with rather than
+    // whichever one was applied last. See resolveTheme in _shared.js.
+  let BG, TITLE_COL, SUB_COL, SEC_COL;
+  let FONT, F_TITLE, F_SUB;
+  let TITLE_LH, SUB_LH;
+  let TITLE_FW, SUB_FW, HEAD_TOP, HEAD_SUB_GAP, HEAD_GAP, HEAD_X, F_TIP;
+  let F_LEG, LEG_FW, LEG_ROW, LEG_GAP, LEG_ICON, LEG_ICON_GAP;
+
+    function applyTheme() {
+      const t = resolveTheme(opts);
+      BG = t.bg;
+      TITLE_COL = t.titleColor;
+      SUB_COL = t.subtitleColor;
+      SEC_COL = t.secondaryColor;
+      FONT = t.font;
+      F_TITLE = t.titleSize;
+      F_SUB = t.subtitleSize;
+      F_TIP = t.tooltipSize;
+      TITLE_FW = t.titleWeight;
+      SUB_FW = t.subtitleWeight;
+      TITLE_LH = Math.round(F_TITLE * (t.titleLineHeight != null ? t.titleLineHeight : 1.24));
+      SUB_LH = Math.round(F_SUB * (t.subtitleLineHeight != null ? t.subtitleLineHeight : 1.34));
+      HEAD_TOP = t.headingPadTop;
+      HEAD_SUB_GAP = t.headingSubGap;
+      HEAD_GAP = t.headingGap;
+      HEAD_X = t.headingGutter;
+      F_LEG = t.legendSize;
+      LEG_FW = t.legendWeight;
+      LEG_ROW = t.legendRowHeight;
+      LEG_GAP = t.legendGap;
+      LEG_ICON = t.legendIconSize;
+      LEG_ICON_GAP = t.legendIconGap;
+    }
+
     applyTheme();
     opts = opts || {};
     if (typeof container === 'string') container = document.getElementById(container);
     container.innerHTML = '';
+    // Owns every chart-lifetime listener so destroy() can undo them.
+    const life = createLifecycle(container);
     container.style.position = 'relative';
     container.style.fontFamily = FONT;
-    container.style.background = BG;
+    container.style.background = window.ChartsShared.canvasColor(opts, BG);
     // The composition owns its own height: the heading plus whatever the
     // rows come to. A height set on the outer container would fight that.
     container.style.height = 'auto';
@@ -11411,7 +12770,7 @@ Charts.histogramCumulative = function (container, opts) {
       const headH = (hasTitle ? y0 + 8 + (titleLines.length - 1) * GT_LH : 14)
                   + (hasSub ? 14 + subLines.length * GS_LH : 0) + 10;
       const head = el('svg', { xmlns: NS, width: W, height: headH, viewBox: `0 0 ${W} ${headH}` });
-      head.style.background = BG;
+      head.style.background = window.ChartsShared.canvasColor(opts, BG);
       head.style.display = 'block';
       container.appendChild(head);
 
@@ -11421,7 +12780,10 @@ Charts.histogramCumulative = function (container, opts) {
         'font-size': F_GSUB, fill: SUB_COL, 'font-family': FONT }, head));
     }
 
-    if (!specs.length) return { charts: [], panels: [] };
+    if (!specs.length) {
+      return chartAPI(life, {
+      opts: opts, typeName: "Panel of charts", getData: () => [], extras: { charts: [], panels: [] } });
+    }
 
     // ── Row layout ──────────────────────────────────────────────────────
     let columns = plot.columns != null ? plot.columns : Math.min(specs.length, MAX_COLUMNS);
@@ -11453,7 +12815,7 @@ Charts.histogramCumulative = function (container, opts) {
           // auto-height panel next to a fixed one looking deliberate.
           const sep = document.createElement('div');
           sep.style.cssText = `flex:0 0 ${separators ? 1 : 0}px;align-self:stretch;` +
-            `margin:0 ${gap / 2}px;background:${separators ? SEC_COL : 'transparent'};` +
+            `margin:0 ${gap / 2}px;background:${cssColor(separators ? SEC_COL : 'transparent')};` +
             (separators ? 'opacity:0.5;' : '');
           row.appendChild(sep);
         }
@@ -11471,7 +12833,7 @@ Charts.histogramCumulative = function (container, opts) {
         const factory = window.Charts && window.Charts[type];
         if (typeof factory !== 'function') {
           cell.innerHTML =
-            `<div style="font:${F_TIP}px ${FONT};color:${SUB_COL};padding:8px">Unknown chart type “${
+            `<div style="font:${cssNumber(F_TIP)}px ${cssFont(FONT)};color:${cssColor(SUB_COL)};padding:8px">Unknown chart type “${
               String(type).replace(/[<&>]/g, '')}”</div>`;
           made.push(null);
           return;
@@ -11481,6 +12843,11 @@ Charts.histogramCumulative = function (container, opts) {
         // so a panel is configured exactly as it would be standalone.
         const cfg = {};
         for (const k in spec) if (k !== 'type' && k !== 'height') cfg[k] = spec[k];
+        // A transparent composition is transparent all the way through; a panel
+        // that sets chart.transparent itself keeps its own choice.
+        if (window.ChartsShared.isTransparent(opts) && !(spec.chart && spec.chart.transparent != null)) {
+          cfg.chart = Object.assign({}, spec.chart, { transparent: true });
+        }
         // A self-sizing engine is told to fill the cell it was given, unless
         // the panel asked for the opposite explicitly — in which case it grows
         // and that panel's own bottom edge is the author's decision, not ours.
@@ -11494,7 +12861,15 @@ Charts.histogramCumulative = function (container, opts) {
       });
     }
 
-    return { charts: made, panels: panelEls };
+    // A compositor owns the charts it made: destroying it destroys them, or
+    // their listeners outlive the panel they were drawn into.
+    return chartAPI(life, {
+      opts: opts, typeName: "Panel of charts",
+      redraw: () => made.forEach(c => c.redraw && c.redraw()),
+      getData: () => made.map(c => (c.getData ? c.getData() : null)),
+      children: made,
+      extras: { charts: made, panels: panelEls }
+    });
   }
 
     Charts.panels = Chart;
@@ -11538,7 +12913,15 @@ Charts.meta = {
         "lineLabels",
         "chart.zoomType"
       ],
-      "notes": "Dates as categories are accepted; names are not."
+      "notes": "Dates as categories are accepted; names are not.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSeries",
+        "addPoint",
+        "shift"
+      ]
     },
     "column": {
       "purpose": "Compare a value across named categories.",
@@ -11556,7 +12939,13 @@ Charts.meta = {
         "yAxis.plotLines",
         "chart.options3d"
       ],
-      "notes": "Category labels are never dropped; crowding is solved by wrapping, staggering then rotating."
+      "notes": "Category labels are never dropped; crowding is solved by wrapping, staggering then rotating.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSeries"
+      ]
     },
     "bar": {
       "purpose": "Column chart on its side; use when category names are long.",
@@ -11572,7 +12961,13 @@ Charts.meta = {
         "plotOptions.bar.stacking",
         "tooltip.absoluteX for population pyramids"
       ],
-      "notes": "Its value axis is labelled ABOVE the plot, so it reserves topAxisBand and its left gutter is sized to its row labels. Its plot therefore starts lower and further right than the other axis charts."
+      "notes": "Its value axis is labelled ABOVE the plot, so it reserves topAxisBand and its left gutter is sized to its row labels. Its plot therefore starts lower and further right than the other axis charts.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSeries"
+      ]
     },
     "barList": {
       "purpose": "A ranked list. No axis, category label above each bar.",
@@ -11591,7 +12986,12 @@ Charts.meta = {
         "barHeight",
         "rowGap"
       ],
-      "notes": "Long category names are free here — they are not squeezed into a left gutter."
+      "notes": "Long category names are free here — they are not squeezed into a left gutter.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData"
+      ]
     },
     "dumbbell": {
       "purpose": "The gap between two states, per category.",
@@ -11615,7 +13015,12 @@ Charts.meta = {
         "connectorBySign",
         "connectorArrow"
       ],
-      "notes": "Rows pair up by position, not by name."
+      "notes": "Rows pair up by position, not by name.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData"
+      ]
     },
     "histogram": {
       "purpose": "The shape of a distribution. Bins raw numbers itself.",
@@ -11639,7 +13044,14 @@ Charts.meta = {
         "barGap",
         "xAxis.title"
       ],
-      "notes": "null, '' and booleans are counted out rather than coerced, and named in a footnote. Bars touch because the axis is continuous."
+      "notes": "null, '' and booleans are counted out rather than coerced, and named in a footnote. Bars touch because the axis is continuous.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getBins",
+        "getStats"
+      ]
     },
     "histogramPercent": {
       "purpose": "The same bins as a share of the total.",
@@ -11648,7 +13060,7 @@ Charts.meta = {
         "raw measurements"
       ],
       "refuses": [
-        "named xAxis.categories"
+        "named xAxis.categories — counting how often each name occurs is a bar chart; use column"
       ],
       "selfSizing": false,
       "aspect": "free",
@@ -11661,7 +13073,14 @@ Charts.meta = {
         "mean",
         "median"
       ],
-      "notes": "Identical to histogram except the y-axis."
+      "notes": "Identical to histogram except the y-axis.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getBins",
+        "getStats"
+      ]
     },
     "histogramCumulative": {
       "purpose": "What share fell at or below each value (an ogive).",
@@ -11670,7 +13089,7 @@ Charts.meta = {
         "raw measurements"
       ],
       "refuses": [
-        "named xAxis.categories"
+        "named xAxis.categories — counting how often each name occurs is a bar chart; use column"
       ],
       "selfSizing": false,
       "aspect": "free",
@@ -11681,7 +13100,160 @@ Charts.meta = {
         "bins",
         "binWidth"
       ],
-      "notes": "Y-axis always runs 0 to 100%."
+      "notes": "Y-axis always runs 0 to 100%.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getBins",
+        "getStats"
+      ]
+    },
+    "waterfall": {
+      "purpose": "How a total got from one value to another: an opening balance, signed steps that each start where the last one ended, and a closing total measured from zero.",
+      "data": "series[0].data — numbers or { name, y } for the steps, { name, isSum: true } for a total the engine computes",
+      "requires": [
+        "exactly one series",
+        "numeric values in every step — a blank one shifts every bar after it"
+      ],
+      "refuses": [
+        "more than one series — every bar stands on where the last one ended, so a second bridge has no ground of its own; use column with grouped series, or one waterfall per panel in panels",
+        "a declared total that does not match the steps before it — the unexplained gap is the one thing this chart exists to reveal, so it is named rather than drawn; omit the y and the total computes itself",
+        "data with no steps, only totals — a row of independent totals is column, or bar when the names are long"
+      ],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 280,
+      "gridSpan": 1,
+      "gridSpanWhen": "2 with 8+ steps, or when the step names need slanting",
+      "keyOptions": [
+        "point.isSum: true",
+        "plotOptions.waterfall.connectors",
+        "plotOptions.waterfall.showSign",
+        "plotOptions.waterfall.upColor|downColor|sumColor",
+        "yAxis.plotLines"
+      ],
+      "notes": "The value axis always includes zero: every bar is read against it, and a cropped axis would make the totals misreport their own size.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSteps",
+        "getTotal"
+      ]
+    },
+    "sankey": {
+      "purpose": "Where an amount goes: nodes in left-to-right columns, joined by bands whose thickness is how much moved — the split, the merge and the loss are the reading.",
+      "data": "series[0].data as [from, to, weight] or { from, to, weight }; optional series[0].nodes: [{ id, name?, color?, column? }]",
+      "requires": [
+        "exactly one series of links",
+        "a weight of zero or more on every link",
+        "links that only ever flow forward — no loops"
+      ],
+      "refuses": [
+        "more than one series — two networks overlaid would split each other’s nodes; put every link in one series, or one sankey per panel in panels",
+        "a negative or non-numeric weight — a band cannot be thinner than nothing; a signed net flow is waterfall",
+        "a link from a node to itself, or a loop — a node on a cycle has no column to sit in; break it into stages, or show the from/to amounts as a table"
+      ],
+      "selfSizing": false,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 300,
+      "gridSpan": 2,
+      "gridSpanWhen": "1 only for 2–3 columns with short node names",
+      "keyOptions": [
+        "series[0].nodes[].column",
+        "plotOptions.sankey.linkColor: source|target|gradient|neutral|<css>",
+        "plotOptions.sankey.colorBy: level|source|node|none",
+        "plotOptions.sankey.dropLabel|dropoff",
+        "stages: [name per column] (shown as a header row)",
+        "plotOptions.sankey.nodeWidth|nodePadding",
+        "plotOptions.sankey.align: justify|left",
+        "plotOptions.sankey.valuePrefix|valueSuffix"
+      ],
+      "notes": "Every column shares one pixels-per-unit scale, so node heights compare across columns; a node is as tall as the larger of its in- and outflow, and whatever a stage receives but does not pass on flows into a counter-coloured 'Unaccounted' node in the next column, with its amount and share.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getLinks",
+        "getNodes"
+      ]
+    },
+    "table": {
+      "purpose": "Exact numbers a reader will look up rather than estimate: rows optionally grouped under headings, columns optionally grouped under a spanning header, cells optionally coloured by sign or on a scale.",
+      "data": "columns: [{ key, name, group?, prefix?, suffix?, decimals?, showSign?, highlight?: 'sign'|'scale'|fn, scale? }] + rows: [{ name, group?, <key>: value }]",
+      "requires": [
+        "at least one column and one row",
+        "a unique key on every column"
+      ],
+      "refuses": [
+        "no columns or no rows",
+        "a column without a key, or two columns with the same key",
+        "a column coloured by value (highlight: 'sign' or 'scale') that holds no numbers",
+        "columns sharing a colour scale but not a unit — one shade would stand for two kinds of number; give each its own scale",
+        "column groups on some columns but not all — the header would be uneven; group every column, or put the qualifier in the column name",
+        "the rows of one group not next to each other — the heading would be drawn twice and read as two groups; sort the rows"
+      ],
+      "selfSizing": true,
+      "aspect": "free",
+      "minWidth": 480,
+      "minHeight": 160,
+      "gridSpan": 2,
+      "gridSpanWhen": "1 with 4 or fewer data columns",
+      "keyOptions": [
+        "columns[].group",
+        "columns[].highlight: sign|scale|function",
+        "columns[].scale (shared colour domain)",
+        "rows[].group",
+        "plotOptions.table.striped|threshold|columnGroupDivider|labelHeader"
+      ],
+      "notes": "Numbers are never truncated: headers and row labels wrap, and a table wider than its container scrolls sideways. A blank is drawn as a dash and left out of the colour scale — it is not zero.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getRows"
+      ]
+    },
+    "reportTable": {
+      "purpose": "A table whose cells are not only numbers: each column is a kind — text, insight (headline + description), kpi (one large stat) or chart (any chart type, one per row).",
+      "data": "columns: [{ key, name, kind: 'text'|'insight'|'kpi'|'chart', group?, chart?: { type, ...defaults } }] + rows: [{ name (text or { head, body }), group?, <key>: value }] — insight values are { head, body }, kpi values a number or { value, note, fill }, text values a string or { text, fill }, chart values that chart's config or a bare data array",
+      "requires": [
+        "at least one column and one row",
+        "a unique key on every column",
+        "chart columns name a chart type"
+      ],
+      "refuses": [
+        "everything table refuses about column keys, column groups and row groups",
+        "a column with no kind, or kind 'number' — a table-sized figure looks small beside charts and stats; use kpi",
+        "a column kind other than text, insight, kpi or chart",
+        "a chart column with no chart.type, an unknown type, or a type that is a whole exhibit — panels, table, barInsightTable, reportTable"
+      ],
+      "selfSizing": true,
+      "aspect": "free",
+      "minWidth": 640,
+      "minHeight": 200,
+      "gridSpan": 2,
+      "keyOptions": [
+        "columns[].kind",
+        "columns[].chart",
+        "columns[].sharedScale",
+        "columns[].colorBySign (kpi)",
+        "columns[].colorByScale + scale (kpi)",
+        "per-cell fill on kpi, text and insight values",
+        "rows[].group",
+        "plotOptions.reportTable.rowHeight|sharedScale|striped|dividers|labelHeader"
+      ],
+      "notes": "Chart cells drop their own title and legend; named series are shown once above the table. line/column/bar/dumbbell cells in one column share a value scale unless sharedScale: false.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getRows",
+        "charts"
+      ]
     },
     "barInsightTable": {
       "purpose": "One row read as a sentence: label, bars, what it means, the number to remember.",
@@ -11699,7 +13271,12 @@ Charts.meta = {
         "columns",
         "descriptionLines"
       ],
-      "notes": "Four columns of content need the width; with 2+ series the stat writes itself as the change from first to last."
+      "notes": "Four columns of content need the width; with 2+ series the stat writes itself as the change from first to last.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData"
+      ]
     },
     "waffle": {
       "purpose": "Make a proportion countable — 'x in 100'.",
@@ -11720,7 +13297,12 @@ Charts.meta = {
         "fillDirection",
         "dotSize"
       ],
-      "notes": "Spare height grows the DOT, not the gaps — the value is the number of dots, and a dot is one unit at any size."
+      "notes": "Spare height grows the DOT, not the gaps — the value is the number of dots, and a dot is one unit at any size.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData"
+      ]
     },
     "radar": {
       "purpose": "One profile per series across the same named axes — the SHAPE is the reading.",
@@ -11746,7 +13328,13 @@ Charts.meta = {
         "plotOptions.radar.markers",
         "series[].dashStyle"
       ],
-      "notes": "The scale starts at zero and is shared by every axis — on a radial scale a cropped baseline multiplies the AREA of a difference, and per-axis scales make the shape meaningless. Mixed units want normalising to a common index first. Past ~4 series the polygons overlap into mush; use panels of small radars instead."
+      "notes": "The scale starts at zero and is shared by every axis — on a radial scale a cropped baseline multiplies the AREA of a difference, and per-axis scales make the shape meaningless. Mixed units want normalising to a common index first. Past ~4 series the polygons overlap into mush; use panels of small radars instead.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSeries"
+      ]
     },
     "donut": {
       "purpose": "Parts of one whole, few categories.",
@@ -11767,14 +13355,19 @@ Charts.meta = {
         "centerText",
         "showPercentages"
       ],
-      "notes": "The ring grows until the narrower axis binds, so it is safe in any cell. Auto-shows a legend at 2+ wedges, which makes it start lower than a legend-less neighbour."
+      "notes": "The ring grows until the narrower axis binds, so it is safe in any cell. Auto-shows a legend at 2+ wedges, which makes it start lower than a legend-less neighbour.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData"
+      ]
     },
     "pie": {
       "purpose": "Donut with no hole.",
       "data": "one series of [name, value] pairs",
       "requires": [],
       "refuses": [
-        "negative values"
+        "negative values — dropped from the ring, the total and the legend, and named in a footnote; use a bar chart"
       ],
       "selfSizing": false,
       "aspect": "radial",
@@ -11786,7 +13379,12 @@ Charts.meta = {
         "centerText",
         "showPercentages"
       ],
-      "notes": "Alias of donut with innerSize 0."
+      "notes": "Alias of donut with innerSize 0.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData"
+      ]
     },
     "scatter": {
       "purpose": "Relationship between two numeric variables.",
@@ -11804,7 +13402,13 @@ Charts.meta = {
         "marker.symbol",
         "xAxis.min/max"
       ],
-      "notes": "Point labels only draw for points that carry a name."
+      "notes": "Point labels only draw for points that carry a name.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSeries"
+      ]
     },
     "bubble": {
       "purpose": "Scatter with a third value as area.",
@@ -11819,7 +13423,13 @@ Charts.meta = {
       "keyOptions": [
         "plotOptions.bubble.minSize/maxSize"
       ],
-      "notes": "z maps to AREA, not radius."
+      "notes": "z maps to AREA, not radius.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSeries"
+      ]
     },
     "packedBubble": {
       "purpose": "Relative magnitudes with no axes; one cluster per series.",
@@ -11832,7 +13442,13 @@ Charts.meta = {
       "minHeight": 300,
       "gridSpan": 1,
       "keyOptions": [],
-      "notes": "Cluster positions are settled by simulation and move slightly between renders."
+      "notes": "Cluster positions are settled by simulation and move slightly between renders.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "getSeries"
+      ]
     },
     "geofacet": {
       "purpose": "One tile per region, positioned to approximate a map.",
@@ -11855,7 +13471,12 @@ Charts.meta = {
         "showEmpty",
         "borderRadius"
       ],
-      "notes": "Tiles stay square and cap at maxTileSize, centring the leftover as margin, so it fits a single cell at 480px and does not need extra width."
+      "notes": "Tiles stay square and cap at maxTileSize, centring the leftover as margin, so it fits a single cell at 480px and does not need extra width.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData"
+      ]
     },
     "panels": {
       "purpose": "Several charts as ONE exhibit under one shared title.",
@@ -11877,7 +13498,14 @@ Charts.meta = {
         "rowGap",
         "separators"
       ],
-      "notes": "Prefer this over a hand-rolled grid when charts belong together. panelHeight reaches the self-sizing types too, so a row's panels end on one line."
+      "notes": "Prefer this over a hand-rolled grid when charts belong together. panelHeight reaches the self-sizing types too, so a row's panels end on one line.",
+      "api": [
+        "redraw",
+        "destroy",
+        "getData",
+        "charts",
+        "panels"
+      ]
     }
   }
 };
@@ -11915,6 +13543,43 @@ Charts.validate = function (type, config) {
     var raw = config.data || (series[0] && series[0].data) || [];
     if (!raw.length) errors.push("A histogram needs the raw measurements as data: [ ... ].");
   }
+  if (type === "waterfall") {
+    if (series.length > 1) {
+      errors.push("A waterfall draws one bridge, not " + series.length +
+        ". Every bar is measured from where the last one ended, so a second series has no ground of its own. " +
+        "Use column with grouped series, or one waterfall per panel in panels.");
+    }
+    var pts = (series[0] && series[0].data) || config.data || [];
+    var isTotal = function (p) { return !!(p && typeof p === "object" && (p.isSum || p.isIntermediateSum)); };
+    if (!pts.length) {
+      errors.push("A waterfall needs the opening balance, the changes and the closing total as one series: series: [{ data: [ ... ] }].");
+    } else if (!pts.some(function (p) { return !isTotal(p); })) {
+      errors.push("Every point is a total, so there is nothing to bridge between them. A row of independent totals is column, or bar when the names are long.");
+    }
+    var run = 0, off = null;
+    pts.forEach(function (p) {
+      var declared = isTotal(p) ? (p.y != null ? +p.y : null) : null;
+      if (!isTotal(p)) {
+        var y = Array.isArray(p) ? +p[p.length - 1] : (p && typeof p === "object" ? +(p.y != null ? p.y : p.value) : +p);
+        if (isFinite(y)) run += y;
+      } else if (declared != null && off == null &&
+                 Math.abs(declared - run) > Math.max(Math.abs(declared) * 1e-6, 1e-9)) {
+        off = { name: (p.name != null ? p.name : "the total"), declared: declared, computed: run };
+      }
+    });
+    if (off) errors.push("The steps before \"" + off.name + "\" sum to " + off.computed +
+      ", but it declares " + off.declared + ". Add the missing step, or omit the y and let the total compute itself.");
+  }
+  if (type === "sankey") {
+    errors = errors.concat(window.ChartsShared.sankeyProblems(config));
+  }
+  if (type === "table") {
+    // The same function the engine draws its refusal panel from.
+    errors = errors.concat(window.ChartsShared.tableProblems(config));
+  }
+  if (type === "reportTable") {
+    errors = errors.concat(window.ChartsShared.reportTableProblems(config));
+  }
   if ((type === "donut" || type === "pie") && series[0]) {
     var neg = (series[0].data || []).filter(function (d) {
       var y = Array.isArray(d) ? d[1] : (d && typeof d === "object" ? d.y : d);
@@ -11924,3 +13589,22 @@ Charts.validate = function (type, config) {
   }
   return { ok: errors.length === 0, errors: errors, warnings: warnings };
 };
+
+
+// --- load order ---------------------------------------------------
+if (!Charts.theme && typeof console !== "undefined" && console.warn) {
+  console.warn("charts.js: Charts.theme is missing, so the built-in defaults are in use. " +
+    "Load theme.js before charts.js to apply the design system.");
+}
+
+
+// --- responsive ---------------------------------------------------
+(function () {
+  var RAW = {};
+  Object.keys(Charts.meta.charts).forEach(function (k) { RAW[k] = Charts[k]; });
+  Object.keys(RAW).forEach(function (k) {
+    Charts[k] = function (container, opts) {
+      return window.ChartsShared.makeResponsive(RAW[k], container, opts);
+    };
+  });
+})();
