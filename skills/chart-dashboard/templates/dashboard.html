@@ -184,6 +184,17 @@ function readState() {
   return { region: document.getElementById('f-region').value };
 }
 
+// One live chart per container. Re-calling a factory does not tear down the
+// chart already there: its ResizeObserver lives on, so every resize repaints
+// each stale config (the unfiltered chart flashes up) before the current one,
+// and the pile grows with every filter change. So every redraw goes through
+// draw(), which destroys the previous handle first.
+const handles = {};
+function draw(factory, id, config) {
+  if (handles[id]) handles[id].destroy();
+  return (handles[id] = factory(id, config));
+}
+
 function render(state) {
   const T = Charts.theme;
   const rows = DATA
@@ -198,7 +209,7 @@ function render(state) {
   // Every dependent readout updates, KPI tiles included.
   document.getElementById('k1').textContent = total.toLocaleString();
 
-  Charts.bar('c1', {
+  draw(Charts.bar, 'c1', {
     // Descriptive fallback when the slice is too small to support the claim.
     title: rows.length > 2
       ? `Top two categories drive ${share}% of volume`
@@ -216,7 +227,7 @@ function render(state) {
     })) }]
   });
 
-  Charts.column('c2', {
+  draw(Charts.column, 'c2', {
     title: 'Volume by category and region',
     subtitle: `Units · ${scope}`,
     xAxis: { categories: rows.map(r => r.name) },

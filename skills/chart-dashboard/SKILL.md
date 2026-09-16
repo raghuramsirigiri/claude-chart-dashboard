@@ -368,8 +368,10 @@ a broken page, and the reader stops trusting the numbers that *are* correct. So
 either add no controls at all — a static page is a perfectly good deliverable —
 or wire them completely, which means the data is filtered rather than the label,
 every dependent panel re-renders, and any action title recomputes from the same
-filtered rows. **If the page has a control, read `references/controls.md`**: it
-has the `render(state)` pattern in full, the guards to apply before shipping
+filtered rows. Redraw through a helper that calls the old chart's `destroy()`
+first: without it, old charts' resize observers keep repainting the unfiltered
+chart on every window resize, and they pile up with each filter change. **If the page has a control, read `references/controls.md`**: it
+has the `render(state)` and `draw()` pattern in full, the guards to apply before shipping
 one, and the cases where small multiples beat a filter.
 
 ### Legends go in one place

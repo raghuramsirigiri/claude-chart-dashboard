@@ -20,6 +20,7 @@
   - [Geofacet (`Charts.geofacet`)](#geofacet-chartsgeofacet)
   - [Waterfall (`Charts.waterfall`)](#waterfall-chartswaterfall)
   - [Sankey (`Charts.sankey`)](#sankey-chartssankey)
+- [Chart lifecycle: handle, resizing, transparency](#chart-lifecycle-handle-resizing-transparency)
 - [Sizing (all charts)](#sizing-all-charts)
 - [Titles and subtitles wrap](#titles-and-subtitles-wrap)
 - [Interactions (all charts)](#interactions-all-charts)
@@ -76,7 +77,8 @@ legend interactions — no canvas, no external framework.
 | `Charts.bubble`       | Scatter with third dimension mapped to bubble radius (and color gradient).  |
 | `Charts.packedBubble` | Bubbles clustered via physics relaxation; per-series clusters when >1.      |
 | `Charts.geofacet`     | Small multiples on a geographic grid — bar, heat, or gauge tiles.           |
-| `Charts.waterfall`    | Bridge: opening value, signed steps each starting where the last ended, computed totals. |
+
+| `Charts.waterfall`    | Bridge: opening value, signed steps each starting where the last ended, computed totals. |
 | `Charts.sankey`       | Flows between nodes in left-to-right columns; band thickness is the amount moved. |
 
 Also on the namespace: `Charts.meta` (the manifest — data shape, refusals, sizing, `gridSpan` per chart) and `Charts.validate(type, config)` — see [The manifest](#the-manifest-chartsmanifestjson--chartsmeta).
@@ -214,11 +216,14 @@ Every option below is optional; the library picks sensible defaults.
   Points may still be plain numbers in the same array; mix freely. This is the
   mechanism behind every "highlight the bars the finding is about" chart — see
   `chart-selection.md` § Emphasis.
-- **Re-rendering with new data**: call the same factory again on the same
-  container id. Each engine clears the container first, so re-calling is the
-  supported update path for filters and dropdowns — build a `render(state)`
-  function and call it from your control's `change` handler. Don't mutate the
-  returned object's internals; `redraw()` only re-paints the *existing* config.
+- **Re-rendering with new data**: `destroy()` the previous handle, then call
+  the factory again on the same container. Calling the factory alone clears the
+  container but leaves the old chart's `ResizeObserver` running. Every resize
+  then repaints the stale config (a visible flash) before the current one, and
+  these redraws pile up with each update. Build a
+  `render(state)` function that draws through a `draw(factory, id, config)`
+  helper doing both (see `controls.md`). Don't mutate the returned object's
+  internals; `redraw()` only re-paints the *existing* config.
 - **Legend**: auto-shown at the top below the subtitle whenever there are 2+ series, wraps to multiple rows. Force off with `legend: { enabled: false }`.
 - **Scenario notation**: `series[i].scenario` or `point.scenario` —
   `'actual'` (solid, default), `'plan'`/`'budget'` (outlined), or
@@ -717,6 +722,43 @@ Charts.sankey('container', {
 - **One pixels-per-unit scale** across all columns; a node is as tall as the larger of its in/outflow. Whatever a stage receives but doesn't pass on flows into a counter-coloured **"Unaccounted"** node with its amount and share (`dropLabel`, `dropoff`).
 - **Options**: `stages` (a header per column); `plotOptions.sankey.linkColor: 'source'|'target'|'gradient'|'neutral'|<css>`, `colorBy: 'level'|'source'|'node'|'none'`, `nodeWidth`, `nodePadding`, `align: 'justify'|'left'`, `valuePrefix` / `valueSuffix`; `nodes[].column` pins a node.
 - **Sizing**: free aspect, min 480×300; **span 2 grid tracks** (1 only for 2–3 short-named columns). **Returns** `getLinks()`, `getNodes()`.
+## Chart lifecycle: handle, resizing, transparency
+
+**The handle.** Every factory returns `{ redraw(), getData(), destroy() }`, plus
+engine extras (`getSeries`, `addPoint`/`shift` on `line`, `getBins`/`getStats`
+on histograms, `charts`/`panels` on `panels`). The manifest's `api` array for
+each chart lists exactly what its handle has. A refused chart still returns a
+handle, with an `error` string saying why.
+
+**Call `destroy()` before redrawing or removing a chart.** It disconnects the
+resize observer and unbinds `window` listeners. It is safe to call twice, and
+`panels` destroys its children.
+
+**Charts follow their container.** A debounced `ResizeObserver` redraws the
+chart when its container changes size, so charts in fluid grids, resized
+windows and printed pages re-lay themselves. Two consequences for pages:
+- **Hidden tabs, accordions and modals work.** A chart drawn into a
+  `display:none` container redraws at its real size once it is shown, so no
+  "draw on tab open" workaround is needed.
+- Legend-toggled series survive a resize; per-slice donut toggles and a `line`
+  chart's zoom do not.
+- Opt out per chart with `chart: { responsive: false }` (a fixed-size export,
+  say).
+
+The chart also redraws once when `document.fonts.ready` settles. The skill
+inlines everything and ships no webfont, so this rarely matters.
+
+**Transparent background.** Charts paint `theme.bg` behind themselves by
+default. `chart: { transparent: true }` (one chart) or
+`Charts.theme.transparent = true` (all charts) lets the surface underneath show
+through. Tooltips, value-label halos and colour scales keep `bg` as their
+paper. Use it when a chart sits on a surface that is *not* `theme.bg`, like a
+tinted callout, a highlighted card or a slide band, instead of re-theming the
+chart to match. `panels` passes it to its panels, and `reportTable` chart cells
+are always transparent so stripes, cell fills and row hover show through. On a
+normal card keep the default: the template already syncs `--card` to
+`theme.bg`.
+
 ## Sizing (all charts)
 
 Every engine draws into the box it is given. **A height on the container is an

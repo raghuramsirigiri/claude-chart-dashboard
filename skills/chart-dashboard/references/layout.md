@@ -282,6 +282,13 @@ across a room, for about thirty seconds:
   in the deck. Keep it a small step from `Charts.theme.bg`: the charts paint
   themselves in `theme.bg`, so that step is what makes a figure read as a card
   sitting on the page rather than as ink bleeding into it.
+- A chart placed on a surface that is **not** the card colour — a tinted
+  note, an emphasised card, a coloured slide band — takes
+  `chart: { transparent: true }` rather than a one-off theme override, so it
+  sits on that surface with no visible box.
+- Charts redraw themselves when their container resizes or is first shown, so
+  tabs, collapsible sections and a print layout need no redraw code. The one
+  lifecycle rule is in `controls.md`: destroy a chart before redrawing it.
 - **Legend position is fixed**: charts-lib draws it at the top under the
   subtitle, on every chart type. Never reposition it per panel or rebuild it in
   HTML — a legend that moves between panels makes the reader search for it each

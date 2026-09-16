@@ -14,9 +14,21 @@ Wiring completely means three things, and the third is the one that gets missed:
 
 1. **The data is filtered, not just the label.** Keep the full dataset in one
    `const DATA`, derive the filtered rows inside a `render(state)` function, and
-   have every affected chart drawn *inside* that function. Re-calling a factory
-   on the same container id is the supported update path — each engine clears
-   the container first.
+   have every affected chart drawn *inside* that function, through a `draw()`
+   helper that **destroys the previous chart in that container first**.
+   Re-calling a factory clears the container, but the old chart's
+   `ResizeObserver` (and a zoomable line's `window` listeners) survive it. On
+   every resize after that, each stale config repaints (the pre-filter chart
+   flashes up) before the current one, and the pile grows with each filter
+   change:
+
+   ```js
+   const handles = {};
+   function draw(factory, id, config) {
+     if (handles[id]) handles[id].destroy();
+     return (handles[id] = factory(id, config));
+   }
+   ```
 2. **Every dependent panel re-renders**, including KPI tiles and any note that
    quotes a number. A grid where two panels respond to the filter and four don't
    is the same broken-trust failure in a subtler form.
@@ -37,7 +49,7 @@ Wiring completely means three things, and the third is the one that gets missed:
      const share = Math.round(100 * topTwo / total);
      const scope = state.region === 'all' ? 'all regions' : state.region;
 
-     Charts.bar('c1', {
+     draw(Charts.bar, 'c1', {
        title: `Top two categories drive ${share}% of volume`,   // recomputed
        subtitle: `Units shipped · ${scope} · FY2026`,           // scope follows too
        xAxis: { categories: rows.map(r => r.name) },
