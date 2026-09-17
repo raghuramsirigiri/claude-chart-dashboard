@@ -59,6 +59,22 @@ const note = (name, detail) => results.push({ name, passed: true, note: true, de
 // Charts.line('chart', …) — scanning raw text counts that as a chart aimed at
 // a panel that doesn't exist. A commented-out call shouldn't count either.
 const code = html.replace(/\/\*[\s\S]*?\*\//g, ' ');
+
+// An editable page keeps its charts in a JSON block instead of in factory
+// calls (references/editable.md). Read it once here so every chart check below
+// sees spec charts and code charts alike. A block that does not parse is
+// reported in check 6; until then it counts as no charts.
+const specMatch = html.match(/<script\s+type="application\/json"\s+id="page-spec"\s*>([\s\S]*?)<\/script>/);
+let spec = null, specError = null;
+if (specMatch) {
+  try { spec = JSON.parse(specMatch[1]); } catch (e) { specError = e.message; }
+  if (spec && (typeof spec.charts !== 'object' || spec.charts === null || Array.isArray(spec.charts))) {
+    specError = 'needs a "charts" object keyed by element id';
+    spec = null;
+  }
+}
+const specCharts = spec ? Object.entries(spec.charts).map(([id, e]) => ({ id, type: e && e.type, config: (e && e.config) || {} })) : [];
+
 // Panels are found by the class the templates put on every chart container,
 // not by an id shape: the dashboard and report number theirs c1/f1, while the
 // deck names them for what they show (c-trend). The id="…" pattern stays as a
@@ -68,7 +84,11 @@ const ids = [
       .map(m => (m[0].match(/id="([^"]+)"/) || [])[1]).filter(Boolean),
   ...[...code.matchAll(/id="(c\d+|f\d+)"/g)].map(m => m[1])
 ].filter((v, i, a) => a.indexOf(v) === i);
-const calls = [...code.matchAll(/Charts\.\w+\(\s*'([^']+)'/g)].map(m => m[1]);
+// Both call shapes: Charts.bar('c1', …) and the draw(Charts.bar, 'c1', …)
+// helper that destroys the previous chart first (controls.md).
+const CALL = /Charts\.(\w+)\s*[(,]\s*'([^']+)'/g;
+const codeCalls = [...code.matchAll(CALL)].map(m => m[2]);
+const calls = codeCalls.concat(specCharts.map(c => c.id));
 const orphan = ids.filter(i => !calls.includes(i));
 const ghost = calls.filter(c => !ids.includes(c));
 if (!ids.length && !calls.length) {
@@ -90,7 +110,9 @@ if (!ids.length && !calls.length) {
 // broken. They belong in a `.bento.flow` row, whose cells take their content's
 // height.
 const GROWS = ['table', 'reportTable', 'barInsightTable'];
-const boxed = [...code.matchAll(/Charts\.(\w+)\(\s*'([^']+)'/g)]
+const boxed = [...code.matchAll(CALL)]
+  .map(m => ({ 1: m[1], 2: m[2] }))
+  .concat(specCharts.map(c => ({ 1: c.type, 2: c.id })))
   .filter(m => GROWS.includes(m[1]))
   .filter(m => {
     const at = code.indexOf('id="' + m[2] + '"');
@@ -142,14 +164,20 @@ const orderedCats = cats => {
 const badAxes = [];
 let lineCount = 0;
 for (const chunk of code.split('Charts.').slice(1)) {
-  if (!/^line\s*\(/.test(chunk)) continue;
+  if (!/^line\s*[(,]/.test(chunk)) continue;
   lineCount++;
-  const id = (chunk.match(/^line\s*\(\s*'([^']+)'/) || [])[1] || '?';
+  const id = (chunk.match(/^line\s*[(,]\s*'([^']+)'/) || [])[1] || '?';
   const upToSeries = chunk.slice(0, chunk.indexOf('series:') + 1 || undefined);
   const m = upToSeries.match(/categories:\s*\[([^\]]*)\]/);
   if (!m) continue;                       // numeric or datetime x — nothing to check
   const cats = m[1].split(',').map(c => c.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
   if (!orderedCats(cats)) badAxes.push(id + ': ' + cats.slice(0, 4).join(', '));
+}
+for (const c of specCharts) {
+  if (c.type !== 'line') continue;
+  lineCount++;
+  const cats = c.config.xAxis && Array.isArray(c.config.xAxis.categories) ? c.config.xAxis.categories.map(String) : null;
+  if (cats && !orderedCats(cats)) badAxes.push(c.id + ': ' + cats.slice(0, 4).join(', '));
 }
 if (!lineCount) ok('line x-axes ordered', 'no line charts on the page');
 else if (badAxes.length) {
@@ -256,6 +284,45 @@ if (!slides.length) {
     ok('deck spine', slides.length + ' slides: cover, agenda, ' +
       (dividers ? dividers + ' section(s), ' : 'one section, ') + 'closing');
   }
+}
+
+// ── 6. an editable page keeps its contract ───────────────────────────
+// Only runs when the page opted in (a page-spec block, or text marked
+// data-edit). What breaks here breaks for the non-technical editor, long after
+// the build: a chart type the runtime cannot draw shows an error in its cell,
+// a duplicate key makes one edit land on the wrong element, and a spec with
+// no runtime is a page of empty cards.
+const editTags = [...code.matchAll(/<[a-zA-Z][^>]*\sdata-edit="([^"]*)"[^>]*>/g)]
+  .map(m => ({ kind: m[1], key: (m[0].match(/\sdata-key="([^"]*)"/) || [])[1] }));
+if (!specMatch && !editTags.length) {
+  ok('editable page', 'not an editable page');
+} else {
+  const problems = [];
+  const notes = [];
+  if (!specMatch) problems.push('text is marked data-edit but there is no <script type="application/json" id="page-spec">');
+  if (specError) problems.push('#page-spec does not parse: ' + specError);
+  let types = null;
+  try { types = require('../assets/charts-lib/charts.manifest.json').charts; } catch (e) { /* skill moved; skip type check */ }
+  if (types) {
+    const unknown = specCharts.filter(c => !Object.prototype.hasOwnProperty.call(types, c.type));
+    if (unknown.length) problems.push('unknown chart type: ' + unknown.map(c => c.id + ' (' + c.type + ')').join(', '));
+  }
+  const both = specCharts.filter(c => codeCalls.includes(c.id)).map(c => c.id);
+  if (both.length) problems.push('drawn by both the spec and page code: ' + both.join(', ') + '  → keep one');
+  const runtime = /<script src="charts-lib\/page-runtime\.js"><\/script>/.test(html) || /window\.Page\s*=\s*Page/.test(html);
+  if (specMatch && !runtime) problems.push('no page-runtime.js — nothing draws the spec  → add <script src="charts-lib/page-runtime.js"></script> after charts.js');
+  const badKind = editTags.filter(t => t.kind !== 'text' && t.kind !== 'rich');
+  if (badKind.length) problems.push('data-edit must be "text" or "rich": ' + badKind.map(t => '"' + t.kind + '"').join(', '));
+  const noKey = editTags.filter(t => !t.key).length;
+  if (noKey) problems.push(noKey + ' data-edit element(s) without a data-key');
+  const keys = editTags.map(t => t.key).filter(Boolean);
+  const dupes = [...new Set(keys.filter((k, i) => keys.indexOf(k) !== i))];
+  if (dupes.length) problems.push('duplicate data-key: ' + dupes.join(', '));
+  const locked = [...new Set(codeCalls)].filter(id => ids.includes(id));
+  if (locked.length) notes.push(locked.length + ' chart(s) drawn by code, locked to the editor: ' + locked.join(', '));
+  if (problems.length) bad('editable page', problems.join(' | '));
+  else ok('editable page', specCharts.length + ' chart(s) in the spec, ' + keys.length + ' text element(s)' +
+    (notes.length ? ' · ' + notes.join(' · ') : ''));
 }
 
 // ── report ───────────────────────────────────────────────────────────

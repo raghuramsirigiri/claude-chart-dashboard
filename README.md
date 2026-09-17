@@ -349,6 +349,7 @@ written to avoid.
 skills/chart-dashboard/
 ├── SKILL.md                        # workflow and output rules
 ├── assets/charts-lib/              # the chart library (charts.js, theme.js, charts.css)
+├── assets/page-runtime.js          # draws an editable page's charts; window.Page for the editor
 ├── references/
 │   ├── chart-api.md                # full library API — every factory and option
 │   ├── chart-selection.md          # data shape → chart type, emphasis, anti-patterns
@@ -356,6 +357,7 @@ skills/chart-dashboard/
 │   ├── annotation.md               # callouts, plot bands, forecast vs. measured notation
 │   ├── narrative.md                # action titles; where a finding goes
 │   ├── controls.md                 # wiring a filter so every panel and title follows it
+│   ├── editable.md                 # the opt-in editable page format (charts as JSON, marked text)
 │   └── theming.md                  # the OKLCH recipe behind a brand recolour
 ├── scripts/
 │   ├── extract-theme.js            # brand CSS/HTML → a Charts.theme block
@@ -366,6 +368,7 @@ skills/chart-dashboard/
 │   └── finalize.js                 # --stage to verify, then the whole ending in one command
 └── templates/
     ├── dashboard.html              # bento grid starting point
+    ├── dashboard-editable.html     # the same, in the editable format
     ├── report.html                 # paper-column starting point
     └── slides.html                 # 16:9 deck, eighteen slide layouts
 ```

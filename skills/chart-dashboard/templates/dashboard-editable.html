@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>TITLE — Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- EDITABLE VARIANT of dashboard.html. Build from this file only when the
+     user asked for an editable page; the rules are in references/editable.md.
+     These three tags are placeholders. Run scripts/inline-lib.js on the
+     finished page and they are replaced by the library's own contents, so
+     the file works standalone. Leave them exactly as written until then. -->
+<link rel="stylesheet" href="charts-lib/charts.css">
+<style>
+  /* --card, --ink, --muted, --hair and --font are overwritten at load from
+     Charts.theme (see the sync block below), so recolouring the charts
+     recolours the page. Only these two are page-level choices: --bg is the
+     ground behind the cards, --radius is the brand's corner signature. */
+  :root { --bg:#efece6; --radius:14px;
+          --card:#f4f4f0; --ink:#111111; --muted:#555555; --hair:#dcdbd7;
+          --surface-soft:#eae8e4;   /* overwritten from Charts.theme.tileSurface below */
+          --font:'Inter','Segoe UI',Arial,Helvetica,sans-serif; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg); color:var(--ink);
+    font-family:var(--font); }
+  .page { max-width:1600px; margin:0 auto; padding:32px; }
+  header { display:flex; justify-content:space-between; align-items:flex-end; gap:24px;
+    margin-bottom:24px; padding-bottom:16px; border-bottom:1px solid var(--hair); }
+  header h1 { margin:0; font-size:28px; font-weight:700; letter-spacing:-0.5px; }
+  header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
+  .stamp { color:var(--muted); font-size:12px; text-align:right; }
+  .stamp b { color:var(--ink); font-size:18px; display:block; font-weight:700; }
+
+  /* Optional KPI row. Sizes are the charts-lib type scale scaled up one step,
+     so the tiles read as the same family as the panels rather than as a second
+     design system. Use it or delete it; don't invent a different one. */
+  .kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:16px; margin-bottom:16px; }
+  .kpi { background:var(--card); border-radius:var(--radius); padding:16px 18px; }
+  .kpi span { display:block; font-size:11px; font-weight:400; letter-spacing:.04em;
+    text-transform:uppercase; color:var(--muted); }
+  .kpi b { display:block; font-size:24px; font-weight:700; margin-top:6px;
+    letter-spacing:-0.4px; color:var(--ink); }
+  .kpi i { display:block; font-style:normal; font-size:11px; font-weight:400;
+    color:var(--muted); margin-top:2px; }
+
+  /* Soft surface card. For text that belongs to no single panel — a caveat, a
+     data-quality note, an ask. A low-contrast fill separates it without a rule
+     or a coloured bar cutting across the grid. Sits in the flow as its own cell. */
+  .note { background:var(--surface-soft); border-radius:var(--radius);
+    padding:16px 18px; font-size:13.5px; line-height:1.6; color:var(--ink); }
+  .note b { display:block; text-transform:uppercase; font-size:11px;
+    letter-spacing:.06em; color:var(--muted); margin-bottom:6px; }
+
+  /* Editable pages have no filter bar: a chart computed by code is locked to
+     the editor, so a filtered page would be mostly un-editable. */
+  .bento { display:grid; grid-template-columns:repeat(12,1fr); gap:16px; grid-auto-rows:340px; }
+  .cell { background:var(--card); border-radius:var(--radius); padding:6px;
+    box-shadow:0 1px 2px rgba(0,0,0,0.04); overflow:hidden; }
+  .cell .chart { width:100%; height:100%; }
+  /* A row sized by its content, for charts whose height is their row count —
+     table, reportTable, barInsightTable. A fixed 340/696px cell makes them
+     stretch rows and leave a blank band; here they take their natural height.
+     Use it as a separate grid: <div class="bento flow"><div class="cell w8">… */
+  .bento.flow { grid-auto-rows:auto; align-items:start; margin-top:16px; }
+  .flow .chart { height:auto; }
+  .w4{grid-column:span 4}.w6{grid-column:span 6}.w8{grid-column:span 8}.w12{grid-column:span 12}
+  .h2{grid-row:span 2}
+
+  footer.notes { border-top:1px solid var(--hair); margin-top:28px; padding-top:16px;
+    font-size:12px; color:var(--muted); line-height:1.6; }
+  footer.notes b { color:var(--ink); }
+
+  @media (max-width:1100px){ .w4,.w6,.w8,.w12{grid-column:span 6} .h2{grid-row:span 1} }
+  @media (max-width:700px){ .w4,.w6,.w8,.w12{grid-column:span 12} .page{padding:16px} }
+</style>
+</head>
+<body>
+<div class="page">
+  <!-- Every piece of text the reader might want to change carries
+       data-edit (text | rich) and a data-key that is unique on the page.
+       text = plain text. rich = a paragraph that may keep <b>/<i>/<br>.
+       Structural labels you would never want changed need not be marked. -->
+  <header>
+    <div>
+      <h1 data-edit="text" data-key="title">TITLE</h1>
+      <p data-edit="text" data-key="scope">One line of scope: what is measured, across what population.</p>
+    </div>
+    <div class="stamp"><span data-edit="text" data-key="window-label">Reporting window</span><b data-edit="text" data-key="window">START — END</b></div>
+  </header>
+
+  <!-- Optional KPI row. Values are plain text here, not computed: an editable
+       page must not have a number that code overwrites on load. -->
+  <div class="kpis">
+    <div class="kpi"><span data-edit="text" data-key="k1-label">Metric name</span><b data-edit="text" data-key="k1-value">2,750</b><i data-edit="text" data-key="k1-context">vs 1,180 prior period</i></div>
+    <div class="kpi"><span data-edit="text" data-key="k2-label">Metric name</span><b data-edit="text" data-key="k2-value">56%</b><i data-edit="text" data-key="k2-context">Q1 average</i></div>
+  </div>
+
+  <!-- THE GRID IS NOT A TEMPLATE — BUILD IT FROM YOUR PANEL PLAN
+       (references/layout.md § Compose the grid from the findings). One chart
+       div per cell; each id must have an entry in #page-spec below. -->
+  <div class="bento">
+    <div class="cell w6"><div class="chart" id="c1"></div></div>
+    <div class="cell w6"><div class="chart" id="c2"></div></div>
+  </div>
+
+  <footer class="notes" data-edit="rich" data-key="footer">
+    <b>Sources.</b> … &nbsp;·&nbsp; <b>Definitions.</b> … &nbsp;·&nbsp; Note any illustrative figures here.
+  </footer>
+</div>
+
+<!-- THE PAGE'S CONTENT. Every chart is one entry: the id of its element, a
+     chart type from charts.manifest.json, and a config that is plain JSON —
+     no functions, no Charts.theme lookups, no computed values. Colours that
+     would have been T.colors[1] / T.muted are written as the literal hex from
+     the theme in use. Options are the same as in references/chart-api.md. -->
+<script type="application/json" id="page-spec">
+{
+  "version": 1,
+  "charts": {
+    "c1": {
+      "type": "bar",
+      "config": {
+        "title": "Top two categories drive 62% of volume",
+        "subtitle": "Units · All regions",
+        "xAxis": { "categories": ["Cat A", "Cat B", "Cat C", "Cat D"] },
+        "plotOptions": { "series": { "dataLabels": { "enabled": true } } },
+        "legend": { "enabled": false },
+        "series": [{ "name": "Units", "data": [
+          { "y": 980, "color": "#2323FF" },
+          { "y": 740, "color": "#2323FF" },
+          { "y": 610, "color": "#8f8d87" },
+          { "y": 420, "color": "#8f8d87" }
+        ] }]
+      }
+    },
+    "c2": {
+      "type": "column",
+      "config": {
+        "title": "Volume by category",
+        "subtitle": "Units · All regions",
+        "xAxis": { "categories": ["Cat A", "Cat B", "Cat C", "Cat D"] },
+        "legend": { "enabled": false },
+        "series": [{ "name": "Units", "data": [980, 740, 610, 420] }]
+      }
+    }
+  }
+}
+</script>
+
+<!-- theme.js MUST load before charts.js; page-runtime.js loads last. All three
+     are inlined by scripts/finalize.js. -->
+<script src="charts-lib/theme.js"></script>
+<script src="charts-lib/charts.js"></script>
+<script>
+/* Brand recolour, if any — one Charts.applyPalette call, before page-runtime.js
+   draws anything. See references/theming.md.
+
+Charts.applyPalette({ n0: '…', n0a: '…', n1: '…', n8: '…', s1: '…', s2: '…' });
+*/
+
+/* Page chrome follows the chart theme, so there is one source of colour truth. */
+(function () {
+  const t = Charts.theme, s = document.documentElement.style;
+  s.setProperty('--card',  t.bg);
+  s.setProperty('--ink',   t.titleColor);
+  s.setProperty('--muted', t.secondaryColor);
+  s.setProperty('--hair',  t.grid);
+  s.setProperty('--font',  t.font);
+  s.setProperty('--surface-soft', t.tileSurface);
+})();
+</script>
+<!-- Draws every chart in #page-spec and exposes window.Page for the editor.
+     No other chart code on an editable page. -->
+<script src="charts-lib/page-runtime.js"></script>
+</body>
+</html>
