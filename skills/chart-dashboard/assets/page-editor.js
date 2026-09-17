@@ -163,6 +163,17 @@
     '.picker .custom{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
     '.picker input[type=color]{width:34px;height:28px;border:1px solid #ccc;border-radius:6px;padding:2px;background:#fff;cursor:pointer}',
     '.picker .hex{width:84px;padding:5px 7px;border:1px solid #ccc;border-radius:6px;font-size:12px;font-family:ui-monospace,Consolas,monospace}',
+    '.panes{display:flex;flex-wrap:wrap;gap:6px;padding:10px 16px 0}',
+    '.panes button{border:1px solid #ccc;background:#fff;border-radius:999px;padding:5px 10px;font-size:12px;color:#111;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.panes button[aria-pressed=true]{background:#111;border-color:#111;color:#fff}',
+    '.rec{border:1px solid #e3e3e3;border-radius:10px;padding:10px 12px;margin:0 0 12px;background:#fff}',
+    '.rec h5{margin:0 0 8px;font-size:13px}',
+    '.rec .grp{font-size:11px;color:#777;margin:-4px 0 8px}',
+    'label.f textarea{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;color:#111;resize:vertical;min-height:54px}',
+    'label.f .pair{display:flex;gap:6px;margin-top:4px}',
+    'label.f .pair input{margin-top:0}',
+    'label.f .pair input.num{flex:0 0 96px;text-align:right}',
+    'label.f small{display:block;color:#888;font-size:11px;margin-top:3px}',
     'label.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer}',
     'label.chk input{width:16px;height:16px;margin:0}'
   ].join('\n');
@@ -385,8 +396,16 @@
 
   // ── panel ──────────────────────────────────────────────────────────
   function renderPanel() {
-    var id = selected.id;
-    var entry = Page.getChart(id);
+    var baseId = selected.id;
+    // A panels chart is several charts under one title: pick the whole
+    // composition (its title, its place on the page) or one panel, which then
+    // gets the same tabs as any chart.
+    var base = Page.getChart(baseId);
+    var subs = base && base.type === 'panels' && Page.panels ? Page.panels(baseId) : [];
+    if (selected.sub != null && !subs[selected.sub]) selected.sub = null;
+    var inPanel = subs.length > 0 && selected.sub != null;
+    var id = inPanel ? subs[selected.sub].id : baseId;
+    var entry = inPanel ? Page.getChart(id) : base;
     var body = el('div', { class: 'body' });
     var head = el('div', { class: 'head' }, [
       el('div', { class: 't' }, [
@@ -397,6 +416,17 @@
     ]);
     ui.panel.textContent = '';
     ui.panel.appendChild(head);
+    if (subs.length) {
+      var panes = el('div', { class: 'panes', role: 'group', 'aria-label': 'Panels' });
+      panes.appendChild(el('button', { 'aria-pressed': String(!inPanel),
+        onclick: function () { selected.sub = null; tab = 'text'; flash = null; openPicker = null; renderPanel(); } }, ['Whole chart']));
+      subs.forEach(function (sp, i) {
+        panes.appendChild(el('button', { 'aria-pressed': String(inPanel && selected.sub === i), title: name(sp.type),
+          onclick: function () { selected.sub = i; tab = 'type'; flash = null; openPicker = null; renderPanel(); } },
+          [(i + 1) + ' \u00B7 ' + (sp.title || name(sp.type))]));
+      });
+      ui.panel.appendChild(panes);
+    }
 
     if (!entry) {
       body.appendChild(el('p', { class: 'hint', text: 'This chart is drawn by the page’s own code, so it can’t be changed here.' }));
@@ -405,9 +435,11 @@
     }
 
     var tabs = el('div', { class: 'tabs', role: 'tablist' });
-    var tabList = [['type', 'Type'], ['text', 'Text'], ['data', 'Data'], ['style', 'Style']];
-    if (Page.layout && Page.layout(id)) tabList.push(['layout', 'Layout']);
-    if (!tabList.some(function (t) { return t[0] === tab; })) tab = 'type';
+    var tabList = subs.length && !inPanel
+      ? [['text', 'Text']]
+      : [['type', 'Type'], ['text', 'Text'], ['data', 'Data'], ['style', 'Style']];
+    if (!inPanel && Page.layout && Page.layout(baseId)) tabList.push(['layout', 'Layout']);
+    if (!tabList.some(function (t) { return t[0] === tab; })) tab = tabList[0][0];
     tabList.forEach(function (t) {
       tabs.appendChild(el('button', { role: 'tab', 'aria-selected': String(tab === t[0]),
         onclick: function () { tab = t[0]; flash = null; openPicker = null; renderPanel(); } }, [t[1]]));
@@ -428,7 +460,10 @@
     else if (tab === 'text') textTab(body, id, entry);
     else if (tab === 'data') dataTab(body, id, entry);
     else if (tab === 'style') styleTab(body, id, entry);
-    else layoutTab(body, id);
+    else layoutTab(body, baseId);
+    if (subs.length && !inPanel && tab === 'text') {
+      body.appendChild(el('p', { class: 'hint', text: 'To change one of the charts inside, pick it above.' }));
+    }
     ui.panel.appendChild(body);
   }
 
@@ -444,6 +479,8 @@
   }
 
   function typeTab(body, id, entry) {
+    if (entry.type === 'reportTable') return reportTypeTab(body, id, entry);
+    if (entry.type === 'geofacet') return tileTypeTab(body, id, entry);
     var alts = Page.alternatives(id);
     if (!alts.length) {
       body.appendChild(el('p', { class: 'hint', text: 'A ' + name(entry.type).toLowerCase() +
@@ -619,6 +656,24 @@
       });
     }
 
+    if (entry.type === 'barInsightTable') {
+      var IN = window.ChartConvert.insight;
+      var recs = window.ChartConvert.records(entry.type, cfg).rows;
+      body.appendChild(el('h4', { text: 'Stat colours' }));
+      var bySignBox = el('input', { type: 'checkbox' });
+      var po = (cfg.plotOptions && cfg.plotOptions.barInsightTable) || {};
+      bySignBox.checked = !!po.statColorBySign;
+      bySignBox.addEventListener('change', function () {
+        applyStyle(id, function (c) { return IN.statsBySign(c.config, bySignBox.checked); });
+      });
+      body.appendChild(el('label', { class: 'chk' }, [bySignBox, 'Colour stats by sign (rises and falls)']));
+      recs.forEach(function (r, j) {
+        colourRow(body, r.name || ('Row ' + (j + 1)), IN.statColourOf(cfg, j), 'stat-' + j, function (col) {
+          applyStyle(id, function (c) { return IN.statColour(c.config, j, col); });
+        });
+      });
+    }
+
     if (opts.highlight) {
       var ds = window.ChartConvert.extract(entry.type, cfg);
       body.appendChild(el('h4', { text: 'Highlight' }));
@@ -697,6 +752,227 @@
   }
 
   // ── data grid ──────────────────────────────────────────────────────
+  // Apply a config-to-config change to a chart, as one undo step. Returns the
+  // library's refusal (the change is undone) or the transform's own error.
+  function applyConfig(id, out) {
+    if (!out || out.error) return out ? out.error : 'That didn\u2019t work.';
+    var cur = Page.getChart(id);
+    if (JSON.stringify(out.config) === JSON.stringify(cur.config)) return null;
+    var res;
+    change(function () { res = Page.setChart(id, { config: out.config }); return res.ok; });
+    return res.ok ? null : 'The chart can\u2019t show that: ' + res.error + ' Your change was undone.';
+  }
+
+  function reportTypeTab(body, id, entry) {
+    var CC = window.ChartConvert;
+    var cols = (entry.config.columns || []).filter(function (c) { return c.kind === 'chart'; });
+    body.appendChild(el('p', { class: 'hint', text: 'A report table stays a report table, but each chart column can show its rows as another kind of chart.' }));
+    if (!cols.length) {
+      body.appendChild(el('p', { class: 'hint', text: 'This table has no chart columns.' }));
+      return;
+    }
+    cols.forEach(function (c) {
+      body.appendChild(el('h4', { text: c.name || c.key }));
+      var grid = el('div', { class: 'types' });
+      CC.report.targets(entry.config, c.key).forEach(function (a) {
+        grid.appendChild(el('button', {
+          class: 'type' + (a.current ? ' cur' : ''), disabled: !a.ok || a.current, 'aria-pressed': String(!!a.current),
+          onclick: function () {
+            var err = applyConfig(id, CC.report.switchChart(Page.getChart(id).config, c.key, a.type));
+            flash = err ? { kind: 'err', text: err } : null;
+            renderPanel();
+            place();
+          }
+        }, [el('b', { text: name(a.type) }), a.current ? el('small', { text: 'Current' }) : !a.ok ? el('small', { text: a.reason }) : null]));
+      });
+      body.appendChild(grid);
+    });
+  }
+
+  function tileTypeTab(body, id, entry) {
+    var CC = window.ChartConvert;
+    var TILE = {
+      bar: ['Bars', 'Code and value, with a small bar under it'],
+      heat: ['Heat map', 'Each tile filled by its value'],
+      gauge: ['Rings', 'A ring that fills to the value']
+    };
+    body.appendChild(el('p', { class: 'hint', text: 'A map grid stays a map grid; choose how each region\u2019s tile shows its value:' }));
+    var cur = CC.tiles.variant(entry.config);
+    var grid = el('div', { class: 'types' });
+    CC.tiles.list.forEach(function (v) {
+      grid.appendChild(el('button', {
+        class: 'type' + (v === cur ? ' cur' : ''), disabled: v === cur, 'aria-pressed': String(v === cur),
+        onclick: function () {
+          var err = applyConfig(id, CC.tiles.set(Page.getChart(id).config, v));
+          flash = err ? { kind: 'err', text: err } : null;
+          renderPanel();
+          place();
+        }
+      }, [el('b', { text: TILE[v][0] }), el('small', { text: v === cur ? 'Current' : TILE[v][1] })]));
+    });
+    body.appendChild(grid);
+  }
+
+  // ── records: bar insight table, map grid, report table ─────────────
+  function recordsTab(body, id, entry) {
+    var CC = window.ChartConvert;
+    var rec = CC.records(entry.type, entry.config);
+    var inline = el('div');
+    var readers = [];   // functions that copy one field into a record
+    var bad = false;
+    function numberField(input, required) {
+      var v = parseNum(input.value);
+      var isBad = Number.isNaN(v) || (required && v === null);
+      input.classList.toggle('bad', isBad);
+      if (isBad) bad = true;
+      return v;
+    }
+    function commit() {
+      var next = JSON.parse(JSON.stringify(rec));
+      bad = false;
+      readers.forEach(function (r) { r(next); });
+      if (bad) {
+        inline.textContent = '';
+        inline.appendChild(el('div', { class: 'flash err' }, ['Some fields need a number. Fix the highlighted ones.']));
+        return;
+      }
+      var err = applyConfig(id, CC.withRecords(entry.type, Page.getChart(id).config, next));
+      inline.textContent = '';
+      if (err) { inline.appendChild(el('div', { class: 'flash err' }, [err])); return; }
+      rec = CC.records(entry.type, Page.getChart(id).config);
+      dataTouched[id] = true;
+      place();
+    }
+    function input(value, opts) {
+      opts = opts || {};
+      var n = el(opts.area ? 'textarea' : 'input', opts.area ? { rows: 2 } : { type: 'text', class: opts.num ? 'num' : '', inputmode: opts.num ? 'decimal' : null });
+      n.value = value == null ? '' : String(value);
+      if (opts.placeholder) n.placeholder = opts.placeholder;
+      if (opts.disabled) n.disabled = true;
+      return n;
+    }
+    function field(label, control, hint) {
+      return el('label', { class: 'f' }, [label, control, hint ? el('small', { text: hint }) : null]);
+    }
+    function onEnter(e) { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); e.target.blur(); } }
+
+    if (entry.type === 'geofacet') {
+      body.appendChild(el('p', { class: 'hint', text: 'Change each region\u2019s value, or give it a display name. Leave a value empty to show the region as having no data.' }));
+      var table = el('table', {}, [el('tr', {}, [el('th', { text: 'Code' }), el('th', { text: 'Name' }), el('th', { text: 'Value' })])]);
+      rec.rows.forEach(function (r, j) {
+        var nm = input(r.name, { placeholder: r.code }), val = input(r.value, { num: true });
+        table.appendChild(el('tr', {}, [el('td', {}, [input(r.code, { disabled: true })]), el('td', {}, [nm]), el('td', {}, [val])]));
+        readers.push(function (next) { next.rows[j].name = nm.value.trim(); next.rows[j].value = numberField(val, false); });
+      });
+      table.addEventListener('change', commit);
+      table.addEventListener('keydown', onEnter);
+      body.appendChild(inline);
+      body.appendChild(el('div', { class: 'scroll' }, [table]));
+      return;
+    }
+
+    if (entry.type === 'barInsightTable') {
+      body.appendChild(el('p', { class: 'hint', text: 'Each row: its name, its bar values, and the text beside the bars. Empty text hides that field; an empty stat lets the table work it out.' }));
+      var box = el('div');
+      rec.series.forEach(function (nm, i) {
+        var s = input(nm);
+        box.appendChild(field('Series ' + (i + 1) + ' name', s));
+        readers.push(function (next) { next.series[i] = s.value.trim() || next.series[i]; });
+      });
+      rec.rows.forEach(function (r, j) {
+        var card = el('div', { class: 'rec' }, [el('h5', { text: r.name || ('Row ' + (j + 1)) })]);
+        var nm = input(r.name);
+        card.appendChild(field('Name', nm));
+        var vals = r.values.map(function (v, i) {
+          var inp = input(v, { num: true });
+          card.appendChild(field((rec.series[i] || 'Value') + ' value', inp));
+          return inp;
+        });
+        var ins = input(r.insight), desc = input(r.description, { area: true }), stat = input(r.stat), note = input(r.statNote);
+        card.appendChild(field('Insight', ins));
+        card.appendChild(field('Description', desc));
+        card.appendChild(field('Stat', stat, 'Shown large on the right, such as +30%'));
+        card.appendChild(field('Stat note', note));
+        readers.push(function (next) {
+          var row = next.rows[j];
+          row.name = nm.value.trim();
+          row.values = vals.map(function (inp) { return numberField(inp, false); });
+          row.insight = ins.value.trim(); row.description = desc.value.trim();
+          row.stat = stat.value.trim(); row.statNote = note.value.trim();
+        });
+        box.appendChild(card);
+      });
+      box.addEventListener('change', commit);
+      box.addEventListener('keydown', onEnter);
+      body.appendChild(inline);
+      body.appendChild(box);
+      return;
+    }
+
+    // report table
+    body.appendChild(el('p', { class: 'hint', text: 'Edit each row\u2019s cells. Chart cells take a list of numbers; to show a column as another kind of chart, use the Type tab.' }));
+    var wrap = el('div');
+    var head = el('div', { class: 'rec' }, [el('h5', { text: 'Column names' })]);
+    rec.columns.forEach(function (c, i) {
+      var inp = input(c.name);
+      head.appendChild(field(c.key + ' (' + c.kind + ')', inp));
+      readers.push(function (next) { next.columns[i].name = inp.value.trim() || next.columns[i].name; });
+    });
+    wrap.appendChild(head);
+    rec.rows.forEach(function (r, j) {
+      var card = el('div', { class: 'rec' }, [el('h5', { text: r.name || ('Row ' + (j + 1)) })]);
+      if (r.group) card.appendChild(el('div', { class: 'grp', text: 'Group: ' + r.group }));
+      var nm = input(r.name);
+      card.appendChild(field('Row name', nm));
+      var nb = r.nameBody != null ? input(r.nameBody, { area: true }) : null;
+      if (nb) card.appendChild(field('Row description', nb));
+      var fieldReaders = [];
+      rec.columns.forEach(function (c) {
+        var cell = r.cells[c.key];
+        if (!cell) return;
+        if (c.kind === 'text') {
+          var t = input(cell.text, { area: true });
+          card.appendChild(field(c.name || c.key, t));
+          fieldReaders.push(function (cells) { cells[c.key].text = t.value.trim(); });
+        } else if (c.kind === 'insight') {
+          var h = input(cell.head), b = input(cell.body, { area: true });
+          card.appendChild(field((c.name || c.key) + ' \u2014 headline', h));
+          card.appendChild(field((c.name || c.key) + ' \u2014 text', b));
+          fieldReaders.push(function (cells) { cells[c.key].head = h.value.trim(); cells[c.key].body = b.value.trim(); });
+        } else if (c.kind === 'kpi') {
+          var v = input(cell.value, { num: true }), n = input(cell.note, { placeholder: 'Note' });
+          card.appendChild(el('label', { class: 'f' }, [c.name || c.key, el('div', { class: 'pair' }, [v, n])]));
+          fieldReaders.push(function (cells) { cells[c.key].value = numberField(v, false); cells[c.key].note = n.value.trim(); });
+        } else if (c.kind === 'chart') {
+          if (!cell.values) {
+            card.appendChild(field(c.name || c.key, input('Chart settings', { disabled: true }), 'This cell holds a full chart; change its type on the Type tab.'));
+            return;
+          }
+          var list = input(cell.values.map(function (x) { return x == null ? '' : x; }).join(', '));
+          card.appendChild(field((c.name || c.key) + ' (' + name(c.chartType) + ')', list, cell.values.length + ' values, separated by commas'));
+          fieldReaders.push(function (cells) {
+            var parts = list.value.split(',');
+            var nums = parts.map(function (x) { return parseNum(x); });
+            var isBad = parts.length !== cell.values.length || nums.some(function (x) { return Number.isNaN(x); });
+            list.classList.toggle('bad', isBad);
+            if (isBad) { bad = true; return; }
+            cells[c.key].values = nums;
+          });
+        }
+      });
+      readers.push(function (next) {
+        next.rows[j].name = nm.value.trim();
+        if (nb) next.rows[j].nameBody = nb.value.trim();
+        fieldReaders.forEach(function (f) { f(next.rows[j].cells); });
+      });
+      wrap.appendChild(card);
+    });
+    wrap.addEventListener('change', commit);
+    wrap.addEventListener('keydown', onEnter);
+    body.appendChild(inline);
+    body.appendChild(wrap);
+  }
+
   function fmt(v) { return v === null || v === undefined ? '' : String(v); }
   function parseNum(s) {
     var t = String(s).trim().replace(/[\s,]/g, '');
@@ -707,6 +983,7 @@
 
   function dataTab(body, id, entry) {
     var CC = window.ChartConvert;
+    if (CC && CC.records && CC.records(entry.type, entry.config)) return recordsTab(body, id, entry);
     var ds = CC && CC.extract(entry.type, entry.config);
     if (!ds) {
       body.appendChild(el('p', { class: 'hint', text: 'This chart’s data can’t be edited here yet. You can change its title on the Text tab.' }));

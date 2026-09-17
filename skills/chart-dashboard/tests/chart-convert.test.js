@@ -257,3 +257,147 @@ test('markColour on waterfall roles and sankey nodes', () => {
   assert.ok(!('nodes' in cleared.series[0]), 'an empty node entry is removed');
   assert.match(CC.style.markColour('sankey', FIXTURES.sankey, 'zzz', '#000').error, /can't be recoloured/);
 });
+
+// ── charts with records: bar insight table, report table, geofacet, panels ──
+const MORE = {
+  barInsightTable: { title: 'Income statement', subtitle: '$M',
+    xAxis: { categories: ['Revenue', 'COGS', 'Gross profit'] },
+    rows: [{ insight: 'Topline growth', description: 'Renewals landed early' },
+      { insight: 'Costs', description: 'Freight normalised' },
+      { insight: 'Margin', description: 'Mix shift to software', stat: '+33%' }],
+    plotOptions: { barInsightTable: { valueSuffix: 'M', statColorBySign: true } },
+    series: [{ name: 'FY25', data: [1000, 400, 600] }, { name: 'FY26', data: [1300, 500, 800] }] },
+  reportTable: { title: 'Q3 business review',
+    columns: [
+      { key: 'trend', kind: 'chart', name: 'Last six months', chart: { type: 'line' } },
+      { key: 'why', kind: 'insight', name: 'What happened' },
+      { key: 'yoy', kind: 'kpi', name: 'YoY', suffix: '%', decimals: 1, colorBySign: true },
+      { key: 'note', kind: 'text', name: 'Owner notes' }],
+    rows: [
+      { name: 'Revenue', trend: [41, 44, 43, 48, 51, 55], why: { head: 'Topline growth', body: 'Renewals landed early.' },
+        yoy: { value: 12.4, note: 'vs 9.0% plan' }, note: 'Expect a softer October.' },
+      { name: 'Churn', trend: [6, 5, 5, 4, 4, 3], why: { head: 'Fewer cancellations', body: 'Onboarding fix held.' },
+        yoy: -2.1, note: 'Watch enterprise renewals.' }] },
+  geofacet: { title: 'EV adoption', subtitle: '% of new car sales',
+    chart: { variant: 'bar', grid: [{ code: 'WA', row: 0, col: 0, name: 'Washington' }, { code: 'CO', row: 0, col: 1, name: 'Colorado' },
+      { code: 'NY', row: 0, col: 2, name: 'New York' }, { code: 'CA', row: 1, col: 0, name: 'California' },
+      { code: 'TX', row: 1, col: 1, name: 'Texas' }, { code: 'FL', row: 1, col: 2, name: 'Florida' }] },
+    plotOptions: { geofacet: { max: 100, valueSuffix: '%' } },
+    series: [{ data: [{ code: 'CA', value: 38 }, { code: 'WA', value: 29 }, { code: 'NY', value: 14 },
+      { code: 'TX', value: 9 }, { code: 'FL', value: 11 }, { code: 'CO', value: 24 }] }] },
+  panels: { title: 'Q3 commercial review', subtitle: 'Bookings, revenue mix and top accounts',
+    plotOptions: { panels: { columns: 3, panelHeight: 260 } },
+    charts: [
+      { type: 'column', title: 'Bookings', xAxis: { categories: ['Jul', 'Aug', 'Sep'] }, series: [{ name: 'Bookings', data: [42, 51, 68] }] },
+      { type: 'donut', title: 'Revenue mix', series: [{ name: 'Revenue', data: [['New', 48], ['Expansion', 31], ['Renewal', 21]] }] },
+      { type: 'barList', title: 'Top accounts', series: [{ name: 'ARR', data: [['Northwind', 210], ['Acme', 184], ['Globex', 121]] }] }] }
+};
+Object.assign(FIXTURES, MORE);
+
+test('the record fixtures are valid charts', () => {
+  for (const k of Object.keys(MORE)) {
+    const v = Charts.validate(k, MORE[k]);
+    assert.ok(v.ok, k + ': ' + v.errors.join('; '));
+  }
+});
+
+test('records round-trip unchanged for every record chart', () => {
+  for (const k of ['barInsightTable', 'reportTable', 'geofacet']) {
+    const rec = CC.records(k, MORE[k]);
+    assert.deepStrictEqual(CC.withRecords(k, MORE[k], rec).config, MORE[k], k);
+  }
+});
+
+test('bar insight table: values, names and insight text', () => {
+  const rec = CC.records('barInsightTable', MORE.barInsightTable);
+  assert.deepStrictEqual(rec.rows[2], { name: 'Gross profit', values: [600, 800], insight: 'Margin', description: 'Mix shift to software', stat: '+33%', statNote: '' });
+  rec.rows[0].values[1] = 1400; rec.rows[0].insight = 'Strong year'; rec.rows[2].stat = '';
+  const out = CC.withRecords('barInsightTable', MORE.barInsightTable, rec).config;
+  assert.strictEqual(out.series[1].data[0], 1400);
+  assert.strictEqual(out.rows[0].insight, 'Strong year');
+  assert.ok(!('stat' in out.rows[2]), 'empty text removes the field');
+  assert.ok(Charts.validate('barInsightTable', out).ok);
+  // single series with extras on the points
+  const pts = { series: [{ name: 's', data: [{ name: 'A', y: 1, insight: 'x' }, { name: 'B', y: 2 }] }] };
+  const r2 = CC.records('barInsightTable', pts);
+  assert.strictEqual(r2.rows[0].insight, 'x');
+  r2.rows[1].insight = 'y';
+  assert.deepStrictEqual(CC.withRecords('barInsightTable', pts, r2).config.series[0].data[1], { name: 'B', y: 2, insight: 'y' });
+});
+
+test('bar insight table colours: stats, sign, bars', () => {
+  const on = CC.insight.statColour(MORE.barInsightTable, 1, '#B31B38').config;
+  assert.strictEqual(on.rows[1].statColor, '#B31B38');
+  assert.strictEqual(CC.insight.statColourOf(on, 1), '#B31B38');
+  assert.ok(!('statColor' in CC.insight.statColour(on, 1, null).config.rows[1]));
+  assert.strictEqual(CC.insight.statsBySign(MORE.barInsightTable, false).config.plotOptions.barInsightTable.statColorBySign, false);
+  assert.strictEqual(CC.style.options('barInsightTable', MORE.barInsightTable).colours, true);
+  const single = { xAxis: { categories: ['a', 'b'] }, series: [{ name: 's', data: [1, 2] }] };
+  assert.deepStrictEqual(CC.style.markColour('barInsightTable', single, 0, '#243E63').config.series[0].data[0], { y: 1, color: '#243E63' });
+});
+
+test('geofacet: region values and tile types', () => {
+  const rec = CC.records('geofacet', MORE.geofacet);
+  assert.deepStrictEqual(rec.rows[0], { code: 'CA', name: '', value: 38 });
+  rec.rows[0].value = 40; rec.rows[1].name = 'Washington';
+  const out = CC.withRecords('geofacet', MORE.geofacet, rec).config;
+  assert.deepStrictEqual(out.series[0].data.slice(0, 2), [{ code: 'CA', value: 40 }, { code: 'WA', value: 29, name: 'Washington' }]);
+  const obj = { series: [{ data: { CA: 1, TX: 2 } }] };
+  const r2 = CC.records('geofacet', obj); r2.rows[1].value = 5;
+  assert.deepStrictEqual(CC.withRecords('geofacet', obj, r2).config.series[0].data, { CA: 1, TX: 5 });
+  assert.strictEqual(CC.tiles.variant(MORE.geofacet), 'bar');
+  assert.strictEqual(CC.tiles.set(MORE.geofacet, 'gauge').config.chart.variant, 'gauge');
+  assert.deepStrictEqual(CC.tiles.list, ['bar', 'heat', 'gauge']);
+  assert.match(CC.tiles.set(MORE.geofacet, 'donut').error, /Unknown/);
+});
+
+test('report table: cells of every kind', () => {
+  const rec = CC.records('reportTable', MORE.reportTable);
+  assert.deepStrictEqual(rec.columns.map(c => c.kind), ['chart', 'insight', 'kpi', 'text']);
+  assert.deepStrictEqual(rec.rows[1].cells, { trend: { values: [6, 5, 5, 4, 4, 3] }, why: { head: 'Fewer cancellations', body: 'Onboarding fix held.' }, yoy: { value: -2.1, note: '' }, note: { text: 'Watch enterprise renewals.' } });
+  rec.rows[0].cells.yoy.value = 15; rec.rows[1].cells.yoy.note = 'best in a year';
+  rec.rows[0].cells.why.body = 'Edited.'; rec.rows[1].cells.trend.values[5] = 2; rec.rows[0].name = 'Net revenue';
+  rec.columns[3].name = 'Notes';
+  const out = CC.withRecords('reportTable', MORE.reportTable, rec).config;
+  assert.deepStrictEqual(out.rows[0].yoy, { value: 15, note: 'vs 9.0% plan' });
+  assert.deepStrictEqual(out.rows[1].yoy, { value: -2.1, note: 'best in a year' });
+  assert.strictEqual(out.rows[0].why.body, 'Edited.');
+  assert.deepStrictEqual(out.rows[1].trend, [6, 5, 5, 4, 4, 2]);
+  assert.strictEqual(out.rows[0].name, 'Net revenue');
+  assert.strictEqual(out.columns[3].name, 'Notes');
+  assert.ok(Charts.validate('reportTable', out).ok);
+});
+
+test('report table: switching a chart column converts every row', () => {
+  const offered = CC.report.targets(MORE.reportTable, 'trend');
+  const ok = offered.filter(t => t.ok).map(t => t.type);
+  assert.ok(ok.includes('column') && ok.includes('bar'), ok.join());
+  assert.ok(!offered.some(t => t.type === 'table'), 'exhibit types are never offered in a cell');
+  const col = CC.report.switchChart(MORE.reportTable, 'trend', 'column').config;
+  assert.strictEqual(col.columns[0].chart.type, 'column');
+  assert.deepStrictEqual(col.rows[0].trend, [41, 44, 43, 48, 51, 55], 'a bare list stays a list');
+  assert.ok(Charts.validate('reportTable', col).ok);
+  const donut = CC.report.switchChart(MORE.reportTable, 'trend', 'donut');
+  assert.ok(donut.config, donut.error);
+  assert.ok(Array.isArray(donut.config.rows[0].trend.series), 'a donut cell holds named slices');
+  assert.ok(Charts.validate('reportTable', donut.config).ok);
+  assert.match(CC.report.switchChart(MORE.reportTable, 'note', 'column').error, /can't show/);
+  // cells that became named slices still edit as values
+  const rec = CC.records('reportTable', donut.config);
+  assert.deepStrictEqual(rec.rows[0].cells.trend.values, [41, 44, 43, 48, 51, 55]);
+  rec.rows[0].cells.trend.values[0] = 40;
+  const edited = CC.withRecords('reportTable', donut.config, rec).config;
+  assert.strictEqual(CC.records('reportTable', edited).rows[0].cells.trend.values[0], 40);
+  assert.ok(Charts.validate('reportTable', edited).ok);
+  // every offered type converts every row into a cell the library accepts
+  for (const t of offered.filter(t => t.ok && !t.current)) {
+    const out = CC.report.switchChart(MORE.reportTable, 'trend', t.type);
+    assert.ok(out.config, t.type + ': ' + out.error);
+    const col = out.config.columns[0];
+    for (const r of out.config.rows) {
+      const cell = Array.isArray(r.trend) ? { series: [{ data: r.trend }] } : r.trend;
+      const v = Charts.validate(t.type, Object.assign({}, col.chart, cell));
+      assert.ok(v.ok, t.type + ': ' + v.errors.join('; '));
+    }
+  }
+});

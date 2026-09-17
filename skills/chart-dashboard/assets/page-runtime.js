@@ -144,6 +144,46 @@
     return err;
   }
 
+  // ── panels: a chart inside a composition ────────────────────────────
+  // "c1::panel:2" addresses charts[2] of the panels chart drawn into #c1, so
+  // the editor can treat one panel like any other chart. Reading gives
+  // { type, config } for that panel; writing puts it back into the parent's
+  // config and redraws the parent.
+  var SUB = '::panel:';
+  function parts(id) {
+    var at = String(id).indexOf(SUB);
+    if (at < 0) return null;
+    return { parent: id.slice(0, at), index: +id.slice(at + SUB.length) };
+  }
+  function panelList(config) { return (config && (config.charts || config.panels)) || null; }
+  function getEntry(id) {
+    var sp = parts(id);
+    if (!sp) return spec.charts[id] || null;
+    var parent = spec.charts[sp.parent];
+    var list = parent && parent.type === 'panels' ? panelList(parent.config) : null;
+    var c = list && list[sp.index];
+    if (!c) return null;
+    var config = clone(c);
+    delete config.type;
+    return { type: c.type, config: config };
+  }
+  function putEntry(id, entry) {
+    var sp = parts(id);
+    if (!sp) { spec.charts[id] = entry; return id; }
+    var parent = clone(spec.charts[sp.parent]);
+    var key = parent.config.charts ? 'charts' : 'panels';
+    parent.config[key][sp.index] = Object.assign({ type: entry.type }, clone(entry.config));
+    spec.charts[sp.parent] = parent;
+    return sp.parent;
+  }
+  // A panel's refusal lives on its own handle inside the composition's.
+  function errorOf(id, handle) {
+    if (!handle) return 'draw failed';
+    var sp = parts(id);
+    if (sp && handle.charts && handle.charts[sp.index]) return handle.charts[sp.index].error || null;
+    return handle.error || null;
+  }
+
   function draw(id) {
     var entry = spec.charts[id];
     var el = document.getElementById(id);
@@ -230,7 +270,17 @@
 
     /** A copy of a chart's { type, config }; null for a locked or unknown id. */
     getChart: function (id) {
-      return spec.charts[id] ? clone(spec.charts[id]) : null;
+      var e = getEntry(id);
+      return e ? clone(e) : null;
+    },
+
+    /** The panels inside a panels chart: [{ id, type, title }], else []. */
+    panels: function (id) {
+      var entry = spec.charts[id];
+      var list = entry && entry.type === 'panels' ? panelList(entry.config) : null;
+      return (list || []).map(function (c, i) {
+        return { id: id + SUB + i, type: c.type, title: c.title || null };
+      });
     },
 
     /**
@@ -240,17 +290,19 @@
      * revert.
      */
     setChart: function (id, next) {
-      if (!spec.charts[id]) return { ok: false, error: 'no editable chart "' + id + '"' };
+      var cur = getEntry(id);
+      if (!cur) return { ok: false, error: 'no editable chart "' + id + '"' };
       var entry = {
-        type: next && next.type ? next.type : spec.charts[id].type,
-        config: clone(next && next.config ? next.config : spec.charts[id].config)
+        type: next && next.type ? next.type : cur.type,
+        config: clone(next && next.config ? next.config : cur.config)
       };
-      spec.charts[id] = entry;
+      var drawn = putEntry(id, entry);
       delete byType[id];
-      var h = draw(id);
+      var h = draw(drawn);
       emit({ kind: 'chart', id: id });
       if (!h) return { ok: false, error: 'unknown chart type "' + entry.type + '"' };
-      return { ok: !h.error, error: h.error || null };
+      var err = errorOf(id, h);
+      return { ok: !err, error: err };
     },
 
     /**
@@ -261,10 +313,19 @@
      * names the settings the switch would drop.
      */
     alternatives: function (id) {
-      var entry = spec.charts[id];
+      var entry = getEntry(id);
       if (!entry || !window.ChartConvert) return [];
-      var el = document.getElementById(id);
+      var sp = parts(id);
+      var el = document.getElementById(sp ? sp.parent : id);
       var w = el ? el.clientWidth : 0, h = el ? el.clientHeight : 0;
+      if (sp) {
+        // One panel's share of the composition.
+        var pc = spec.charts[sp.parent].config;
+        var po = (pc.plotOptions && pc.plotOptions.panels) || {};
+        var cols = Math.min(4, po.columns || panelList(pc).length || 1);
+        w = Math.floor(w / cols);
+        h = po.panelHeight || 320;
+      }
       var meta = (window.Charts && Charts.meta && Charts.meta.charts) || {};
       return ChartConvert.targets(entry.type, entry.config).filter(function (t) {
         return isChartType(t.type);
@@ -286,7 +347,7 @@
         }
         // Tables are as tall as their rows. In a fixed-height card the rows
         // stretch and leave a blank band (layout.md, Tables size themselves).
-        var grid = el && el.closest ? el.closest('.bento') : null;
+        var grid = !sp && el && el.closest ? el.closest('.bento') : null;
         if (out.ok && TABLES[t.type] && !TABLES[entry.type] && grid && !grid.classList.contains('flow')) {
           out.warnings.push('Tables size to their rows; in this fixed-height card they leave empty space below.');
         }
@@ -301,7 +362,7 @@
      * that config as it was.
      */
     switchType: function (id, type) {
-      var entry = spec.charts[id];
+      var entry = getEntry(id);
       if (!entry) return { ok: false, error: 'no editable chart "' + id + '"', lost: [] };
       if (type === entry.type) return { ok: true, error: null, lost: [] };
       if (!window.ChartConvert) return { ok: false, error: 'chart-convert.js is not on this page', lost: [] };
@@ -316,14 +377,16 @@
         config = conv.config;
         lost = conv.lost;
       }
-      spec.charts[id] = { type: type, config: clone(config) };
-      var hnd = draw(id);
-      if (!hnd || hnd.error) {
+      var before = spec.charts[parts(id) ? parts(id).parent : id];
+      var drawn = putEntry(id, { type: type, config: clone(config) });
+      var hnd = draw(drawn);
+      var err = errorOf(id, hnd);
+      if (err) {
         // Unlike setChart, a switch the library refuses is undone: the reader
         // asked for a different view of the same data, not for an error card.
-        spec.charts[id] = entry;
-        draw(id);
-        return { ok: false, error: hnd ? hnd.error : 'draw failed', lost: [] };
+        spec.charts[drawn] = before;
+        draw(drawn);
+        return { ok: false, error: err, lost: [] };
       }
       memo[entry.type] = clone(entry.config);
       emit({ kind: 'chart', id: id });

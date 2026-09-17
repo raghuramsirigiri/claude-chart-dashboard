@@ -231,6 +231,34 @@ locked (there should be none).
 
   The template stacks cards to half or full width on narrow windows, so a
   width change shows only on a wide screen.
+- **Charts with more than series.** These keep their type but get their own
+  controls:
+  - **Report table.**
+    - *Type* switches each chart column to another chart type. A type is
+      offered only when every row's cell converts and passes the library's
+      validator; a dumbbell over one series, for example, is refused with its
+      reason.
+    - *Data* shows one card per row: its name (and description), text
+      cells, insight headline and text, number and note for KPI cells, and
+      chart cells as comma-separated values. Values stay editable after a
+      column switch turns cells into named slices. A cell holding a richer
+      chart is changed only through its column's type.
+    - *Style* has nothing to change.
+  - **Bar insight table.**
+    - *Data* shows each row's name, bar values, insight, description, stat
+      and stat note. Empty text removes that field, so an empty stat lets
+      the table calculate it.
+    - *Style* covers series colours, per-bar colours for a single series,
+      each row's stat colour, and *Colour stats by sign*.
+  - **Map grid (geofacet).**
+    - *Type* picks the tile: *Bars* (code, value and a small bar), *Heat
+      map* (tile filled by value) or *Rings* (the `gauge` variant, a ring
+      that fills to the value).
+    - *Data* lists each region's code, display name and value.
+  - **Panels.** A row of buttons picks *Whole chart* (title, subtitle,
+    layout) or one panel. A panel then gets the full Type, Text, Data and
+    Style tabs, as if it were a chart of its own. Its type choices are
+    test-drawn at the panel's share of the width.
 - **Stale titles.** Once a chart's data changes, its panel warns that the
   title may no longer describe it, until the title is edited or the warning
   is dismissed.
@@ -285,7 +313,7 @@ are offered:
 | Bridge steps | waterfall → any type above (totals become plain values); never back |
 | Raw values | histogram, histogramPercent, histogramCumulative |
 | Points | scatter ↔ bubble (bubble only when every point has a size) |
-| — | sankey, reportTable, barInsightTable, panels, geofacet: edit in place, no switching |
+| — | sankey, reportTable, barInsightTable, panels, geofacet: can't become another type (see below for what each can change) |
 
 A candidate is refused, with a reason the editor shows, when:
 - the data's shape rules it out: one-series charts need one series, a dumbbell
@@ -302,6 +330,12 @@ lists the settings the switch would drop (`plotOptions.column`, point colours
 on a table, `xAxis.type`). Titles, subtitles, legend, tooltip,
 `plotOptions.series` and the value axis carry across. Switching back restores
 the earlier type's config exactly, until the chart's data is set directly.
+
+`ChartConvert.records(type, config)` / `withRecords(type, config, records)`
+read and write the editable content of a bar insight table, report table or
+geofacet. `ChartConvert.report.targets` / `switchChart` switch a report
+table's chart column, `ChartConvert.insight` holds stat colours, and
+`ChartConvert.tiles` holds geofacet tile variants.
 
 `ChartConvert.style` holds the style transforms the editor uses: `options`,
 `sort`, `highlight`, `highlighted`, `labels`, `seriesColour`, `marks` and
@@ -320,6 +354,7 @@ For the editor, and for verifying a page.
 |:-----|:-----|
 | `list()` | `[{ kind: 'chart', id, type, locked } \| { kind: 'text' \| 'rich', id }]` |
 | `chartTypes()` | every type the inlined library can draw |
+| `panels(id)` | `[{ id, type, title }]` for a panels chart. A panel's id (`c1::panel:2`) works with `getChart`, `setChart`, `alternatives` and `switchType` |
 | `getChart(id)` / `setChart(id, { type?, config? })` | read or replace an existing spec chart and redraw it. Returns `{ ok, error }`; `error` is the library's own refusal (such as a line chart over unordered names) |
 | `getText(key)` / `setText(key, value)` | read or replace marked text; `rich` is sanitised |
 | `alternatives(id)` | `[{ type, current, ok, reason, warnings, lost }]`: the types this chart can switch to, checked as described above |

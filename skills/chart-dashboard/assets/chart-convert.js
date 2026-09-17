@@ -474,6 +474,324 @@
     return { config: cfg };
   }
 
+  // ── records: charts whose content is more than a series ────────────
+  // barInsightTable, reportTable and geofacet carry text and per-row values
+  // that the categorical dataset has no room for. Each gets a record shape
+  // the editor can show as fields, and a writer that puts edits back into a
+  // copy of the config in whatever shape each value was written. Like
+  // withData, these change values only; they never add or remove rows.
+
+  function textOf(v) { return v == null ? '' : String(v); }
+
+  var INSIGHT_KEYS = ['insight', 'description', 'stat', 'statNote'];
+
+  function records(type, config) {
+    config = config || {};
+    var series = Array.isArray(config.series) ? config.series : [];
+
+    if (type === 'barInsightTable') {
+      var cats = config.xAxis && Array.isArray(config.xAxis.categories) ? config.xAxis.categories : null;
+      var first = (series[0] && series[0].data) || [];
+      var n = cats ? cats.length : first.length;
+      var rowsArr = Array.isArray(config.rows) ? config.rows : null;
+      return {
+        kind: 'insightRows',
+        series: series.map(function (s, i) { return s.name || ('Series ' + (i + 1)); }),
+        rows: Array.apply(null, { length: n }).map(function (_, j) {
+          var p0 = first[j];
+          var extra = rowsArr ? (rowsArr[j] || {}) : (p0 && typeof p0 === 'object' && !Array.isArray(p0) ? p0 : {});
+          var row = {
+            name: cats ? textOf(cats[j]) : textOf(readPoint(p0).name),
+            values: series.map(function (s) { return readPoint((s.data || [])[j]).y; })
+          };
+          INSIGHT_KEYS.forEach(function (k) { row[k] = textOf(extra[k]); });
+          return row;
+        })
+      };
+    }
+
+    if (type === 'geofacet') {
+      var raw = (series[0] && series[0].data) || config.data || {};
+      var list;
+      if (Array.isArray(raw)) {
+        list = raw.map(function (d) {
+          if (Array.isArray(d)) return { code: textOf(d[0]), name: '', value: isNum(d[1]) ? d[1] : null };
+          return { code: textOf(d && d.code), name: textOf(d && d.name), value: d && isNum(d.value) ? d.value : null };
+        });
+      } else {
+        list = Object.keys(raw).map(function (k) { return { code: k, name: '', value: isNum(raw[k]) ? raw[k] : null }; });
+      }
+      return { kind: 'regions', rows: list };
+    }
+
+    if (type === 'reportTable') {
+      var cols = Array.isArray(config.columns) ? config.columns : [];
+      return {
+        kind: 'reportRows',
+        columns: cols.map(function (c) {
+          return { key: c.key, name: textOf(c.name), kind: c.kind, chartType: c.kind === 'chart' && c.chart ? c.chart.type : null };
+        }),
+        rows: (Array.isArray(config.rows) ? config.rows : []).map(function (r) {
+          var nm = r.name;
+          var cells = {};
+          cols.forEach(function (c) {
+            var v = r[c.key];
+            if (c.kind === 'text') cells[c.key] = { text: textOf(v && typeof v === 'object' ? v.text : v) };
+            else if (c.kind === 'insight') cells[c.key] = { head: textOf(v && v.head), body: textOf(v && v.body) };
+            else if (c.kind === 'kpi') {
+              var val = v && typeof v === 'object' ? v.value : v;
+              cells[c.key] = { value: isNum(val) ? val : null, note: textOf(v && typeof v === 'object' ? v.note : '') };
+            } else if (c.kind === 'chart') {
+              // A cell's values are editable when it is a bare list, or a chart
+              // config with one series (numbers, [name, y] or { y } points).
+              // Anything richer is changed through its column's type.
+              var bare = Array.isArray(v) && v.every(function (x) { return x === null || isNum(x); });
+              var one = !bare && v && typeof v === 'object' && Array.isArray(v.series) && v.series.length === 1 &&
+                Array.isArray(v.series[0].data) && v.series[0].data.every(function (x) {
+                  return x === null || isNum(x) || (Array.isArray(x) && x.length === 2) || (x && typeof x === 'object' && !Array.isArray(x));
+                }) ? v.series[0].data : null;
+              cells[c.key] = { values: bare ? v.slice() : one ? one.map(function (x) { return readPoint(x).y; }) : null };
+            }
+          });
+          return {
+            group: r.group || null,
+            name: nm && typeof nm === 'object' ? textOf(nm.head) : textOf(nm),
+            nameBody: nm && typeof nm === 'object' ? textOf(nm.body) : null,
+            cells: cells
+          };
+        })
+      };
+    }
+    return null;
+  }
+
+  function setText(obj, key, value) {
+    // Empty text removes an optional field rather than saving "".
+    if (value === '' || value == null) delete obj[key]; else obj[key] = value;
+  }
+
+  function withRecords(type, config, rec) {
+    var before = records(type, config);
+    if (!before || before.kind !== rec.kind || before.rows.length !== rec.rows.length) {
+      return { error: 'Rows were added or removed; only values can change.' };
+    }
+    var cfg = clone(config);
+
+    if (type === 'barInsightTable') {
+      if (rec.series.length !== before.series.length) return { error: 'Series were added or removed.' };
+      var hasCats = cfg.xAxis && Array.isArray(cfg.xAxis.categories);
+      var rowsArr = Array.isArray(cfg.rows) ? cfg.rows : null;
+      rec.series.forEach(function (nm, i) { if (nm) cfg.series[i].name = nm; });
+      rec.rows.forEach(function (row, j) {
+        if (hasCats) cfg.xAxis.categories[j] = row.name;
+        cfg.series.forEach(function (s, i) {
+          s.data[j] = setPoint(s.data[j], row.values[i], hasCats ? null : row.name);
+        });
+        var target;
+        if (rowsArr) target = rowsArr[j] = rowsArr[j] || {};
+        else {
+          var p = cfg.series[0].data[j];
+          if (!p || typeof p !== 'object' || Array.isArray(p)) {
+            p = Array.isArray(p) ? { name: p[0], y: p[1] } : { y: p };
+            cfg.series[0].data[j] = p;
+          }
+          target = p;
+        }
+        INSIGHT_KEYS.forEach(function (k) { setText(target, k, row[k]); });
+      });
+      return { config: cfg };
+    }
+
+    if (type === 'geofacet') {
+      var holder = cfg.series && cfg.series[0] && cfg.series[0].data !== undefined ? cfg.series[0] : cfg;
+      var raw = holder.data;
+      if (Array.isArray(raw)) {
+        holder.data = raw.map(function (d, j) {
+          var r = rec.rows[j];
+          if (Array.isArray(d)) return [d[0], r.value];
+          var o = clone(d);
+          o.value = r.value;
+          setText(o, 'name', r.name);
+          return o;
+        });
+      } else {
+        var out = {};
+        Object.keys(raw).forEach(function (k, j) { out[k] = rec.rows[j].value; });
+        holder.data = out;
+      }
+      return { config: cfg };
+    }
+
+    if (type === 'reportTable') {
+      cfg.columns.forEach(function (c, i) { if (rec.columns[i] && rec.columns[i].name) c.name = rec.columns[i].name; });
+      cfg.rows.forEach(function (r, j) {
+        var row = rec.rows[j];
+        if (r.name && typeof r.name === 'object') { r.name.head = row.name; setText(r.name, 'body', row.nameBody); }
+        else r.name = row.name;
+        cfg.columns.forEach(function (c) {
+          var cell = row.cells[c.key], v = r[c.key];
+          if (!cell) return;
+          if (c.kind === 'text') {
+            if (v && typeof v === 'object') setText(v, 'text', cell.text); else if (cell.text === '') delete r[c.key]; else r[c.key] = cell.text;
+          } else if (c.kind === 'insight') {
+            var o = v && typeof v === 'object' ? v : {};
+            o.head = cell.head;
+            setText(o, 'body', cell.body);
+            r[c.key] = o;
+          } else if (c.kind === 'kpi') {
+            if (v && typeof v === 'object') { v.value = cell.value; setText(v, 'note', cell.note); }
+            else if (cell.note) r[c.key] = { value: cell.value, note: cell.note };
+            else r[c.key] = cell.value;
+          } else if (c.kind === 'chart' && cell.values) {
+            if (Array.isArray(v)) {
+              if (v.length === cell.values.length) r[c.key] = cell.values.slice();
+            } else if (v && v.series && v.series[0] && v.series[0].data.length === cell.values.length) {
+              v.series[0].data = v.series[0].data.map(function (p, i) { return setPoint(p, cell.values[i], null); });
+            }
+          }
+        });
+      });
+      return { config: cfg };
+    }
+    return { error: 'This chart\'s content can\'t be edited here.' };
+  }
+
+  // ── report table chart columns ─────────────────────────────────────
+  // A chart column draws one chart per row from column.chart (defaults) laid
+  // under each row's value. Switching the column's type converts every row's
+  // cell, and a type is only offered when every row converts.
+  var CELL_REFUSED = { panels: 1, table: 1, barInsightTable: 1, reportTable: 1 };
+
+  function cellConfig(column, value) {
+    var base = clone(column.chart || {});
+    delete base.type;
+    if (Array.isArray(value)) return Object.assign(base, { series: [{ data: value.slice() }] });
+    var cfg = Object.assign(base, clone(value || {}));
+    return cfg;
+  }
+
+  function reportChartTargets(config, key) {
+    var col = (config.columns || []).filter(function (c) { return c.key === key && c.kind === 'chart'; })[0];
+    if (!col || !col.chart) return [];
+    var from = col.chart.type;
+    var rows = config.rows || [];
+    var lists = rows.map(function (r) { return targets(from, cellConfig(col, r[key])); });
+    if (!lists.length || lists.some(function (l) { return !l.length; })) return [];
+    return lists[0].filter(function (t) { return !CELL_REFUSED[t.type]; }).map(function (t) {
+      var reason = t.reason;
+      if (!reason) {
+        lists.some(function (l, j) {
+          var m = l.filter(function (x) { return x.type === t.type; })[0];
+          if (m && !m.ok) { reason = 'Row "' + textOf(rows[j].name && rows[j].name.head || rows[j].name) + '": ' + m.reason; return true; }
+          return false;
+        });
+      }
+      if (!reason && !t.current) {
+        var trial = convertColumn(config, key, t.type);
+        if (trial.error) reason = trial.error;
+      }
+      return { type: t.type, current: t.current, ok: !reason, reason: reason };
+    });
+  }
+
+  function switchReportChart(config, key, to) {
+    var t = reportChartTargets(config, key).filter(function (x) { return x.type === to; })[0];
+    if (!t) return { error: 'This column can\'t show a ' + to + '.' };
+    if (!t.ok) return { error: t.reason };
+    return convertColumn(config, key, to);
+  }
+
+  // The library's own validator, when charts.js is loaded, so a type is only
+  // offered for a column when every converted cell would actually draw.
+  function libraryProblem(type, cfg) {
+    var C = typeof Charts !== 'undefined' ? Charts : (typeof window !== 'undefined' ? window.Charts : null);
+    if (!C || typeof C.validate !== 'function') return null;
+    var v = C.validate(type, cfg);
+    return v.ok ? null : v.errors[0];
+  }
+
+  function convertColumn(config, key, to) {
+    var cfg = clone(config);
+    var col = cfg.columns.filter(function (c) { return c.key === key; })[0];
+    var from = col.chart.type;
+    if (from === to) return { config: cfg };
+    var errors = [];
+    cfg.rows.forEach(function (r) {
+      var conv = convert(from, cellConfig(col, r[key]), to);
+      if (conv.error) { errors.push(conv.error); return; }
+      // Keep the cell as small as it was: a bare list stays a list when the
+      // new type still takes one; otherwise the cell holds its series (and
+      // categories), and the column keeps the shared settings. Categories that
+      // are only positions ("1", "2", …) came from the bare list and go.
+      var c = conv.config;
+      // A radar needs its axes named, even when the names are only positions.
+      if (to !== 'radar' && c.xAxis && c.xAxis.categories && c.xAxis.categories.every(function (x, i) { return x === String(i + 1); })) delete c.xAxis;
+      var single = c.series && c.series.length === 1 && !c.xAxis && c.series[0].data.every(function (x) { return x === null || isNum(x); });
+      if (Array.isArray(r[key]) && single) r[key] = c.series[0].data.slice();
+      else {
+        var cell = { series: c.series };
+        if (c.xAxis && c.xAxis.categories) cell.xAxis = { categories: c.xAxis.categories };
+        if (c.data) cell = { data: c.data };
+        r[key] = cell;
+      }
+    });
+    if (errors.length) return { error: errors[0] };
+    var keep = {};
+    Object.keys(col.chart).forEach(function (k) {
+      if (k === 'type') return;
+      if (k === 'plotOptions') {
+        if (col.chart.plotOptions.series) keep.plotOptions = { series: col.chart.plotOptions.series };
+        return;
+      }
+      if (COMMON.indexOf(k) >= 0 || k === 'chart') keep[k] = col.chart[k];
+    });
+    col.chart = Object.assign({ type: to }, keep);
+    for (var i = 0; i < cfg.rows.length; i++) {
+      var problem = libraryProblem(to, cellConfig(col, cfg.rows[i][key]));
+      if (problem) {
+        var nm = cfg.rows[i].name;
+        return { error: 'Row "' + textOf(nm && typeof nm === 'object' ? nm.head : nm) + '": ' + problem };
+      }
+    }
+    return { config: cfg };
+  }
+
+  // ── bar insight table stats, geofacet tiles ────────────────────────
+  function statColour(config, j, color) {
+    var cfg = clone(config);
+    var target;
+    if (Array.isArray(cfg.rows)) target = cfg.rows[j] = cfg.rows[j] || {};
+    else {
+      var data = cfg.series[0].data, p = data[j];
+      if (!p || typeof p !== 'object' || Array.isArray(p)) { p = Array.isArray(p) ? { name: p[0], y: p[1] } : { y: p }; data[j] = p; }
+      target = p;
+    }
+    if (color) target.statColor = color; else delete target.statColor;
+    return { config: cfg };
+  }
+  function statColourOf(config, j) {
+    if (Array.isArray(config.rows)) return (config.rows[j] && config.rows[j].statColor) || null;
+    var p = config.series && config.series[0] && config.series[0].data[j];
+    return (p && typeof p === 'object' && p.statColor) || null;
+  }
+  function statsBySign(config, on) {
+    var cfg = clone(config);
+    cfg.plotOptions = cfg.plotOptions || {};
+    cfg.plotOptions.barInsightTable = cfg.plotOptions.barInsightTable || {};
+    cfg.plotOptions.barInsightTable.statColorBySign = !!on;
+    return { config: cfg };
+  }
+
+  var TILES = ['bar', 'heat', 'gauge'];
+  function tileVariant(config) { return String((config.chart && config.chart.variant) || 'bar').toLowerCase(); }
+  function setTileVariant(config, variant) {
+    if (TILES.indexOf(variant) < 0) return { error: 'Unknown tile type ' + variant + '.' };
+    var cfg = clone(config);
+    cfg.chart = cfg.chart || {};
+    cfg.chart.variant = variant;
+    return { config: cfg };
+  }
+
   // ── style changes a reader can make ───────────────────────────────
   // Each returns a new config and leaves the input alone. They only use
   // options every listed type draws the same way, and colours are passed in
@@ -481,7 +799,7 @@
   var SORTABLE = { column: 1, bar: 1, barList: 1, donut: 1, pie: 1 };
   var HIGHLIGHTABLE = { column: 1, bar: 1, barList: 1 };
   var LABELLED = { column: 1, bar: 1, line: 1 };
-  var COLOURED = { column: 1, bar: 1, line: 1, radar: 1, dumbbell: 1, barList: 1, scatter: 1, bubble: 1 };
+  var COLOURED = { column: 1, bar: 1, line: 1, radar: 1, dumbbell: 1, barList: 1, scatter: 1, bubble: 1, barInsightTable: 1 };
 
   function styleOptions(type, config) {
     var ds = extract(type, config);
@@ -503,7 +821,7 @@
   // waffle panels, bar-list rows, bubbles, single-series bars, waterfall
   // roles, sankey nodes. Colours are passed in; null returns a mark to the
   // chart's automatic colour.
-  var POINTED = { pie: 1, donut: 1, waffle: 1, barList: 1, packedBubble: 1, column: 1, bar: 1 };
+  var POINTED = { pie: 1, donut: 1, waffle: 1, barList: 1, packedBubble: 1, column: 1, bar: 1, barInsightTable: 1 };
 
   function pointsOf(config) {
     return (config.series && config.series[0] && config.series[0].data) || [];
@@ -532,7 +850,9 @@
       });
     }
     if (!POINTED[type] || series.length !== 1) return null;
-    var ds = extract(type, config);
+    var ds = type === 'barInsightTable'
+      ? { kind: 'categorical', categories: records(type, config).rows.map(function (r) { return r.name; }) }
+      : extract(type, config);
     if (!ds || ds.kind !== 'categorical') return null;
     return pointsOf(config).map(function (p, j) {
       var c = p && typeof p === 'object' && !Array.isArray(p) ? p.color || null : null;
@@ -648,6 +968,10 @@
   }
 
   return { extract: extract, targets: targets, convert: convert, withData: withData, family: family, FIXED: FIXED,
+    records: records, withRecords: withRecords,
+    report: { targets: reportChartTargets, switchChart: switchReportChart },
+    insight: { statColour: statColour, statColourOf: statColourOf, statsBySign: statsBySign },
+    tiles: { list: TILES, variant: tileVariant, set: setTileVariant },
     style: { options: styleOptions, sort: sortBy, highlight: highlight, highlighted: highlighted,
       labels: withLabels, seriesColour: seriesColour, marks: marks, markColour: markColour } };
 
