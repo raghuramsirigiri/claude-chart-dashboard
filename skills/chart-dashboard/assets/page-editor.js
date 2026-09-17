@@ -46,7 +46,10 @@
   var CSS = [
     ':host{all:initial}',
     '@media print{:host{display:none!important}}',
-    '*{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}',
+    // The host carries the chart theme's font (set in init), so the editor
+    // matches the page instead of the browser's default serif.
+    '*{box-sizing:border-box;font-family:inherit}',
+    'input,textarea{font:inherit}',
     'button{font:inherit;cursor:pointer}',
     '.toggle,.bar,.panel,.note{pointer-events:auto}',
     '.toggle{position:fixed;right:20px;bottom:20px;padding:10px 16px;border-radius:999px;border:1px solid #d0d0d0;',
@@ -147,6 +150,19 @@
     '.btn{border:1px solid #ccc;background:#fff;border-radius:8px;padding:7px 12px;font-size:13px;color:#111}',
     '.btn:hover:not(:disabled){border-color:#2f6bff}',
     '.btn:disabled{color:#aaa;cursor:default}',
+    '.crow{display:flex;align-items:center;gap:8px;margin:0 0 6px}',
+    '.crow .lbl{flex:1;min-width:0;font-size:13px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #ccc;background:#fff;border-radius:8px;padding:4px 8px 4px 4px;font-size:12px;color:#111}',
+    '.chip:hover,.chip[aria-expanded=true]{border-color:#2f6bff}',
+    '.chip i{width:20px;height:20px;border-radius:5px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15);display:inline-block}',
+    '.chip i.auto{background:repeating-linear-gradient(45deg,#eee 0 4px,#fff 4px 8px)}',
+    '.picker{border:1px solid #e3e3e3;border-radius:10px;padding:10px;margin:0 0 12px;background:#fafafa}',
+    '.picker .g{font-size:11px;color:#777;margin:0 0 4px}',
+    '.picker .sws{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}',
+    '.picker .sw.named{width:auto;padding:0 8px 0 26px;font-size:11px;color:#111;background-repeat:no-repeat;background-size:14px 14px;background-position:6px center;background-color:#fff}',
+    '.picker .custom{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+    '.picker input[type=color]{width:34px;height:28px;border:1px solid #ccc;border-radius:6px;padding:2px;background:#fff;cursor:pointer}',
+    '.picker .hex{width:84px;padding:5px 7px;border:1px solid #ccc;border-radius:6px;font-size:12px;font-family:ui-monospace,Consolas,monospace}',
     'label.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer}',
     'label.chk input{width:16px;height:16px;margin:0}'
   ].join('\n');
@@ -362,6 +378,7 @@
     if (!h) { place(); return; }
     if (h.kind === 'text') { place(); startText(h); return; }
     tab = 'type';
+    openPicker = null;
     renderPanel();
     place();
   }
@@ -393,7 +410,7 @@
     if (!tabList.some(function (t) { return t[0] === tab; })) tab = 'type';
     tabList.forEach(function (t) {
       tabs.appendChild(el('button', { role: 'tab', 'aria-selected': String(tab === t[0]),
-        onclick: function () { tab = t[0]; flash = null; renderPanel(); } }, [t[1]]));
+        onclick: function () { tab = t[0]; flash = null; openPicker = null; renderPanel(); } }, [t[1]]));
     });
     ui.panel.appendChild(tabs);
 
@@ -491,11 +508,88 @@
     place();
   }
 
+  // One colour setting: a chip showing the current colour, which opens a
+  // picker of the theme's colours (series ramp, accents, greys), a custom
+  // colour and, where the browser has one, an eyedropper. The open picker
+  // is remembered by key so it stays open across the panel's re-render.
+  var openPicker = null;
+  function themeGroups() {
+    var T = Charts.theme;
+    var uniq = function (list) {
+      var seen = {};
+      return list.filter(function (c) { var k = c.hex && c.hex.toLowerCase(); if (!k || seen[k]) return false; seen[k] = 1; return true; });
+    };
+    return [
+      { name: 'Series', colours: uniq((T.colors || []).map(function (c, i) { return { hex: c, label: 'Series ' + (i + 1) }; })) },
+      { name: 'Accents', named: true, colours: uniq([
+        { hex: T.highlight, label: 'Highlight' },
+        { hex: T.callout, label: 'Annotation' },
+        { hex: T.belowThreshold || T.negative, label: 'Counter' }]) },
+      { name: 'Greys', colours: uniq((T.mutedScale || [T.muted]).map(function (c, i) { return { hex: c, label: 'Grey ' + (i + 1) }; })) }
+    ];
+  }
+  function toHex(c) {
+    if (!c) return '#000000';
+    if (/^#[0-9a-f]{6}$/i.test(c)) return c.toLowerCase();
+    if (/^#[0-9a-f]{3}$/i.test(c)) return ('#' + c[1] + c[1] + c[2] + c[2] + c[3] + c[3]).toLowerCase();
+    var probe = document.createElement('canvas').getContext('2d');
+    probe.fillStyle = c;
+    return /^#/.test(probe.fillStyle) ? probe.fillStyle : '#000000';
+  }
+  function colourRow(body, label, current, key, apply) {
+    var open = openPicker === key;
+    var chipDot = el('i', { class: current ? '' : 'auto' });
+    if (current) chipDot.style.background = current;
+    var chip = el('button', { class: 'chip', 'aria-expanded': String(open), title: 'Change colour',
+      onclick: function () { openPicker = open ? null : key; renderPanel(); } },
+      [chipDot, current ? toHex(current).toUpperCase() : 'Auto']);
+    body.appendChild(el('div', { class: 'crow' }, [el('span', { class: 'lbl', text: label }), chip]));
+    if (!open) return;
+
+    var pick = function (hex) { apply(hex); };
+    var picker = el('div', { class: 'picker' });
+    themeGroups().forEach(function (g) {
+      if (!g.colours.length) return;
+      picker.appendChild(el('div', { class: 'g', text: g.name }));
+      var row = el('div', { class: 'sws' });
+      g.colours.forEach(function (c) {
+        var on = !!current && toHex(current) === toHex(c.hex);
+        var b = el('button', { class: 'sw' + (g.named ? ' named' : ''), title: c.label + ' ' + c.hex,
+          'aria-label': c.label, 'aria-pressed': String(on), onclick: function () { pick(c.hex); } },
+          g.named ? [c.label] : []);
+        if (g.named) b.style.backgroundImage = 'linear-gradient(' + c.hex + ',' + c.hex + ')';
+        else b.style.background = c.hex;
+        row.appendChild(b);
+      });
+      picker.appendChild(row);
+    });
+    picker.appendChild(el('div', { class: 'g', text: 'Custom' }));
+    var input = el('input', { type: 'color', value: toHex(current), 'aria-label': 'Custom colour' });
+    var hex = el('input', { type: 'text', class: 'hex', value: current ? toHex(current).toUpperCase() : '', placeholder: '#RRGGBB', 'aria-label': 'Hex colour' });
+    input.addEventListener('change', function () { pick(input.value); });
+    hex.addEventListener('change', function () {
+      var v = hex.value.trim();
+      if (/^#?[0-9a-f]{6}$/i.test(v) || /^#?[0-9a-f]{3}$/i.test(v)) pick(toHex(v[0] === '#' ? v : '#' + v));
+      else hex.classList.add('bad');
+    });
+    hex.addEventListener('keydown', function (e) { if (e.key === 'Enter') hex.blur(); });
+    var custom = el('div', { class: 'custom' }, [input, hex]);
+    if (window.EyeDropper) {
+      custom.appendChild(el('button', { class: 'btn', title: 'Pick a colour from anywhere on screen',
+        onclick: function () {
+          new window.EyeDropper().open().then(function (r) { pick(r.sRGBHex); }, function () { /* cancelled */ });
+        } }, ['Pick from screen']));
+    }
+    custom.appendChild(el('button', { class: 'btn', onclick: function () { pick(null); } }, ['Auto']));
+    picker.appendChild(custom);
+    body.appendChild(picker);
+  }
+
   function styleTab(body, id, entry) {
     var ST = window.ChartConvert && window.ChartConvert.style;
     var T = window.Charts && Charts.theme;
     var opts = ST ? ST.options(entry.type, entry.config) : {};
-    if (!ST || !T || !(opts.colours || opts.highlight || opts.sort || opts.labels)) {
+    if (!ST || !T || !(opts.colours || opts.highlight || opts.sort || opts.labels || opts.marks)) {
       body.appendChild(el('p', { class: 'hint', text: 'A ' + name(entry.type).toLowerCase() + ' has no style settings you can change here.' }));
       return;
     }
@@ -508,17 +602,20 @@
     if (opts.colours && !lit.length) {
       body.appendChild(el('h4', { text: cfg.series.length > 1 ? 'Series colours' : 'Colour' }));
       cfg.series.forEach(function (sr, i) {
-        var row = el('div', { class: 'row' }, [el('span', { class: 'lbl', text: sr.name || ('Series ' + (i + 1)) })]);
-        row.appendChild(el('button', { class: 'sw auto', 'aria-pressed': String(!sr.color), title: 'Palette default',
-          onclick: function () { applyStyle(id, function (c) { return ST.seriesColour(c.type, c.config, i, null); }); } }, ['Auto']));
-        palette.forEach(function (col) {
-          var b = el('button', { class: 'sw', title: col, 'aria-label': 'Colour ' + col,
-            'aria-pressed': String(!!sr.color && String(sr.color).toLowerCase() === col.toLowerCase()),
-            onclick: function () { applyStyle(id, function (c) { return ST.seriesColour(c.type, c.config, i, col); }); } });
-          b.style.background = col;
-          row.appendChild(b);
+        colourRow(body, sr.name || ('Series ' + (i + 1)), sr.color, 'series-' + i, function (col) {
+          applyStyle(id, function (c) { return ST.seriesColour(c.type, c.config, i, col); });
         });
-        body.appendChild(row);
+      });
+    }
+
+    if (opts.marks) {
+      var MARKS = { pie: 'Slice colours', donut: 'Slice colours', waffle: 'Panel colours', barList: 'Bar colours',
+        column: 'Bar colours', bar: 'Bar colours', packedBubble: 'Bubble colours', waterfall: 'Colours', sankey: 'Node colours' };
+      body.appendChild(el('h4', { text: MARKS[entry.type] || 'Colours' }));
+      ST.marks(entry.type, cfg).forEach(function (m) {
+        colourRow(body, m.name, m.color, 'mark-' + m.key, function (col) {
+          applyStyle(id, function (c) { return ST.markColour(c.type, c.config, m.key, col); });
+        });
       });
     }
 
@@ -1006,6 +1103,8 @@
     host = document.createElement('div');
     host.setAttribute('data-page-ui', '');
     host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000';
+    host.style.fontFamily = (window.Charts && Charts.theme && Charts.theme.font) ||
+      'system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
     root = host.attachShadow({ mode: 'open' });
     root.appendChild(el('style', { text: CSS }));
 

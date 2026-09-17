@@ -196,10 +196,22 @@ locked (there should be none).
     - Sankey, report tables, bar insight tables, panels and map grids show
       only the Text tab's fields as editable.
 - **Style** (only the controls the chart type supports):
-  - **Colour.** Swatches from the page's own theme palette, per series, or
-    *Auto* for the palette default. No free colour picker, so edits stay on
-    brand. Hidden while bars are highlighted, since the highlight decides
-    the colours then.
+  - **Colour.** Each setting shows a chip with its current colour. Clicking
+    it opens a picker with:
+    - the theme's **Series** ramp
+    - its **Accents**: *Highlight*, *Annotation* and *Counter*
+    - its **Greys** (the muted scale)
+    - a **Custom** colour input with a hex field
+    - **Pick from screen**, an eyedropper in Chrome and Edge
+    - **Auto**, back to the chart's own colour
+
+    Theme colours come first, so edits stay on brand by default.
+    - **Series colours** are hidden while bars are highlighted, since the
+      highlight decides the colours then.
+    - **Per-mark colours**: slices (pie, donut), panels (waffle), bars (bar
+      list, one-series column and bar), bubbles (packed bubbles), the
+      increase / decrease / total roles (waterfall) and nodes (sankey; stored
+      as `series[0].nodes[{ id, color }]`).
   - **Highlight.** Tick the bars the title is about; they take the accent
     colour and the rest turn grey. For one-series column, bar and bar list
     charts.
@@ -292,7 +304,8 @@ on a table, `xAxis.type`). Titles, subtitles, legend, tooltip,
 the earlier type's config exactly, until the chart's data is set directly.
 
 `ChartConvert.style` holds the style transforms the editor uses: `options`,
-`sort`, `highlight`, `highlighted`, `labels` and `seriesColour`. Each takes
+`sort`, `highlight`, `highlighted`, `labels`, `seriesColour`, `marks` and
+`markColour`. Each takes
 a config and returns a new one.
 
 Tests: `node --test skills/chart-dashboard/tests/chart-convert.test.js`. Every

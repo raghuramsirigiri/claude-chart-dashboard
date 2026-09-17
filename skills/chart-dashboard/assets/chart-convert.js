@@ -492,8 +492,85 @@
       sort: !!(cat && SORTABLE[type] && ds.categoryEditable && series.length === 1),
       highlight: !!(cat && HIGHLIGHTABLE[type] && series.length === 1),
       labels: !!(cat && LABELLED[type]),
-      colours: !!(COLOURED[type] && series.length >= 1)
+      colours: !!(COLOURED[type] && series.length >= 1),
+      // Per-mark colours replace series colours where each mark has its own.
+      marks: !!marks(type, config)
     };
+  }
+
+  // ── per-mark colours ───────────────────────────────────────────────
+  // Charts that colour each mark on its own rather than by series: slices,
+  // waffle panels, bar-list rows, bubbles, single-series bars, waterfall
+  // roles, sankey nodes. Colours are passed in; null returns a mark to the
+  // chart's automatic colour.
+  var POINTED = { pie: 1, donut: 1, waffle: 1, barList: 1, packedBubble: 1, column: 1, bar: 1 };
+
+  function pointsOf(config) {
+    return (config.series && config.series[0] && config.series[0].data) || [];
+  }
+
+  /** [{ name, color }] for each mark of a per-mark chart, else null. */
+  function marks(type, config) {
+    var series = (config && config.series) || [];
+    if (type === 'waterfall') {
+      var w = (config.plotOptions && config.plotOptions.waterfall) || {};
+      return [{ key: 'upColor', name: 'Increase', color: w.upColor || null },
+        { key: 'downColor', name: 'Decrease', color: w.downColor || null },
+        { key: 'sumColor', name: 'Total', color: w.sumColor || null }];
+    }
+    if (type === 'sankey') {
+      var s = series[0] || {};
+      var ids = [], seen = {};
+      var add = function (id) { if (id == null) return; id = String(id); if (!seen[id]) { seen[id] = 1; ids.push(id); } };
+      (s.nodes || []).forEach(function (n) { if (n) add(n.id); });
+      (s.data || []).forEach(function (l) {
+        if (Array.isArray(l)) { add(l[0]); add(l[1]); } else if (l) { add(l.from); add(l.to); }
+      });
+      return ids.map(function (id) {
+        var n = (s.nodes || []).filter(function (d) { return d && String(d.id) === id; })[0];
+        return { key: id, name: n && n.name != null ? String(n.name) : id, color: (n && n.color) || null };
+      });
+    }
+    if (!POINTED[type] || series.length !== 1) return null;
+    var ds = extract(type, config);
+    if (!ds || ds.kind !== 'categorical') return null;
+    return pointsOf(config).map(function (p, j) {
+      var c = p && typeof p === 'object' && !Array.isArray(p) ? p.color || null : null;
+      return { key: j, name: ds.categories[j], color: c };
+    });
+  }
+
+  /** Colour one mark: a point index, a waterfall role key or a sankey node id. */
+  function markColour(type, config, key, color) {
+    var list = marks(type, config);
+    if (!list || !list.some(function (m) { return m.key === key; })) return { error: 'This mark can\'t be recoloured.' };
+    var cfg = clone(config);
+    if (type === 'waterfall') {
+      cfg.plotOptions = cfg.plotOptions || {};
+      cfg.plotOptions.waterfall = cfg.plotOptions.waterfall || {};
+      if (color) cfg.plotOptions.waterfall[key] = color; else delete cfg.plotOptions.waterfall[key];
+      return { config: cfg };
+    }
+    if (type === 'sankey') {
+      var s = cfg.series[0];
+      s.nodes = s.nodes || [];
+      var node = s.nodes.filter(function (d) { return d && String(d.id) === key; })[0];
+      if (!node) { if (!color) return { config: cfg }; node = { id: key }; s.nodes.push(node); }
+      if (color) node.color = color; else delete node.color;
+      // A declared node that no longer says anything goes, so the config stays as written.
+      s.nodes = s.nodes.filter(function (d) { return Object.keys(d).length > 1; });
+      if (!s.nodes.length) delete s.nodes;
+      return { config: cfg };
+    }
+    var data = cfg.series[0].data;
+    var p = data[key];
+    if (Array.isArray(p)) p = typeof p[0] === 'string' ? { name: p[0], y: p[1] } : { x: p[0], y: p[1] };
+    else if (p === null || isNum(p)) p = { y: p };
+    else p = clone(p);
+    if (color) p.color = color; else delete p.color;
+    var keys = Object.keys(p);
+    data[key] = keys.length === 1 && keys[0] === 'y' ? p.y : p;
+    return { config: cfg };
   }
 
   function valueOf(p) { var v = readPoint(p).y; return isNum(v) ? v : null; }
@@ -572,6 +649,6 @@
 
   return { extract: extract, targets: targets, convert: convert, withData: withData, family: family, FIXED: FIXED,
     style: { options: styleOptions, sort: sortBy, highlight: highlight, highlighted: highlighted,
-      labels: withLabels, seriesColour: seriesColour } };
+      labels: withLabels, seriesColour: seriesColour, marks: marks, markColour: markColour } };
 
 });

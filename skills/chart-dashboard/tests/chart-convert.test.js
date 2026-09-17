@@ -179,13 +179,13 @@ test('withData refuses added rows and keeps x-position categories', () => {
 
 test('style options follow the chart', () => {
   const o = (k, t) => CC.style.options(t || typeOf(k), FIXTURES[k]);
-  assert.deepStrictEqual(o('bar'), { sort: true, highlight: true, labels: true, colours: true });
+  assert.deepStrictEqual(o('bar'), { sort: true, highlight: true, labels: true, colours: true, marks: true });
   assert.strictEqual(o('column').sort, false, 'two series: no single order');
   assert.strictEqual(o('column').highlight, false);
   assert.strictEqual(o('line').sort, false, 'a line keeps its order');
   assert.strictEqual(o('donut').sort, true);
   assert.strictEqual(o('donut').colours, false);
-  assert.deepStrictEqual(o('sankey'), { sort: false, highlight: false, labels: false, colours: false });
+  assert.deepStrictEqual(o('sankey'), { sort: false, highlight: false, labels: false, colours: false, marks: true });
 });
 
 test('sort moves names, values and point colours together', () => {
@@ -220,4 +220,40 @@ test('labels and series colours', () => {
   assert.strictEqual(red.series[1].color, '#4949FF');
   assert.ok(!('color' in CC.style.seriesColour('column', red, 1, null).config.series[1]));
   assert.match(CC.style.labels('donut', FIXTURES.donut, true).error, /can't be changed/);
+});
+
+test('marks: per-slice, per-row, per-bubble, waterfall roles, sankey nodes', () => {
+  assert.deepStrictEqual(CC.style.marks('donut', FIXTURES.donut).map(m => m.name), ['Direct', 'Paid', 'Organic']);
+  assert.deepStrictEqual(CC.style.marks('packedBubble', FIXTURES.packedBubble).map(m => m.name), ['a', 'b']);
+  assert.deepStrictEqual(CC.style.marks('waterfall', FIXTURES.waterfall).map(m => m.key), ['upColor', 'downColor', 'sumColor']);
+  assert.deepStrictEqual(CC.style.marks('sankey', FIXTURES.sankey).map(m => m.key), ['a', 'b']);
+  assert.strictEqual(CC.style.marks('column', FIXTURES.column), null, 'two series colour by series');
+  assert.strictEqual(CC.style.marks('line', FIXTURES.line), null);
+  assert.strictEqual(CC.style.options('pie', FIXTURES.pie).marks, true);
+});
+
+test('markColour keeps each point shape and clears back to it', () => {
+  const on = CC.style.markColour('donut', FIXTURES.donut, 1, '#B31B38').config;
+  assert.deepStrictEqual(on.series[0].data[1], { name: 'Paid', y: 24, color: '#B31B38' });
+  assert.deepStrictEqual(CC.style.marks('donut', on)[1].color, '#B31B38');
+  const off = CC.style.markColour('donut', on, 1, null).config;
+  assert.deepStrictEqual(off.series[0].data[1], { name: 'Paid', y: 24 });
+  const bar = CC.style.markColour('bar', FIXTURES.bar, 0, '#243E63').config;
+  assert.deepStrictEqual(bar.series[0].data[0], { y: 5, color: '#243E63' });
+  assert.strictEqual(CC.style.markColour('bar', bar, 0, null).config.series[0].data[0], 5);
+  const bubble = CC.style.markColour('packedBubble', FIXTURES.packedBubble, 0, '#9a0060').config;
+  assert.deepStrictEqual(bubble.series[0].data[0], { name: 'a', y: 5, color: '#9a0060' });
+  assert.deepStrictEqual(CC.extract('packedBubble', bubble).series[0].values, [5, 9], 'values unchanged');
+});
+
+test('markColour on waterfall roles and sankey nodes', () => {
+  const wf = CC.style.markColour('waterfall', FIXTURES.waterfall, 'downColor', '#9a0060').config;
+  assert.strictEqual(wf.plotOptions.waterfall.downColor, '#9a0060');
+  assert.ok(Charts.validate('waterfall', wf).ok);
+  const sk = CC.style.markColour('sankey', FIXTURES.sankey, 'b', '#243E63').config;
+  assert.deepStrictEqual(sk.series[0].nodes, [{ id: 'b', color: '#243E63' }]);
+  assert.ok(Charts.validate('sankey', sk).ok);
+  const cleared = CC.style.markColour('sankey', sk, 'b', null).config;
+  assert.ok(!('nodes' in cleared.series[0]), 'an empty node entry is removed');
+  assert.match(CC.style.markColour('sankey', FIXTURES.sankey, 'zzz', '#000').error, /can't be recoloured/);
 });
