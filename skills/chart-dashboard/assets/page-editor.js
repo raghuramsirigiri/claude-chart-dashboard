@@ -3,10 +3,13 @@
  *
  * An "Edit page" button opens edit mode. Hovering outlines what can be
  * changed. Clicking a heading or paragraph edits it in place. Clicking a
- * chart opens a panel with three tabs:
- *   Type  the chart types that suit its data, and why the others don't
- *   Text  title and subtitle
- *   Data  a grid of its existing names and values
+ * chart opens a panel with up to five tabs:
+ *   Type    the chart types that suit its data, and why the others don't
+ *   Text    title and subtitle
+ *   Data    a grid of its existing names and values
+ *   Style   series colours from the page's palette, highlighted bars,
+ *           sort order, value labels (only what the chart type supports)
+ *   Layout  card width, double height and position in a dashboard grid
  * Undo and redo cover every change. The editor only changes what the page
  * already has; it never adds or removes a component, a row or a series.
  *
@@ -127,7 +130,25 @@
     'td input:disabled,th input:disabled{color:#888;background:#f6f6f6}',
     'input.bad{background:#fdecec!important;outline:2px solid #d33!important;outline-offset:-2px}',
     '.grp td{background:#f6f6f6}',
-    '.scroll{overflow:auto;max-width:100%}'
+    '.scroll{overflow:auto;max-width:100%}',
+    '.tabs button{padding:8px 9px}',
+    'h4{margin:18px 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#555}',
+    'h4:first-child{margin-top:0}',
+    '.row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 8px}',
+    '.row .lbl{flex:1 1 100%;font-size:12px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
+    '.sw{width:26px;height:26px;border-radius:6px;border:2px solid transparent;padding:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)}',
+    '.sw[aria-pressed=true]{border-color:#111;box-shadow:inset 0 0 0 2px #fff}',
+    '.sw.auto{background:#fff;font-size:10px;width:auto;padding:0 6px;color:#555}',
+    '.seg{display:inline-flex;border:1px solid #ccc;border-radius:8px;overflow:hidden}',
+    '.seg button{border:0;background:#fff;padding:7px 12px;font-size:13px;color:#111;border-right:1px solid #ddd}',
+    '.seg button:last-child{border-right:0}',
+    '.seg button[aria-pressed=true]{background:#2f6bff;color:#fff;font-weight:600}',
+    '.seg button:disabled{color:#aaa;cursor:default}',
+    '.btn{border:1px solid #ccc;background:#fff;border-radius:8px;padding:7px 12px;font-size:13px;color:#111}',
+    '.btn:hover:not(:disabled){border-color:#2f6bff}',
+    '.btn:disabled{color:#aaa;cursor:default}',
+    'label.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer}',
+    'label.chk input{width:16px;height:16px;margin:0}'
   ].join('\n');
 
   var host, root, ui = {};
@@ -367,7 +388,10 @@
     }
 
     var tabs = el('div', { class: 'tabs', role: 'tablist' });
-    [['type', 'Type'], ['text', 'Text'], ['data', 'Data']].forEach(function (t) {
+    var tabList = [['type', 'Type'], ['text', 'Text'], ['data', 'Data'], ['style', 'Style']];
+    if (Page.layout && Page.layout(id)) tabList.push(['layout', 'Layout']);
+    if (!tabList.some(function (t) { return t[0] === tab; })) tab = 'type';
+    tabList.forEach(function (t) {
       tabs.appendChild(el('button', { role: 'tab', 'aria-selected': String(tab === t[0]),
         onclick: function () { tab = t[0]; flash = null; renderPanel(); } }, [t[1]]));
     });
@@ -385,7 +409,9 @@
     }
     if (tab === 'type') typeTab(body, id, entry);
     else if (tab === 'text') textTab(body, id, entry);
-    else dataTab(body, id, entry);
+    else if (tab === 'data') dataTab(body, id, entry);
+    else if (tab === 'style') styleTab(body, id, entry);
+    else layoutTab(body, id);
     ui.panel.appendChild(body);
   }
 
@@ -448,6 +474,129 @@
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.blur(); });
       body.appendChild(el('label', { class: 'f' }, [f[1], input]));
     });
+  }
+
+  // ── style ──────────────────────────────────────────────────────────
+  // Colours come only from the page's theme, so a reader can't wander off
+  // the palette the page was built with.
+  function applyStyle(id, fn) {
+    var cur = Page.getChart(id);
+    var out = fn(cur);
+    if (!out || out.error) { flash = { kind: 'err', text: out ? out.error : 'That didn\u2019t work.' }; renderPanel(); return; }
+    if (JSON.stringify(out.config) === JSON.stringify(cur.config)) return;
+    var res;
+    change(function () { res = Page.setChart(id, { config: out.config }); return res.ok; });
+    if (!res.ok) flash = { kind: 'err', text: 'The chart can\u2019t show that: ' + res.error };
+    renderPanel();
+    place();
+  }
+
+  function styleTab(body, id, entry) {
+    var ST = window.ChartConvert && window.ChartConvert.style;
+    var T = window.Charts && Charts.theme;
+    var opts = ST ? ST.options(entry.type, entry.config) : {};
+    if (!ST || !T || !(opts.colours || opts.highlight || opts.sort || opts.labels)) {
+      body.appendChild(el('p', { class: 'hint', text: 'A ' + name(entry.type).toLowerCase() + ' has no style settings you can change here.' }));
+      return;
+    }
+    var palette = (T.colors || []).filter(Boolean);
+    var accent = palette[1] || palette[0];
+    var muted = T.muted;
+    var cfg = entry.config;
+    var lit = opts.highlight ? ST.highlighted(cfg, accent) : [];
+
+    if (opts.colours && !lit.length) {
+      body.appendChild(el('h4', { text: cfg.series.length > 1 ? 'Series colours' : 'Colour' }));
+      cfg.series.forEach(function (sr, i) {
+        var row = el('div', { class: 'row' }, [el('span', { class: 'lbl', text: sr.name || ('Series ' + (i + 1)) })]);
+        row.appendChild(el('button', { class: 'sw auto', 'aria-pressed': String(!sr.color), title: 'Palette default',
+          onclick: function () { applyStyle(id, function (c) { return ST.seriesColour(c.type, c.config, i, null); }); } }, ['Auto']));
+        palette.forEach(function (col) {
+          var b = el('button', { class: 'sw', title: col, 'aria-label': 'Colour ' + col,
+            'aria-pressed': String(!!sr.color && String(sr.color).toLowerCase() === col.toLowerCase()),
+            onclick: function () { applyStyle(id, function (c) { return ST.seriesColour(c.type, c.config, i, col); }); } });
+          b.style.background = col;
+          row.appendChild(b);
+        });
+        body.appendChild(row);
+      });
+    }
+
+    if (opts.highlight) {
+      var ds = window.ChartConvert.extract(entry.type, cfg);
+      body.appendChild(el('h4', { text: 'Highlight' }));
+      body.appendChild(el('p', { class: 'hint', text: 'Pick the bars the title is about. The rest turn grey.' }));
+      ds.categories.forEach(function (c, j) {
+        var box = el('input', { type: 'checkbox' });
+        box.checked = lit.indexOf(j) >= 0;
+        box.addEventListener('change', function () {
+          var next = lit.filter(function (k) { return k !== j; });
+          if (box.checked) next.push(j);
+          applyStyle(id, function (cc) { return ST.highlight(cc.type, cc.config, next, accent, muted); });
+        });
+        body.appendChild(el('label', { class: 'chk' }, [box, c]));
+      });
+      if (lit.length) {
+        body.appendChild(el('button', { class: 'btn', onclick: function () {
+          applyStyle(id, function (cc) { return ST.highlight(cc.type, cc.config, [], accent, muted); });
+        } }, ['Clear highlight']));
+      }
+    }
+
+    if (opts.sort) {
+      body.appendChild(el('h4', { text: 'Order' }));
+      body.appendChild(el('div', { class: 'row' }, [
+        el('button', { class: 'btn', onclick: function () { applyStyle(id, function (c) { return ST.sort(c.type, c.config, 'desc'); }); } }, ['Largest first']),
+        el('button', { class: 'btn', onclick: function () { applyStyle(id, function (c) { return ST.sort(c.type, c.config, 'asc'); }); } }, ['Smallest first'])
+      ]));
+    }
+
+    if (opts.labels) {
+      var po = (cfg.plotOptions && cfg.plotOptions.series) || {};
+      var dl = po.dataLabels;
+      // Unset means the engine's default: on for bars and columns, off for lines.
+      var shown = dl == null ? entry.type !== 'line' : (typeof dl === 'object' ? dl.enabled !== false : !!dl);
+      var lab = el('input', { type: 'checkbox' });
+      lab.checked = shown;
+      lab.addEventListener('change', function () {
+        applyStyle(id, function (c) { return ST.labels(c.type, c.config, lab.checked); });
+      });
+      body.appendChild(el('h4', { text: 'Labels' }));
+      body.appendChild(el('label', { class: 'chk' }, [lab, 'Show values on the chart']));
+    }
+  }
+
+  // ── layout ─────────────────────────────────────────────────────────
+  function layoutTab(body, id) {
+    var L = Page.layout(id);
+    if (!L) return;
+    var LABELS = { w4: '\u2153', w6: '\u00BD', w8: '\u2154', w12: 'Full' };
+    function act(fn) {
+      change(function () { return fn().ok; });
+      renderPanel();
+      // The chart redraws at its new size on the next frame.
+      requestAnimationFrame(function () { requestAnimationFrame(place); });
+    }
+    body.appendChild(el('h4', { text: 'Width' }));
+    var seg = el('div', { class: 'seg', role: 'group', 'aria-label': 'Width' });
+    L.widths.forEach(function (w) {
+      seg.appendChild(el('button', { 'aria-pressed': String(w === L.width), title: w === 'w12' ? 'Full width' : LABELS[w] + ' of the page',
+        onclick: function () { if (w !== L.width) act(function () { return Page.setLayout(id, { width: w }); }); } }, [LABELS[w]]));
+    });
+    body.appendChild(seg);
+    if (L.canTall) {
+      var tall = el('input', { type: 'checkbox' });
+      tall.checked = L.tall;
+      tall.addEventListener('change', function () { act(function () { return Page.setLayout(id, { tall: tall.checked }); }); });
+      body.appendChild(el('h4', { text: 'Height' }));
+      body.appendChild(el('label', { class: 'chk' }, [tall, 'Double height']));
+    }
+    body.appendChild(el('h4', { text: 'Position' }));
+    body.appendChild(el('div', { class: 'row' }, [
+      el('button', { class: 'btn', disabled: L.first, onclick: function () { act(function () { return Page.move(id, -1); }); } }, ['\u2190 Move earlier']),
+      el('button', { class: 'btn', disabled: L.last, onclick: function () { act(function () { return Page.move(id, 1); }); } }, ['Move later \u2192'])
+    ]));
+    body.appendChild(el('p', { class: 'hint', text: 'On narrow screens the page stacks cards regardless of width.' }));
   }
 
   // ── data grid ──────────────────────────────────────────────────────

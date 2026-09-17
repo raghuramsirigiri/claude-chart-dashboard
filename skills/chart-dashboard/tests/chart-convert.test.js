@@ -176,3 +176,48 @@ test('withData refuses added rows and keeps x-position categories', () => {
   const out = CC.withData('line', FIXTURES.lineDates, dated).config;
   assert.strictEqual(out.series[0].data[0][0], Date.UTC(2026, 0, 1));
 });
+
+test('style options follow the chart', () => {
+  const o = (k, t) => CC.style.options(t || typeOf(k), FIXTURES[k]);
+  assert.deepStrictEqual(o('bar'), { sort: true, highlight: true, labels: true, colours: true });
+  assert.strictEqual(o('column').sort, false, 'two series: no single order');
+  assert.strictEqual(o('column').highlight, false);
+  assert.strictEqual(o('line').sort, false, 'a line keeps its order');
+  assert.strictEqual(o('donut').sort, true);
+  assert.strictEqual(o('donut').colours, false);
+  assert.deepStrictEqual(o('sankey'), { sort: false, highlight: false, labels: false, colours: false });
+});
+
+test('sort moves names, values and point colours together', () => {
+  const cfg = { xAxis: { categories: ['a', 'b', 'c', 'd'] },
+    series: [{ name: 's', data: [2, { y: 9, color: '#f00' }, null, 5] }] };
+  const out = CC.style.sort('bar', cfg, 'desc').config;
+  assert.deepStrictEqual(out.xAxis.categories, ['b', 'd', 'a', 'c']);
+  assert.deepStrictEqual(out.series[0].data, [{ y: 9, color: '#f00' }, 5, 2, null]);
+  assert.deepStrictEqual(CC.style.sort('bar', cfg, 'asc').config.xAxis.categories, ['a', 'd', 'b', 'c'], 'blanks last');
+  assert.deepStrictEqual(cfg.xAxis.categories, ['a', 'b', 'c', 'd'], 'input untouched');
+  const donut = CC.style.sort('donut', FIXTURES.donut, 'asc').config;
+  assert.deepStrictEqual(donut.series[0].data.map(p => p[0]), ['Organic', 'Paid', 'Direct']);
+  assert.match(CC.style.sort('line', FIXTURES.line, 'desc').error, /can't be sorted/);
+});
+
+test('highlight colours chosen points and clears back to plain values', () => {
+  const on = CC.style.highlight('bar', FIXTURES.bar, [1], '#2323FF', '#8f8d87').config;
+  assert.deepStrictEqual(on.series[0].data, [{ y: 5, color: '#8f8d87' }, { y: 3, color: '#2323FF' }, { y: 1, color: '#8f8d87' }]);
+  assert.deepStrictEqual(CC.style.highlighted(on, '#2323ff'), [1]);
+  const off = CC.style.highlight('bar', on, [], '#2323FF', '#8f8d87').config;
+  assert.deepStrictEqual(off.series[0].data, [5, 3, 1]);
+  const list = CC.style.highlight('barList', FIXTURES.barList, [0], '#2323FF', '#8f8d87').config;
+  assert.deepStrictEqual(list.series[0].data[0], { name: 'VS Code', y: 73.6, color: '#2323FF' });
+  assert.ok(Charts.validate('bar', on).ok);
+});
+
+test('labels and series colours', () => {
+  const off = CC.style.labels('column', FIXTURES.column, false).config;
+  assert.deepStrictEqual(off.plotOptions.series.dataLabels, { enabled: false });
+  assert.deepStrictEqual(off.plotOptions.column, { stacking: 'normal' });
+  const red = CC.style.seriesColour('column', FIXTURES.column, 1, '#4949FF').config;
+  assert.strictEqual(red.series[1].color, '#4949FF');
+  assert.ok(!('color' in CC.style.seriesColour('column', red, 1, null).config.series[1]));
+  assert.match(CC.style.labels('donut', FIXTURES.donut, true).error, /can't be changed/);
+});

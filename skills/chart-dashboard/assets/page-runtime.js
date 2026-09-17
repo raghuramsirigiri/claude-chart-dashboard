@@ -40,6 +40,11 @@
   // what charts added outside their own containers (tooltips, measuring nodes).
   var STATIC_ATTR = 'data-page-static';
   var TABLES = { table: 1, reportTable: 1, barInsightTable: 1 };
+  // Dashboard grid: a .bento holds cells sized by one width class and an
+  // optional h2. Layout edits only resize a cell among these widths and move
+  // it within its own grid.
+  var WIDTHS = ['w4', 'w6', 'w8', 'w12'];
+  var cellIds = [];   // index = id; the cells present when the page opened
 
   var spec = null;
   var handles = {};
@@ -150,14 +155,53 @@
     return handles[id];
   }
 
+  function grids() { return Array.prototype.slice.call(document.querySelectorAll('.bento')); }
+  function idOfCell(node) { return cellIds.indexOf(node); }
+  function widthOf(node) {
+    for (var i = 0; i < WIDTHS.length; i++) if (node.classList.contains(WIDTHS[i])) return WIDTHS[i];
+    return null;
+  }
+  // The grid cell holding a chart: the ancestor whose parent is a .bento.
+  function cellOf(id) {
+    var n = document.getElementById(id);
+    while (n && n.parentElement) {
+      if (n.parentElement.classList.contains('bento')) return n;
+      n = n.parentElement;
+    }
+    return null;
+  }
+
   function renderAll() {
     spec = readSpec();
+    grids().forEach(function (g) {
+      Array.prototype.forEach.call(g.children, function (c) { cellIds.push(c); });
+    });
     var body = document.body;
     for (var i = 0; i < body.children.length; i++) body.children[i].setAttribute(STATIC_ATTR, '');
     Object.keys(spec.charts).forEach(function (id) {
       var el = document.getElementById(id);
       if (el) containerStyle[id] = el.getAttribute('style');
       draw(id);
+    });
+  }
+
+  // Layout as plain data, so it can sit in a snapshot and a draft: per grid,
+  // the cells in order as [id, className].
+  function layoutState() {
+    return grids().map(function (g) {
+      return Array.prototype.map.call(g.children, function (c) { return [idOfCell(c), c.className]; });
+    });
+  }
+  function restoreLayout(state) {
+    var gs = grids();
+    if (gs.length !== state.length) return;
+    state.forEach(function (cells, i) {
+      cells.forEach(function (pair) {
+        var node = cellIds[pair[0]];
+        if (!node || node.parentElement !== gs[i]) return;
+        if (node.className !== pair[1]) node.className = pair[1];
+        gs[i].appendChild(node);   // appending in saved order reorders the grid
+      });
     });
   }
 
@@ -314,7 +358,7 @@
         var key = nodes[i].getAttribute('data-key');
         if (KINDS[nodes[i].getAttribute('data-edit')]) text[key] = Page.getText(key);
       }
-      return { charts: clone(spec.charts), text: text };
+      return { charts: clone(spec.charts), text: text, layout: layoutState() };
     },
 
     /** Put the page back to a snapshot, redrawing only what differs. */
@@ -331,8 +375,53 @@
         if (el.getAttribute('data-edit') === 'rich') el.innerHTML = sanitize(snap.text[key]);
         else el.textContent = snap.text[key];
       });
+      if (snap.layout) restoreLayout(snap.layout);
       byType = {};
       emit({ kind: 'restore' });
+    },
+
+    /**
+     * Where a chart sits in a dashboard grid: { width, widths, tall,
+     * canTall, first, last }, or null when it isn't in one (a report, a
+     * deck, a chart outside the grid).
+     */
+    layout: function (id) {
+      var cell = cellOf(id);
+      if (!cell || idOfCell(cell) < 0 || !widthOf(cell)) return null;
+      var grid = cell.parentElement;
+      return {
+        width: widthOf(cell),
+        widths: WIDTHS.slice(),
+        tall: cell.classList.contains('h2'),
+        // Content-sized rows (.flow) hold tables that set their own height.
+        canTall: !grid.classList.contains('flow'),
+        first: !cell.previousElementSibling,
+        last: !cell.nextElementSibling
+      };
+    },
+
+    /** Change a chart's cell: { width: 'w4'|'w6'|'w8'|'w12', tall: bool }. */
+    setLayout: function (id, next) {
+      var cur = Page.layout(id);
+      if (!cur) return { ok: false, error: 'this chart is not in a grid' };
+      var cell = cellOf(id);
+      if (next.width && WIDTHS.indexOf(next.width) < 0) return { ok: false, error: 'unknown width ' + next.width };
+      if (next.width && next.width !== cur.width) { cell.classList.remove(cur.width); cell.classList.add(next.width); }
+      if (next.tall != null && cur.canTall) cell.classList.toggle('h2', !!next.tall);
+      emit({ kind: 'layout', id: id });
+      return { ok: true, error: null };
+    },
+
+    /** Swap a chart's cell with its neighbour: by -1 (earlier) or +1 (later). */
+    move: function (id, by) {
+      var cell = cellOf(id);
+      if (!cell || idOfCell(cell) < 0) return { ok: false, error: 'this chart is not in a grid' };
+      var other = by < 0 ? cell.previousElementSibling : cell.nextElementSibling;
+      if (!other) return { ok: false, error: by < 0 ? 'already first' : 'already last' };
+      if (by < 0) cell.parentElement.insertBefore(cell, other);
+      else cell.parentElement.insertBefore(other, cell);
+      emit({ kind: 'layout', id: id });
+      return { ok: true, error: null };
     },
 
     redraw: function (id) { return id ? draw(id) : Object.keys(spec.charts).forEach(draw); },

@@ -170,6 +170,7 @@ locked (there should be none).
     switch, the panel says which settings were left out; Undo brings them
     back.
   - **Text**: title and subtitle.
+  - **Style** and **Layout**: see below.
   - **Data**: a grid of the chart's existing names and values (a column of
     values for a histogram, x/y/size rows for scatter and bubble).
     - Enter moves down the column, and cells pasted from a spreadsheet fill
@@ -180,11 +181,36 @@ locked (there should be none).
     - The chart's other settings are kept.
     - Sankey, report tables, bar insight tables, panels and map grids show
       only the Text tab's fields as editable.
+- **Style** (only the controls the chart type supports):
+  - **Colour.** Swatches from the page's own theme palette, per series, or
+    *Auto* for the palette default. No free colour picker, so edits stay on
+    brand. Hidden while bars are highlighted, since the highlight decides
+    the colours then.
+  - **Highlight.** Tick the bars the title is about; they take the accent
+    colour and the rest turn grey. For one-series column, bar and bar list
+    charts.
+  - **Order.** *Largest first* or *Smallest first* for one-series column,
+    bar, bar list, donut and pie charts. Names, values and point colours move
+    together, and blanks go last. Lines and dated axes can't be sorted.
+  - **Labels.** Show or hide value labels on column, bar and line charts.
+
+  Number formats (prefixes, suffixes, decimals) are not offered: the chart
+  types handle them differently, so one control couldn't behave the same
+  everywhere.
+- **Layout** (charts in a dashboard grid only):
+  - **Width** ⅓, ½, ⅔ or full (`w4`–`w12`).
+  - **Double height** (`h2`), except in content-sized `.flow` rows.
+  - **Move earlier / later** swaps the card with its neighbour in the same
+    grid. Cards never move between grids.
+
+  The template stacks cards to half or full width on narrow windows, so a
+  width change shows only on a wide screen.
 - **Stale titles.** Once a chart's data changes, its panel warns that the
   title may no longer describe it, until the title is edited or the warning
   is dismissed.
-- **Undo/redo** (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) covers every text, type
-  and data change, 200 steps deep.
+- **Undo/redo** (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) covers every text, type,
+  data, style and layout change, 200 steps deep. Drafts and saves include
+  layout too.
 - **Nothing is added or removed**: no new charts, text blocks, rows or series.
 
 ### Saving
@@ -251,6 +277,10 @@ on a table, `xAxis.type`). Titles, subtitles, legend, tooltip,
 `plotOptions.series` and the value axis carry across. Switching back restores
 the earlier type's config exactly, until the chart's data is set directly.
 
+`ChartConvert.style` holds the style transforms the editor uses: `options`,
+`sort`, `highlight`, `highlighted`, `labels` and `seriesColour`. Each takes
+a config and returns a new one.
+
 Tests: `node --test skills/chart-dashboard/tests/chart-convert.test.js`. Every
 switch offered for every chart type must produce a config the library's
 validator accepts, with the same categories and numbers.
@@ -267,7 +297,8 @@ For the editor, and for verifying a page.
 | `getText(key)` / `setText(key, value)` | read or replace marked text; `rich` is sanitised |
 | `alternatives(id)` | `[{ type, current, ok, reason, warnings, lost }]`: the types this chart can switch to, checked as described above |
 | `switchType(id, type)` | convert and redraw. Returns `{ ok, error, lost }`; a refused switch leaves the chart unchanged |
-| `snapshot()` / `restore(snap)` | every spec chart and marked text, for undo; `restore` redraws only what differs |
+| `snapshot()` / `restore(snap)` | every spec chart, marked text and grid layout, for undo; `restore` redraws only what differs |
+| `layout(id)` / `setLayout(id, { width?, tall? })` / `move(id, ±1)` | a chart's dashboard cell: width class, double height, position among its neighbours. `layout` is null outside a `.bento` grid |
 | `redraw(id?)` | redraw one chart or all of them |
 | `on(fn)` / `isDirty()` | notified on each change; whether anything changed |
 | `serialize()` | the whole page as standalone HTML with the edits: chart cells emptied, spec rewritten, tooltips and editor UI (`data-page-ui`) dropped. Opening the result and serializing again gives the same bytes |

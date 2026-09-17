@@ -474,6 +474,104 @@
     return { config: cfg };
   }
 
-  return { extract: extract, targets: targets, convert: convert, withData: withData, family: family, FIXED: FIXED };
+  // ── style changes a reader can make ───────────────────────────────
+  // Each returns a new config and leaves the input alone. They only use
+  // options every listed type draws the same way, and colours are passed in
+  // (from the page's theme) rather than invented here.
+  var SORTABLE = { column: 1, bar: 1, barList: 1, donut: 1, pie: 1 };
+  var HIGHLIGHTABLE = { column: 1, bar: 1, barList: 1 };
+  var LABELLED = { column: 1, bar: 1, line: 1 };
+  var COLOURED = { column: 1, bar: 1, line: 1, radar: 1, dumbbell: 1, barList: 1, scatter: 1, bubble: 1 };
+
+  function styleOptions(type, config) {
+    var ds = extract(type, config);
+    var cat = ds && ds.kind === 'categorical' && !ds.oneWay;
+    var series = (config && config.series) || [];
+    return {
+      // Sorting a line or a dated axis would scramble time.
+      sort: !!(cat && SORTABLE[type] && ds.categoryEditable && series.length === 1),
+      highlight: !!(cat && HIGHLIGHTABLE[type] && series.length === 1),
+      labels: !!(cat && LABELLED[type]),
+      colours: !!(COLOURED[type] && series.length >= 1)
+    };
+  }
+
+  function valueOf(p) { var v = readPoint(p).y; return isNum(v) ? v : null; }
+
+  /** Order categories by the (single) series' values: 'desc' or 'asc'. */
+  function sortBy(type, config, dir) {
+    if (!styleOptions(type, config).sort) return { error: 'This chart can\'t be sorted.' };
+    var cfg = clone(config);
+    var data = cfg.series[0].data || [];
+    var order = data.map(function (p, j) { return j; });
+    order.sort(function (a, b) {
+      var va = valueOf(data[a]), vb = valueOf(data[b]);
+      if (va === null && vb === null) return a - b;
+      if (va === null) return 1;            // blanks last either way
+      if (vb === null) return -1;
+      return dir === 'asc' ? va - vb || a - b : vb - va || a - b;
+    });
+    cfg.series[0].data = order.map(function (j) { return data[j]; });
+    if (cfg.xAxis && Array.isArray(cfg.xAxis.categories)) {
+      var cats = cfg.xAxis.categories;
+      cfg.xAxis.categories = order.map(function (j) { return cats[j]; });
+    }
+    return { config: cfg };
+  }
+
+  /**
+   * Emphasis: the points at `indexes` take `accent`, every other point takes
+   * `muted`. An empty list removes point colours, back to the series colour.
+   */
+  function highlight(type, config, indexes, accent, muted) {
+    if (!styleOptions(type, config).highlight) return { error: 'This chart can\'t highlight single bars.' };
+    var cfg = clone(config);
+    var on = {};
+    (indexes || []).forEach(function (i) { on[i] = true; });
+    var any = (indexes || []).length > 0;
+    cfg.series[0].data = (cfg.series[0].data || []).map(function (p, j) {
+      var color = any ? (on[j] ? accent : muted) : null;
+      if (Array.isArray(p)) p = { name: p[0], y: p[1] };
+      if (p === null || isNum(p)) return color ? { y: p, color: color } : p;
+      var o = clone(p);
+      if (color) o.color = color; else delete o.color;
+      var keys = Object.keys(o);
+      return keys.length === 1 && keys[0] === 'y' ? o.y : o;
+    });
+    return { config: cfg };
+  }
+
+  /** Which points currently carry `accent`. */
+  function highlighted(config, accent) {
+    var data = (config.series && config.series[0] && config.series[0].data) || [];
+    var out = [];
+    data.forEach(function (p, j) {
+      if (p && typeof p === 'object' && !Array.isArray(p) && p.color &&
+          String(p.color).toLowerCase() === String(accent).toLowerCase()) out.push(j);
+    });
+    return out;
+  }
+
+  function withLabels(type, config, on) {
+    if (!styleOptions(type, config).labels) return { error: 'This chart\'s value labels can\'t be changed here.' };
+    var cfg = clone(config);
+    cfg.plotOptions = cfg.plotOptions || {};
+    cfg.plotOptions.series = cfg.plotOptions.series || {};
+    var dl = cfg.plotOptions.series.dataLabels;
+    cfg.plotOptions.series.dataLabels = Object.assign(dl && typeof dl === 'object' ? dl : {}, { enabled: !!on });
+    return { config: cfg };
+  }
+
+  /** Series i takes `color`; null goes back to the palette's choice. */
+  function seriesColour(type, config, i, color) {
+    if (!styleOptions(type, config).colours || !config.series[i]) return { error: 'This series can\'t be recoloured.' };
+    var cfg = clone(config);
+    if (color) cfg.series[i].color = color; else delete cfg.series[i].color;
+    return { config: cfg };
+  }
+
+  return { extract: extract, targets: targets, convert: convert, withData: withData, family: family, FIXED: FIXED,
+    style: { options: styleOptions, sort: sortBy, highlight: highlight, highlighted: highlighted,
+      labels: withLabels, seriesColour: seriesColour } };
 
 });
