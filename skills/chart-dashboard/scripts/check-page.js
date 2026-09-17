@@ -312,6 +312,8 @@ if (!specMatch && !editTags.length) {
   const runtime = /<script src="charts-lib\/page-runtime\.js"><\/script>/.test(html) || /window\.Page\s*=\s*Page/.test(html);
   if (specMatch && !runtime) problems.push('no page-runtime.js — nothing draws the spec  → add <script src="charts-lib/page-runtime.js"></script> after charts.js');
   const convert = /<script src="charts-lib\/chart-convert\.js"><\/script>/.test(html) || /root\.ChartConvert\s*=\s*factory\(\)/.test(html);
+  const editor = /<script src="charts-lib\/page-editor\.js"><\/script>/.test(html) || /window\.PageEditor\s*=/.test(html);
+  if (specMatch && !editor) problems.push('no page-editor.js — the page can\'t be edited without code  → add <script src="charts-lib/page-editor.js"></script> after page-runtime.js');
   if (specMatch && !convert) problems.push('no chart-convert.js — charts cannot switch type  → add <script src="charts-lib/chart-convert.js"></script> before page-runtime.js');
   const badKind = editTags.filter(t => t.kind !== 'text' && t.kind !== 'rich');
   if (badKind.length) problems.push('data-edit must be "text" or "rich": ' + badKind.map(t => '"' + t.kind + '"').join(', '));

@@ -45,7 +45,7 @@ const LIB = path.join(SCRIPTS, '..', 'assets', 'charts-lib');
 const LIB_FILES = ['charts.css', 'charts.js', 'theme.js'];
 // Staged too, for editable pages. It lives in assets/ rather than
 // assets/charts-lib/, which mirrors the upstream library.
-const EDITABLE_FILES = ['chart-convert.js', 'page-runtime.js'];
+const EDITABLE_FILES = ['chart-convert.js', 'page-runtime.js', 'page-editor.js'];
 const STAGED_FILES = LIB_FILES.concat(EDITABLE_FILES);
 
 const argv = process.argv.slice(2);
@@ -92,7 +92,8 @@ if (fs.existsSync(staged)) {
   // Any of these sets is ours: folders staged by earlier versions of this
   // script hold three or four files.
   const same = set => found.length === set.length && found.every((f, i) => f === [...set].sort()[i]);
-  if (same(LIB_FILES) || same(LIB_FILES.concat('page-runtime.js')) || same(STAGED_FILES)) {
+  if (same(LIB_FILES) || same(LIB_FILES.concat('page-runtime.js')) ||
+      same(LIB_FILES.concat('chart-convert.js', 'page-runtime.js')) || same(STAGED_FILES)) {
     fs.rmSync(staged, { recursive: true, force: true });
     console.log('removed the staged charts-lib/ — nothing references it now.');
   } else {

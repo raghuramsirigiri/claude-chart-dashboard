@@ -303,6 +303,38 @@
       return meta ? Object.keys(meta).filter(isChartType) : [];
     },
 
+    /**
+     * Everything an edit can change, for undo: every spec chart and every
+     * marked text. Cheap enough to take before each edit.
+     */
+    snapshot: function () {
+      var text = {};
+      var nodes = document.querySelectorAll('[data-edit][data-key]');
+      for (var i = 0; i < nodes.length; i++) {
+        var key = nodes[i].getAttribute('data-key');
+        if (KINDS[nodes[i].getAttribute('data-edit')]) text[key] = Page.getText(key);
+      }
+      return { charts: clone(spec.charts), text: text };
+    },
+
+    /** Put the page back to a snapshot, redrawing only what differs. */
+    restore: function (snap) {
+      Object.keys(snap.charts).forEach(function (id) {
+        if (!spec.charts[id]) return;
+        if (JSON.stringify(spec.charts[id]) === JSON.stringify(snap.charts[id])) return;
+        spec.charts[id] = clone(snap.charts[id]);
+        draw(id);
+      });
+      Object.keys(snap.text).forEach(function (key) {
+        var el = textNode(key);
+        if (!el || Page.getText(key) === snap.text[key]) return;
+        if (el.getAttribute('data-edit') === 'rich') el.innerHTML = sanitize(snap.text[key]);
+        else el.textContent = snap.text[key];
+      });
+      byType = {};
+      emit({ kind: 'restore' });
+    },
+
     redraw: function (id) { return id ? draw(id) : Object.keys(spec.charts).forEach(draw); },
 
     on: function (fn) { listeners.push(fn); },

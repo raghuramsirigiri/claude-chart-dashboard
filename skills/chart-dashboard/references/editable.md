@@ -6,9 +6,9 @@ person with no tooling can later switch a chart's type, fix a title, correct
 a number or reword a paragraph, and save the file, without asking you again.
 It edits what the page already has: nothing is added or removed.
 
-This file covers the page format. The editor UI that sits on top of it is
-built separately. Everything here works on its own: the page renders, and
-`window.Page` can already read, change and save it.
+The page carries its own editor: an **Edit page** button in the corner opens
+it (see [The editor](#the-editor)). Readers who never press it see an ordinary
+page, and the button doesn't print.
 
 ## When to build one
 
@@ -50,14 +50,20 @@ Three parts, all in the one HTML file:
    - `text`: plain text. Headings, labels, KPI values, captions.
    - `rich`: a paragraph that may keep `<b>`, `<strong>`, `<i>`, `<em>` and
      `<br>`. Anything else pasted in is stripped when it is edited.
-3. **The runtime**, after `charts.js` and after any `Charts.applyPalette`:
+3. **The runtime and editor**, after `charts.js` and after any
+   `Charts.applyPalette`, in this order:
    ```html
    <script src="charts-lib/chart-convert.js"></script>
    <script src="charts-lib/page-runtime.js"></script>
+   <script src="charts-lib/page-editor.js"></script>
    ```
-   `page-runtime.js` draws every chart in the spec and exposes `window.Page`.
-   `chart-convert.js` lets a chart switch type (see below). Like the other
-   placeholder tags, `finalize.js` stages both and then inlines them.
+   - `chart-convert.js` lets a chart switch type (see below).
+   - `page-runtime.js` draws every chart in the spec and exposes
+     `window.Page`.
+   - `page-editor.js` adds the Edit page button and the editor.
+
+   Like the other placeholder tags, `finalize.js` stages all three and then
+   inlines them.
 
 `templates/dashboard-editable.html` is the dashboard template already in this
 format. For a report or a deck, start from `report.html` or `slides.html`,
@@ -116,7 +122,7 @@ someone other than you will change the numbers later.
 The steps are the same as for any page (SKILL.md steps 7–8):
 
 1. `node <skill-dir>/scripts/finalize.js index.html --stage` stages
-   `charts-lib/` with `chart-convert.js` and `page-runtime.js` in it.
+   `charts-lib/` with the three editable-page files in it.
 2. Open the page and verify it as usual. Also run these in the console, or
    through your browser tooling:
    ```js
@@ -126,19 +132,66 @@ The steps are the same as for any page (SKILL.md steps 7–8):
    Page.setText('title', 'Test')     // → { ok: true }, and the heading changes
    Page.serialize()                  // the page as it would be saved
    ```
-   Reload afterwards; these edits are not saved to disk.
+   Reload afterwards; these edits are not saved to disk. Then press **Edit
+   page**, click a chart and a heading, and check that the panel opens and
+   the text becomes editable.
 3. `node <skill-dir>/scripts/finalize.js index.html` checks, inlines the
    runtime with the library, and re-checks. The **editable page** check fails
    on:
    - a spec that doesn't parse
    - an unknown chart type
    - a chart drawn by both the spec and code
-   - a missing `page-runtime.js` or `chart-convert.js`
+   - a missing `page-runtime.js`, `chart-convert.js` or `page-editor.js`
    - a bad `data-edit` kind
    - a missing or duplicate `data-key`
 
 When you hand it over, say it is editable, and that any chart drawn by code is
 locked (there should be none).
+
+## The editor
+
+`page-editor.js` is written for someone who has never seen the code.
+
+- **Edit page** (bottom-right) enters edit mode. A toolbar holds a hint,
+  the number of changes, **Undo**, **Redo** and **Done**. It sits at the
+  bottom of the screen, or the top on a phone.
+- **Hovering** outlines anything editable and names it: Edit text, Edit
+  paragraph, Edit chart, or Locked chart for one drawn by page code. In edit
+  mode, clicks on charts select them instead of toggling legends.
+- **Text** is edited in place, in the page's own styling.
+  - A heading or label is selected whole on click, so typing replaces it.
+    Enter finishes, Esc cancels.
+  - A paragraph puts the cursor where it was clicked. Ctrl+B and Ctrl+I
+    work, and clicking outside finishes.
+  - Pasted markup is cleaned (see the `rich` kind above).
+- **A chart** opens a side panel (a bottom sheet on a phone):
+  - **Type**: the switchable types as buttons. Refused ones are greyed out
+    with their reason, and warnings are shown under the others. After a
+    switch, the panel says which settings were left out; Undo brings them
+    back.
+  - **Text**: title and subtitle.
+  - **Data**: a grid of the chart's existing names and values (a column of
+    values for a histogram, x/y/size rows for scatter and bubble).
+    - Enter moves down the column, and cells pasted from a spreadsheet fill
+      from the chosen cell.
+    - A cell that isn't a number is marked and not applied.
+    - Waterfall totals are read-only, and axis positions on a dated line
+      can't be renamed.
+    - The chart's other settings are kept.
+    - Sankey, report tables, bar insight tables, panels and map grids show
+      only the Text tab's fields as editable.
+- **Stale titles.** Once a chart's data changes, its panel warns that the
+  title may no longer describe it, until the title is edited or the warning
+  is dismissed.
+- **Undo/redo** (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) covers every text, type
+  and data change, 200 steps deep.
+- **Nothing is added or removed**: no new charts, text blocks, rows or series.
+
+The editor's UI lives in a shadow root on a `data-page-ui` host, so page CSS
+can't restyle it and `Page.serialize()` leaves it out. A saved page carries
+the editor script and stays editable. `window.PageEditor` has `start()`,
+`stop()`, `undo()`, `redo()` and `isEditing()`, which are useful when
+verifying through browser tooling.
 
 ## Switching a chart's type
 
@@ -186,6 +239,7 @@ For the editor, and for verifying a page.
 | `getText(key)` / `setText(key, value)` | read or replace marked text; `rich` is sanitised |
 | `alternatives(id)` | `[{ type, current, ok, reason, warnings, lost }]`: the types this chart can switch to, checked as described above |
 | `switchType(id, type)` | convert and redraw. Returns `{ ok, error, lost }`; a refused switch leaves the chart unchanged |
+| `snapshot()` / `restore(snap)` | every spec chart and marked text, for undo; `restore` redraws only what differs |
 | `redraw(id?)` | redraw one chart or all of them |
 | `on(fn)` / `isDirty()` | notified on each change; whether anything changed |
 | `serialize()` | the whole page as standalone HTML with the edits: chart cells emptied, spec rewritten, tooltips and editor UI (`data-page-ui`) dropped. Opening the result and serializing again gives the same bytes |

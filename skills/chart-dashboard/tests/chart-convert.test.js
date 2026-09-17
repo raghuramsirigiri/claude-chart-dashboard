@@ -121,3 +121,58 @@ test('point colours survive across types that draw them', () => {
   const out = CC.convert('column', FIXTURES.column, 'bar');
   assert.deepStrictEqual(out.config.series[0].data[0], { y: 10, color: '#2323FF' });
 });
+
+for (const [key, cfg] of Object.entries(FIXTURES)) {
+  const type = typeOf(key);
+  if (CC.FIXED.includes(type)) continue;
+  test(key + ': writing the unchanged data back gives the same config', () => {
+    const ds = CC.extract(type, cfg);
+    const out = CC.withData(type, cfg, ds);
+    assert.ok(!out.error, out.error);
+    assert.deepStrictEqual(out.config, cfg);
+  });
+}
+
+test('withData changes a value and a name and keeps everything else', () => {
+  const ds = CC.extract('column', FIXTURES.column);
+  ds.series[0].values[0] = 99;
+  ds.categories[1] = 'Southwest';
+  ds.series[1].name = 'Plan';
+  const out = CC.withData('column', FIXTURES.column, ds).config;
+  assert.deepStrictEqual(out.series[0].data[0], { y: 99, color: '#2323FF' });
+  assert.strictEqual(out.xAxis.categories[1], 'Southwest');
+  assert.strictEqual(out.series[1].name, 'Plan');
+  assert.deepStrictEqual(out.plotOptions, FIXTURES.column.plotOptions);
+});
+
+test('withData keeps shapes: pairs, objects with descriptions, tables, waterfall totals', () => {
+  let ds = CC.extract('donut', FIXTURES.donut); ds.series[0].values[2] = 1; ds.categories[2] = 'SEO';
+  assert.deepStrictEqual(CC.withData('donut', FIXTURES.donut, ds).config.series[0].data[2], ['SEO', 1]);
+
+  ds = CC.extract('waffle', FIXTURES.waffle); ds.series[0].values[0] = 50;
+  assert.deepStrictEqual(CC.withData('waffle', FIXTURES.waffle, ds).config.series[0].data[0], { name: 'Growth', y: 50, description: 'd1' });
+
+  ds = CC.extract('table', FIXTURES.table); ds.series[1].values[1] = 7;
+  const tbl = CC.withData('table', FIXTURES.table, ds).config;
+  assert.strictEqual(tbl.rows[1].q2, 7);
+  assert.strictEqual(tbl.rows[1].note, 'y', 'text column untouched');
+
+  ds = CC.extract('waterfall', FIXTURES.waterfall);
+  assert.deepStrictEqual(ds.series[0].locked, [false, false, false, true]);
+  ds.series[0].values[1] = 25; ds.series[0].values[3] = 12345;
+  const wf = CC.withData('waterfall', FIXTURES.waterfall, ds).config;
+  assert.deepStrictEqual(wf.series[0].data[1], { name: 'Price', y: 25 });
+  assert.deepStrictEqual(wf.series[0].data[3], { name: 'End', isSum: true }, 'a total stays computed');
+  assert.ok(Charts.validate('waterfall', wf).ok);
+});
+
+test('withData refuses added rows and keeps x-position categories', () => {
+  const ds = CC.extract('bar', FIXTURES.bar);
+  ds.categories.push('D'); ds.series[0].values.push(1);
+  assert.match(CC.withData('bar', FIXTURES.bar, ds).error, /added or removed/);
+  const dated = CC.extract('line', FIXTURES.lineDates);
+  assert.strictEqual(dated.categoryEditable, false);
+  dated.categories[0] = 'renamed';
+  const out = CC.withData('line', FIXTURES.lineDates, dated).config;
+  assert.strictEqual(out.series[0].data[0][0], Date.UTC(2026, 0, 1));
+});

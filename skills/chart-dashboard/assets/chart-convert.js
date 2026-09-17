@@ -113,7 +113,7 @@
     if (fam === 'steps') {
       var steps = (series[0] && series[0].data) || config.data || [];
       var run = 0;
-      var cats = [], vals = [], colors = [];
+      var cats = [], vals = [], colors = [], locked = [];
       steps.forEach(function (p, i) {
         var pt = readPoint(p);
         var total = p && typeof p === 'object' && (p.isSum || p.isIntermediateSum);
@@ -121,10 +121,14 @@
         else { vals.push(pt.y); if (isNum(pt.y)) run += pt.y; }
         cats.push(pt.name || (total ? 'Total' : 'Step ' + (i + 1)));
         colors.push(pt.color || null);
+        locked.push(!!total);
       });
       return vals.length ? {
-        kind: 'categorical', categories: cats, oneWay: true,
-        series: [{ name: (series[0] && series[0].name) || null, color: null, values: vals, colors: colors, descriptions: [] }]
+        kind: 'categorical', categories: cats, oneWay: true, categoryEditable: true,
+        series: [{ name: (series[0] && series[0].name) || null, color: null, values: vals, colors: colors, descriptions: [],
+          // A total is computed from the steps before it, so its value is not
+          // the reader's to type.
+          locked: locked }]
       } : null;
     }
 
@@ -144,10 +148,10 @@
       });
       if (!numeric.length || !rows.length) return null;
       return {
-        kind: 'categorical',
+        kind: 'categorical', categoryEditable: true,
         categories: rows.map(function (r) { return String(r.name != null ? r.name : ''); }),
         series: numeric.map(function (c) {
-          return { name: c.name || c.key, color: null, colors: [], descriptions: [],
+          return { key: c.key, name: c.name || c.key, color: null, colors: [], descriptions: [],
             values: rows.map(function (r) { return isNum(r[c.key]) ? r[c.key] : null; }) };
         }),
         dropped: cols.length - numeric.length
@@ -160,7 +164,7 @@
       return { name: s.name || null, color: s.color || null, points: (s.data || []).map(readPoint) };
     });
 
-    var categories;
+    var categories, categoryEditable = true;
     if (axisCats) {
       categories = axisCats;
     } else if (read[0].points.some(function (p) { return p.name != null; })) {
@@ -171,14 +175,17 @@
       var key = function (s) { return s.points.map(function (p) { return String(p.x); }).join('|'); };
       if (!read.every(function (s) { return key(s) === key(read[0]); })) return null;
       var dt = config.xAxis && config.xAxis.type === 'datetime';
+      categoryEditable = false;   // they are x positions, not names
       categories = read[0].points.map(function (p) { return dt ? dateLabel(p.x) : String(p.x); });
     } else {
       categories = read[0].points.map(function (p, i) { return String(i + 1); });
+      categoryEditable = false;
     }
 
     return {
       kind: 'categorical',
       categories: categories,
+      categoryEditable: categoryEditable,
       series: read.map(function (s) {
         return {
           name: s.name, color: s.color,
@@ -363,5 +370,110 @@
     return built;
   }
 
-  return { extract: extract, targets: targets, convert: convert, family: family, FIXED: FIXED };
+  // ── dataset → the same chart, with its own settings kept ───────────
+  // convert() rebuilds a config and drops what the new type doesn't use. When
+  // only the numbers or names change, everything else about the chart (sort
+  // order, stacking, point colours, descriptions, reference lines) must stay,
+  // so this writes the dataset back into a copy of the original config, point
+  // by point, in whatever shape each point was written.
+  function setPoint(p, y, name) {
+    if (p === null || p === undefined || isNum(p)) return y;
+    if (Array.isArray(p)) {
+      var a = p.slice();
+      if (typeof a[0] === 'string') { if (name != null) a[0] = name; a[1] = y; }
+      else a[a.length - 1] = y;
+      return a;
+    }
+    var o = clone(p);
+    if ('value' in o && !('y' in o)) o.value = y; else o.y = y;
+    if (name != null && 'name' in o) o.name = name;
+    return o;
+  }
+
+  /**
+   * A copy of `config` with the dataset's names and values written into it.
+   * The dataset must come from extract(type, config) and keep its sizes:
+   * this edits values, it never adds or removes rows or series. Returns
+   * { config } or { error }.
+   */
+  function withData(type, config, ds) {
+    var before = extract(type, config);
+    if (!before) return { error: 'This chart\'s data can\'t be edited here.' };
+    if (before.kind !== ds.kind) return { error: 'The data changed shape.' };
+    var cfg = clone(config);
+
+    if (ds.kind === 'values') {
+      if (ds.values.length !== before.values.length) return { error: 'The number of values changed.' };
+      var src = Array.isArray(cfg.data) ? cfg.data : cfg.series[0].data;
+      if (src.length !== before.values.length) {
+        return { error: 'Some values in this chart are not numbers, so it can\'t be edited here.' };
+      }
+      if (Array.isArray(cfg.data)) cfg.data = ds.values.slice();
+      else cfg.series[0].data = ds.values.slice();
+      return { config: cfg };
+    }
+
+    if (ds.kind === 'xy') {
+      var badXY = ds.series.length !== before.series.length || ds.series.some(function (s, i) {
+        return s.points.length !== before.series[i].points.length;
+      });
+      if (badXY) return { error: 'The number of points changed.' };
+      // extract() skips points without numbers; only write back when none
+      // were skipped, so indexes line up.
+      if (cfg.series.some(function (s, i) { return (s.data || []).length !== before.series[i].points.length; })) {
+        return { error: 'Some points in this chart have no numbers, so it can\'t be edited here.' };
+      }
+      ds.series.forEach(function (s, i) {
+        if (s.name != null) cfg.series[i].name = s.name;
+        cfg.series[i].data = cfg.series[i].data.map(function (p, j) {
+          var q = s.points[j];
+          if (Array.isArray(p)) return p.length > 2 ? [q.x, q.y, q.z] : [q.x, q.y];
+          var o = clone(p); o.x = q.x; o.y = q.y; if ('z' in o) o.z = q.z; return o;
+        });
+      });
+      return { config: cfg };
+    }
+
+    // categorical
+    var k = before.categories.length;
+    if (ds.categories.length !== k || ds.series.length !== before.series.length ||
+        ds.series.some(function (s) { return s.values.length !== k; })) {
+      return { error: 'Rows or series were added or removed; only values can change.' };
+    }
+    var cats = before.categoryEditable ? ds.categories : before.categories;
+
+    if (type === 'table') {
+      cfg.rows.forEach(function (r, j) {
+        r.name = cats[j];
+        ds.series.forEach(function (s) { r[s.key] = s.values[j]; });
+      });
+      cfg.columns.forEach(function (c) {
+        ds.series.forEach(function (s) { if (s.key === c.key && s.name) c.name = s.name; });
+      });
+      return { config: cfg };
+    }
+
+    if (type === 'waterfall') {
+      var pts = cfg.series && cfg.series[0] && cfg.series[0].data ? cfg.series[0].data : cfg.data;
+      pts.forEach(function (p, j) {
+        var total = p && typeof p === 'object' && (p.isSum || p.isIntermediateSum);
+        var named = p && typeof p === 'object' && !Array.isArray(p) && p.name != null;
+        if (total) { if (named || cats[j] !== 'Total') p.name = cats[j]; return; }
+        pts[j] = setPoint(p, ds.series[0].values[j], cats[j]);
+      });
+      if (cfg.series && cfg.series[0] && ds.series[0].name) cfg.series[0].name = ds.series[0].name;
+      return { config: cfg };
+    }
+
+    if (cfg.xAxis && Array.isArray(cfg.xAxis.categories)) cfg.xAxis.categories = cats.slice();
+    cfg.series.forEach(function (s, i) {
+      var d = ds.series[i];
+      if (d.name) s.name = d.name;
+      s.data = (s.data || []).map(function (p, j) { return setPoint(p, d.values[j], cats[j]); });
+    });
+    return { config: cfg };
+  }
+
+  return { extract: extract, targets: targets, convert: convert, withData: withData, family: family, FIXED: FIXED };
+
 });

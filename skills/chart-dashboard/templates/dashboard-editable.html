@@ -170,9 +170,11 @@ Charts.applyPalette({ n0: '…', n0a: '…', n1: '…', n8: '…', s1: '…', s2
 })();
 </script>
 <!-- chart-convert.js lets a chart switch type; page-runtime.js draws every
-     chart in #page-spec and exposes window.Page for the editor.
+     chart in #page-spec and exposes window.Page; page-editor.js adds the
+     "Edit page" button.
      No other chart code on an editable page. -->
 <script src="charts-lib/chart-convert.js"></script>
 <script src="charts-lib/page-runtime.js"></script>
+<script src="charts-lib/page-editor.js"></script>
 </body>
 </html>
