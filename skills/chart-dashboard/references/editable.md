@@ -243,7 +243,12 @@ locked (there should be none).
       chart cells as comma-separated values. Values stay editable after a
       column switch turns cells into named slices. A cell holding a richer
       chart is changed only through its column's type.
-    - *Style* has nothing to change.
+    - *Style* sets **column widths**. Each column has a slider (starting at
+      its current drawn width), a pixel field and *Auto*. A fixed width is
+      stored as `column.width`. It is at least 60px, and a pie or donut column
+      at least 220px, the floor the library keeps for its labels. Auto removes
+      the width, so text columns stop at a comfortable width and chart columns
+      share the rest.
   - **Bar insight table.**
     - *Data* shows each row's name, bar values, insight, description, stat
       and stat note. Empty text removes that field, so an empty stat lets

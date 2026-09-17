@@ -174,6 +174,13 @@
     'label.f .pair input{margin-top:0}',
     'label.f .pair input.num{flex:0 0 96px;text-align:right}',
     'label.f small{display:block;color:#888;font-size:11px;margin-top:3px}',
+    '.wrow{margin:0 0 12px}',
+    '.wlbl{display:flex;justify-content:space-between;gap:8px;font-size:13px;margin:0 0 4px}',
+    '.wlbl span{color:#777;font-size:11px}',
+    '.wctl{display:flex;align-items:center;gap:6px}',
+    '.wctl input[type=range]{flex:1;min-width:0;accent-color:#2f6bff}',
+    '.wctl .hex{width:64px;text-align:right}',
+    '.wctl .px{font-size:11px;color:#777}',
     'label.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer}',
     'label.chk input{width:16px;height:16px;margin:0}'
   ].join('\n');
@@ -622,7 +629,65 @@
     body.appendChild(picker);
   }
 
+  // Report table: fix a column's width, or leave it automatic. The slider and
+  // the number box move together; a change applies when the slider is let go
+  // or the number is entered, as one undo step.
+  function widthTab(body, id, entry) {
+    var R = window.ChartConvert.report;
+    body.appendChild(el('h4', { text: 'Column widths' }));
+    body.appendChild(el('p', { class: 'hint', text: 'Auto lets the table decide: text columns stop at a comfortable width and chart columns share the rest. Set a width in pixels to fix a column; a text column never gets narrower than its longest word.' }));
+    var cellEl = document.getElementById(id);
+    var room = cellEl ? cellEl.clientWidth : 0;
+    var cols = R.widths(entry.config);
+    // Drawn widths, measured from where each column's header starts, so an
+    // automatic column's slider sits at the width it actually has.
+    var drawn = {};
+    if (cellEl) {
+      var texts = Array.prototype.slice.call(cellEl.querySelectorAll('text'));
+      var box = cellEl.getBoundingClientRect();
+      var lefts = cols.map(function (c) {
+        var t = texts.filter(function (n) { return n.textContent === c.name; })[0];
+        return t ? t.getBoundingClientRect().left - box.left : null;
+      });
+      cols.forEach(function (c, i) {
+        var next = lefts[i + 1] != null ? lefts[i + 1] : box.width - 20;
+        if (lefts[i] != null && next > lefts[i]) drawn[c.key] = Math.round(next - lefts[i]);
+      });
+    }
+    cols.forEach(function (c) {
+      var auto = c.width == null;
+      var start = c.width != null ? c.width : (drawn[c.key] || 160);
+      var slider = el('input', { type: 'range', min: c.min, max: Math.max(R.MIN_WIDTH + 40, Math.min(R.MAX_WIDTH, room || 800)), step: 5, 'aria-label': c.name + ' width' });
+      slider.value = start;
+      var num = el('input', { type: 'text', class: 'hex', inputmode: 'numeric', 'aria-label': c.name + ' width in pixels' });
+      num.value = auto ? '' : String(c.width);
+      num.placeholder = 'Auto';
+      var autoBtn = el('button', { class: 'btn', disabled: auto, onclick: function () { apply(null); } }, ['Auto']);
+      function apply(px) {
+        var err = applyConfig(id, R.setWidth(Page.getChart(id).config, c.key, px));
+        flash = err ? { kind: 'err', text: err } : null;
+        renderPanel();
+        place();
+      }
+      slider.addEventListener('input', function () { num.value = slider.value; });
+      slider.addEventListener('change', function () { apply(+slider.value); });
+      num.addEventListener('change', function () {
+        var v = num.value.trim();
+        if (v === '') return apply(null);
+        if (!/^\d+$/.test(v)) { num.classList.add('bad'); return; }
+        if (+v < c.min) num.value = String(c.min);
+        apply(+v);
+      });
+      num.addEventListener('keydown', function (e) { if (e.key === 'Enter') num.blur(); });
+      body.appendChild(el('div', { class: 'wrow' }, [
+        el('div', { class: 'wlbl' }, [el('b', { text: c.name }), el('span', { text: c.kind + (auto ? ' \u00B7 auto' + (drawn[c.key] ? ', about ' + drawn[c.key] + 'px' : '') : ' \u00B7 ' + c.width + 'px') + (c.min > R.MIN_WIDTH ? ' \u00B7 min ' + c.min : '') })]),
+        el('div', { class: 'wctl' }, [slider, num, el('span', { class: 'px', text: 'px' }), autoBtn])
+      ]));
+    });
+  }
+
   function styleTab(body, id, entry) {
+    if (entry.type === 'reportTable') return widthTab(body, id, entry);
     var ST = window.ChartConvert && window.ChartConvert.style;
     var T = window.Charts && Charts.theme;
     var opts = ST ? ST.options(entry.type, entry.config) : {};

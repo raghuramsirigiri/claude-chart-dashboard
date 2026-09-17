@@ -267,24 +267,30 @@ const MORE = {
       { insight: 'Margin', description: 'Mix shift to software', stat: '+33%' }],
     plotOptions: { barInsightTable: { valueSuffix: 'M', statColorBySign: true } },
     series: [{ name: 'FY25', data: [1000, 400, 600] }, { name: 'FY26', data: [1300, 500, 800] }] },
-  reportTable: { title: 'Q3 business review',
+  reportTable: { title: 'Q3 business review', subtitle: 'Three chart columns, an insight, a KPI and owner notes',
     columns: [
       { key: 'trend', kind: 'chart', name: 'Last six months', chart: { type: 'line' } },
+      { key: 'quarters', kind: 'chart', name: 'By quarter', chart: { type: 'column', xAxis: { categories: ['Q1', 'Q2', 'Q3', 'Q4'] } } },
+      { key: 'mix', kind: 'chart', name: 'Mix', chart: { type: 'donut' } },
       { key: 'why', kind: 'insight', name: 'What happened' },
       { key: 'yoy', kind: 'kpi', name: 'YoY', suffix: '%', decimals: 1, colorBySign: true },
       { key: 'note', kind: 'text', name: 'Owner notes' }],
     rows: [
-      { name: 'Revenue', trend: [41, 44, 43, 48, 51, 55], why: { head: 'Topline growth', body: 'Renewals landed early.' },
+      { name: 'Revenue', trend: [41, 44, 43, 48, 51, 55], quarters: [120, 131, 138, 152],
+        mix: { series: [{ name: 'Revenue', data: [['New', 48], ['Expansion', 31], ['Renewal', 21]] }] },
+        why: { head: 'Topline growth', body: 'Renewals landed early.' },
         yoy: { value: 12.4, note: 'vs 9.0% plan' }, note: 'Expect a softer October.' },
-      { name: 'Churn', trend: [6, 5, 5, 4, 4, 3], why: { head: 'Fewer cancellations', body: 'Onboarding fix held.' },
-        yoy: -2.1, note: 'Watch enterprise renewals.' }] },
-  geofacet: { title: 'EV adoption', subtitle: '% of new car sales',
-    chart: { variant: 'bar', grid: [{ code: 'WA', row: 0, col: 0, name: 'Washington' }, { code: 'CO', row: 0, col: 1, name: 'Colorado' },
-      { code: 'NY', row: 0, col: 2, name: 'New York' }, { code: 'CA', row: 1, col: 0, name: 'California' },
-      { code: 'TX', row: 1, col: 1, name: 'Texas' }, { code: 'FL', row: 1, col: 2, name: 'Florida' }] },
-    plotOptions: { geofacet: { max: 100, valueSuffix: '%' } },
-    series: [{ data: [{ code: 'CA', value: 38 }, { code: 'WA', value: 29 }, { code: 'NY', value: 14 },
-      { code: 'TX', value: 9 }, { code: 'FL', value: 11 }, { code: 'CO', value: 24 }] }] },
+      { name: 'Churn', trend: [6, 5, 5, 4, 4, 3], quarters: [18, 16, 14, 12],
+        mix: { series: [{ name: 'Churn', data: [['Price', 40], ['Product', 35], ['Other', 25]] }] },
+        why: { head: 'Fewer cancellations', body: 'Onboarding fix held.' },
+        yoy: -2.1, note: 'Watch enterprise renewals.' },
+      { name: 'Margin', trend: [61, 62, 62, 63, 64, 66], quarters: [60, 62, 63, 65],
+        mix: { series: [{ name: 'Margin', data: [['Software', 58], ['Services', 30], ['Hardware', 12]] }] },
+        why: { head: 'Mix shift', body: 'Software grew faster than services.' },
+        yoy: { value: 3.2, note: 'points' }, note: 'Hold pricing through Q4.' }] },
+  geofacet: { title: 'EV adoption by state', subtitle: '% of new car sales', chart: { variant: 'bar' },
+    plotOptions: { geofacet: { max: 40, valueSuffix: '%' } },
+    series: [{ data: [{code: 'AL',value: 3}, {code: 'AK',value: 4}, {code: 'AZ',value: 12}, {code: 'AR',value: 3}, {code: 'CA',value: 38}, {code: 'CO',value: 24}, {code: 'CT',value: 13}, {code: 'DE',value: 11}, {code: 'DC',value: 22}, {code: 'FL',value: 11}, {code: 'GA',value: 8}, {code: 'HI',value: 21}, {code: 'ID',value: 6}, {code: 'IL',value: 12}, {code: 'IN',value: 5}, {code: 'IA',value: 4}, {code: 'KS',value: 5}, {code: 'KY',value: 4}, {code: 'LA',value: 3}, {code: 'ME',value: 10}, {code: 'MD',value: 15}, {code: 'MA',value: 16}, {code: 'MI',value: 7}, {code: 'MN',value: 10}, {code: 'MS',value: 2}, {code: 'MO',value: 6}, {code: 'MT',value: 6}, {code: 'NE',value: 5}, {code: 'NV',value: 17}, {code: 'NH',value: 10}, {code: 'NJ',value: 19}, {code: 'NM',value: 8}, {code: 'NY',value: 14}, {code: 'NC',value: 9}, {code: 'ND',value: 3}, {code: 'OH',value: 7}, {code: 'OK',value: 5}, {code: 'OR',value: 22}, {code: 'PA',value: 9}, {code: 'RI',value: 11}, {code: 'SC',value: 6}, {code: 'SD',value: 3}, {code: 'TN',value: 6}, {code: 'TX',value: 9}, {code: 'UT',value: 13}, {code: 'VT',value: 17}, {code: 'VA',value: 13}, {code: 'WA',value: 29}, {code: 'WV',value: 3}, {code: 'WI',value: 6}, {code: 'WY',value: 4}] }] },
   panels: { title: 'Q3 commercial review', subtitle: 'Bookings, revenue mix and top accounts',
     plotOptions: { panels: { columns: 3, panelHeight: 260 } },
     charts: [
@@ -338,10 +344,13 @@ test('bar insight table colours: stats, sign, bars', () => {
 
 test('geofacet: region values and tile types', () => {
   const rec = CC.records('geofacet', MORE.geofacet);
-  assert.deepStrictEqual(rec.rows[0], { code: 'CA', name: '', value: 38 });
-  rec.rows[0].value = 40; rec.rows[1].name = 'Washington';
+  const ca = rec.rows.findIndex(r => r.code === 'CA'), wa = rec.rows.findIndex(r => r.code === 'WA');
+  assert.strictEqual(rec.rows.length, 51);
+  assert.deepStrictEqual(rec.rows[ca], { code: 'CA', name: '', value: 38 });
+  rec.rows[ca].value = 40; rec.rows[wa].name = 'Washington';
   const out = CC.withRecords('geofacet', MORE.geofacet, rec).config;
-  assert.deepStrictEqual(out.series[0].data.slice(0, 2), [{ code: 'CA', value: 40 }, { code: 'WA', value: 29, name: 'Washington' }]);
+  assert.deepStrictEqual(out.series[0].data[ca], { code: 'CA', value: 40 });
+  assert.deepStrictEqual(out.series[0].data[wa], { code: 'WA', value: 29, name: 'Washington' });
   const obj = { series: [{ data: { CA: 1, TX: 2 } }] };
   const r2 = CC.records('geofacet', obj); r2.rows[1].value = 5;
   assert.deepStrictEqual(CC.withRecords('geofacet', obj, r2).config.series[0].data, { CA: 1, TX: 5 });
@@ -353,18 +362,18 @@ test('geofacet: region values and tile types', () => {
 
 test('report table: cells of every kind', () => {
   const rec = CC.records('reportTable', MORE.reportTable);
-  assert.deepStrictEqual(rec.columns.map(c => c.kind), ['chart', 'insight', 'kpi', 'text']);
-  assert.deepStrictEqual(rec.rows[1].cells, { trend: { values: [6, 5, 5, 4, 4, 3] }, why: { head: 'Fewer cancellations', body: 'Onboarding fix held.' }, yoy: { value: -2.1, note: '' }, note: { text: 'Watch enterprise renewals.' } });
+  assert.deepStrictEqual(rec.columns.map(c => c.kind), ['chart', 'chart', 'chart', 'insight', 'kpi', 'text']);
+  assert.deepStrictEqual(rec.rows[1].cells, { trend: { values: [6, 5, 5, 4, 4, 3] }, quarters: { values: [18, 16, 14, 12] }, mix: { values: [40, 35, 25] }, why: { head: 'Fewer cancellations', body: 'Onboarding fix held.' }, yoy: { value: -2.1, note: '' }, note: { text: 'Watch enterprise renewals.' } });
   rec.rows[0].cells.yoy.value = 15; rec.rows[1].cells.yoy.note = 'best in a year';
   rec.rows[0].cells.why.body = 'Edited.'; rec.rows[1].cells.trend.values[5] = 2; rec.rows[0].name = 'Net revenue';
-  rec.columns[3].name = 'Notes';
+  rec.columns[5].name = 'Notes';
   const out = CC.withRecords('reportTable', MORE.reportTable, rec).config;
   assert.deepStrictEqual(out.rows[0].yoy, { value: 15, note: 'vs 9.0% plan' });
   assert.deepStrictEqual(out.rows[1].yoy, { value: -2.1, note: 'best in a year' });
   assert.strictEqual(out.rows[0].why.body, 'Edited.');
   assert.deepStrictEqual(out.rows[1].trend, [6, 5, 5, 4, 4, 2]);
   assert.strictEqual(out.rows[0].name, 'Net revenue');
-  assert.strictEqual(out.columns[3].name, 'Notes');
+  assert.strictEqual(out.columns[5].name, 'Notes');
   assert.ok(Charts.validate('reportTable', out).ok);
 });
 
@@ -400,4 +409,18 @@ test('report table: switching a chart column converts every row', () => {
       assert.ok(v.ok, t.type + ': ' + v.errors.join('; '));
     }
   }
+});
+
+test('report table column widths', () => {
+  const w = CC.report.widths(MORE.reportTable);
+  assert.deepStrictEqual(w.map(c => [c.key, c.width]), [['trend', null], ['quarters', null], ['mix', null], ['why', null], ['yoy', null], ['note', null]]);
+  const set = CC.report.setWidth(MORE.reportTable, 'mix', 220).config;
+  assert.strictEqual(set.columns[2].width, 220);
+  assert.ok(Charts.validate('reportTable', set).ok);
+  assert.strictEqual(CC.report.widths(set)[2].width, 220);
+  assert.ok(!('width' in CC.report.setWidth(set, 'mix', null).config.columns[2]), 'Auto removes the width');
+  assert.strictEqual(CC.report.setWidth(MORE.reportTable, 'trend', 10).config.columns[0].width, CC.report.MIN_WIDTH, 'clamped to the minimum');
+  assert.strictEqual(CC.report.setWidth(MORE.reportTable, 'mix', 120).config.columns[2].width, 220, 'a donut column keeps room for its labels');
+  assert.strictEqual(w[2].min, 220);
+  assert.match(CC.report.setWidth(MORE.reportTable, 'nope', 100).error, /No column/);
 });

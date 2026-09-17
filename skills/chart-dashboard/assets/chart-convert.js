@@ -756,6 +756,37 @@
     return { config: cfg };
   }
 
+  // ── report table column widths ─────────────────────────────────────
+  // column.width fixes a column at that many pixels (the library keeps a
+  // text column at least as wide as its longest word, and a chart column at
+  // 60px or more). No width means automatic: text columns stop at their
+  // preferred width and chart columns share what is left.
+  var MIN_WIDTH = 60, MAX_WIDTH = 1200;
+  // The library keeps pie and donut columns at 220px or more on its own, but
+  // a fixed width bypasses that floor; keep it here so labels still fit.
+  var RING_MIN = 220;
+  function minWidthOf(col) {
+    return col && col.kind === 'chart' && col.chart && (col.chart.type === 'pie' || col.chart.type === 'donut') ? RING_MIN : MIN_WIDTH;
+  }
+  function columnWidths(config) {
+    return (config.columns || []).map(function (c) {
+      return { key: c.key, name: textOf(c.name || c.key), kind: c.kind, min: minWidthOf(c),
+        width: isNum(+c.width) && c.width != null ? +c.width : null };
+    });
+  }
+  function setColumnWidth(config, key, px) {
+    var cfg = clone(config);
+    var col = (cfg.columns || []).filter(function (c) { return c.key === key; })[0];
+    if (!col) return { error: 'No column "' + key + '".' };
+    if (px == null || px === '') delete col.width;
+    else {
+      var n = Math.round(+px);
+      if (!isFinite(n)) return { error: 'A width is a number of pixels.' };
+      col.width = Math.max(minWidthOf(col), Math.min(MAX_WIDTH, n));
+    }
+    return { config: cfg };
+  }
+
   // ── bar insight table stats, geofacet tiles ────────────────────────
   function statColour(config, j, color) {
     var cfg = clone(config);
@@ -969,7 +1000,8 @@
 
   return { extract: extract, targets: targets, convert: convert, withData: withData, family: family, FIXED: FIXED,
     records: records, withRecords: withRecords,
-    report: { targets: reportChartTargets, switchChart: switchReportChart },
+    report: { targets: reportChartTargets, switchChart: switchReportChart,
+      widths: columnWidths, setWidth: setColumnWidth, MIN_WIDTH: MIN_WIDTH, MAX_WIDTH: MAX_WIDTH },
     insight: { statColour: statColour, statColourOf: statColourOf, statsBySign: statsBySign },
     tiles: { list: TILES, variant: tileVariant, set: setTileVariant },
     style: { options: styleOptions, sort: sortBy, highlight: highlight, highlighted: highlighted,
