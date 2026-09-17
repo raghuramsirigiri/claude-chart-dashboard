@@ -181,6 +181,7 @@
     '.wctl input[type=range]{flex:1;min-width:0;accent-color:#2f6bff}',
     '.wctl .hex{width:64px;text-align:right}',
     '.wctl .px{font-size:11px;color:#777}',
+    '.wtotal{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px;padding-top:8px;border-top:1px solid #eee;font-size:13px;font-weight:600}',
     'label.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer}',
     'label.chk input{width:16px;height:16px;margin:0}'
   ].join('\n');
@@ -629,61 +630,111 @@
     body.appendChild(picker);
   }
 
-  // Report table: fix a column's width, or leave it automatic. The slider and
-  // the number box move together; a change applies when the slider is let go
-  // or the number is entered, as one undo step.
-  function widthTab(body, id, entry) {
-    var R = window.ChartConvert.report;
-    body.appendChild(el('h4', { text: 'Column widths' }));
-    body.appendChild(el('p', { class: 'hint', text: 'Auto lets the table decide: text columns stop at a comfortable width and chart columns share the rest. Set a width in pixels to fix a column; a text column never gets narrower than its longest word.' }));
-    var cellEl = document.getElementById(id);
-    var room = cellEl ? cellEl.clientWidth : 0;
-    var cols = R.widths(entry.config);
-    // Drawn widths, measured from where each column's header starts, so an
-    // automatic column's slider sits at the width it actually has.
-    var drawn = {};
-    if (cellEl) {
-      var texts = Array.prototype.slice.call(cellEl.querySelectorAll('text'));
-      var box = cellEl.getBoundingClientRect();
-      var lefts = cols.map(function (c) {
-        var t = texts.filter(function (n) { return n.textContent === c.name; })[0];
-        return t ? t.getBoundingClientRect().left - box.left : null;
-      });
-      cols.forEach(function (c, i) {
-        var next = lefts[i + 1] != null ? lefts[i + 1] : box.width - 20;
-        if (lefts[i] != null && next > lefts[i]) drawn[c.key] = Math.round(next - lefts[i]);
+  // Report table: column widths as shares of the table, totalling 100%.
+  // The table keeps its overall width; the last column is whatever the
+  // others leave. A change applies when the slider is let go or a number is
+  // entered, as one undo step.
+  // Each column's drawn width, read from the table's own SVG. A header is
+  // drawn 8px inside its column on the side it is aligned to (left, right or
+  // centre), and the header rule runs to the table's right edge, so the
+  // column edges can be recovered; an edge no header gives is interpolated.
+  function drawnColumnPx(cellEl, cols) {
+    var out = {};
+    var svg = cellEl && cellEl.querySelector('svg');
+    if (!svg || !cols.length) return out;
+    var PAD = 8, gutter = (Charts.theme && Charts.theme.headingGutter) || 20;
+    var right = 0;
+    Array.prototype.forEach.call(svg.querySelectorAll('line'), function (l) {
+      if (Math.abs(+l.getAttribute('x1') - gutter) < 0.5) right = Math.max(right, +l.getAttribute('x2'));
+    });
+    var texts = Array.prototype.slice.call(svg.querySelectorAll('text'));
+    var n = cols.length, edges = new Array(n + 1).fill(null), mids = new Array(n).fill(null);
+    edges[n] = right || null;
+    cols.forEach(function (c, i) {
+      var t = texts.filter(function (x) { return x.textContent === c.name; })[0];
+      if (!t) return;
+      var x = +t.getAttribute('x'), a = t.getAttribute('text-anchor') || 'start';
+      if (a === 'end') edges[i + 1] = edges[i + 1] != null ? edges[i + 1] : x + PAD;
+      else if (a === 'middle') mids[i] = x;
+      else edges[i] = edges[i] != null ? edges[i] : x - PAD;
+    });
+    // A centred header fixes an edge once its other edge is known.
+    for (var pass = 0; pass < n; pass++) {
+      mids.forEach(function (m, i) {
+        if (m == null) return;
+        if (edges[i] != null && edges[i + 1] == null) edges[i + 1] = 2 * m - edges[i];
+        else if (edges[i + 1] != null && edges[i] == null) edges[i] = 2 * m - edges[i + 1];
       });
     }
-    cols.forEach(function (c) {
-      var auto = c.width == null;
-      var start = c.width != null ? c.width : (drawn[c.key] || 160);
-      var slider = el('input', { type: 'range', min: c.min, max: Math.max(R.MIN_WIDTH + 40, Math.min(R.MAX_WIDTH, room || 800)), step: 5, 'aria-label': c.name + ' width' });
-      slider.value = start;
-      var num = el('input', { type: 'text', class: 'hex', inputmode: 'numeric', 'aria-label': c.name + ' width in pixels' });
-      num.value = auto ? '' : String(c.width);
-      num.placeholder = 'Auto';
-      var autoBtn = el('button', { class: 'btn', disabled: auto, onclick: function () { apply(null); } }, ['Auto']);
-      function apply(px) {
-        var err = applyConfig(id, R.setWidth(Page.getChart(id).config, c.key, px));
-        flash = err ? { kind: 'err', text: err } : null;
-        renderPanel();
-        place();
+    // Interpolate any edge still unknown between its known neighbours.
+    for (var i = 0; i <= n; i++) {
+      if (edges[i] != null) continue;
+      var lo = i - 1; while (lo >= 0 && edges[lo] == null) lo--;
+      var hi = i + 1; while (hi <= n && edges[hi] == null) hi++;
+      if (lo < 0 || hi > n) continue;
+      edges[i] = edges[lo] + (edges[hi] - edges[lo]) * (i - lo) / (hi - lo);
+    }
+    cols.forEach(function (c, i) {
+      if (edges[i] != null && edges[i + 1] != null && edges[i + 1] > edges[i]) out[c.key] = Math.round(edges[i + 1] - edges[i]);
+    });
+    return out;
+  }
+
+  function widthTab(body, id, entry) {
+    var R = window.ChartConvert.report;
+    var cellEl = document.getElementById(id);
+    var cols = R.widths(entry.config);
+    var drawn = drawnColumnPx(cellEl, cols);
+    var room = Object.keys(drawn).reduce(function (a, k) { return a + drawn[k]; }, 0) || (cellEl ? cellEl.clientWidth * 0.8 : 1000);
+    var auto = cols.length && cols[0].pct == null;
+    // While automatic, show the shares the table has now.
+    var shown = auto ? R.widths(R.initPercents(entry.config, drawn).config) : cols;
+
+    body.appendChild(el('h4', { text: 'Column widths' }));
+    body.appendChild(el('p', { class: 'hint', text: 'Each column takes a share of the table, and the shares total 100%. The table stays the same width: when you change a column, the last column grows or shrinks to make up the difference.' }));
+    function apply(out, key, asked) {
+      var err = applyConfig(id, out);
+      flash = err ? { kind: 'err', text: err } : null;
+      if (!err && key != null && out && out.config) {
+        var got = R.widths(out.config).filter(function (c) { return c.key === key; })[0];
+        if (got && Math.abs(got.pct - asked) >= 0.1) {
+          flash = { kind: 'info', text: 'Set to ' + got.pct + '% instead of ' + asked + '%: ' +
+            (got.pct < asked ? 'the last column can\u2019t get narrower than its minimum.' : 'this column has a minimum width.') };
+        }
       }
+      renderPanel();
+      place();
+    }
+    var total = 0;
+    shown.forEach(function (c, i) {
+      var isLast = i === shown.length - 1;
+      total += c.pct;
+      var slider = el('input', { type: 'range', min: 0, max: 100, step: 1, disabled: isLast, 'aria-label': c.name + ' width' });
+      slider.value = c.pct;
+      var num = el('input', { type: 'text', class: 'hex', inputmode: 'decimal', disabled: isLast, 'aria-label': c.name + ' width in percent' });
+      num.value = String(c.pct);
       slider.addEventListener('input', function () { num.value = slider.value; });
-      slider.addEventListener('change', function () { apply(+slider.value); });
+      slider.addEventListener('change', function () { apply(R.setPercent(Page.getChart(id).config, c.key, +slider.value, room, drawn), c.key, +slider.value); });
       num.addEventListener('change', function () {
-        var v = num.value.trim();
-        if (v === '') return apply(null);
-        if (!/^\d+$/.test(v)) { num.classList.add('bad'); return; }
-        if (+v < c.min) num.value = String(c.min);
-        apply(+v);
+        var v = parseFloat(num.value);
+        if (!isFinite(v)) { num.classList.add('bad'); return; }
+        apply(R.setPercent(Page.getChart(id).config, c.key, v, room, drawn), c.key, v);
       });
       num.addEventListener('keydown', function (e) { if (e.key === 'Enter') num.blur(); });
+      // Fixed shares give exact pixels; automatic widths are measured.
+      var px = auto ? drawn[c.key] : Math.round(c.pct / 100 * room);
+      var note = c.kind + (isLast ? ' \u00B7 takes the rest' : '') + (auto ? ' \u00B7 auto' : '') +
+        (px ? ' \u00B7 about ' + px + 'px' : '');
       body.appendChild(el('div', { class: 'wrow' }, [
-        el('div', { class: 'wlbl' }, [el('b', { text: c.name }), el('span', { text: c.kind + (auto ? ' \u00B7 auto' + (drawn[c.key] ? ', about ' + drawn[c.key] + 'px' : '') : ' \u00B7 ' + c.width + 'px') + (c.min > R.MIN_WIDTH ? ' \u00B7 min ' + c.min : '') })]),
-        el('div', { class: 'wctl' }, [slider, num, el('span', { class: 'px', text: 'px' }), autoBtn])
+        el('div', { class: 'wlbl' }, [el('b', { text: c.name }), el('span', { text: note })]),
+        el('div', { class: 'wctl' }, [slider, num, el('span', { class: 'px', text: '%' })])
       ]));
     });
+    body.appendChild(el('div', { class: 'wtotal' }, [
+      el('span', { text: 'Total ' + (Math.round(total * 10) / 10) + '%' }),
+      el('button', { class: 'btn', disabled: auto, onclick: function () { apply(R.clearWidths(Page.getChart(id).config)); } }, ['Automatic widths'])
+    ]));
+    if (auto) body.appendChild(el('p', { class: 'hint', text: 'Widths are automatic now. Change any column to fix them as shares.' }));
   }
 
   function styleTab(body, id, entry) {

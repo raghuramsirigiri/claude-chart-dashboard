@@ -193,10 +193,68 @@
       el.textContent = 'Unknown chart type: ' + entry.type;
       return null;
     }
+    if (entry.type === 'reportTable' && window.ChartConvert && ChartConvert.report &&
+        ChartConvert.report.percentPixels(entry.config, 100)) {
+      handles[id] = drawPercentTable(id, el, entry.config);
+      return handles[id];
+    }
     // A copy, so an engine that fills defaults into its config never writes
     // them back into the spec that gets saved.
     handles[id] = Charts[entry.type](id, clone(entry.config || {}));
     return handles[id];
+  }
+
+  // A report table whose columns carry widthPct. The library only takes
+  // pixel widths, and it shares the table's width between the row labels and
+  // the columns; fixed columns that leave room over make the table narrower,
+  // and too much makes it scroll. So: guess the columns' room, draw, read the
+  // width the table actually took (its header rule runs from the left gutter
+  // to the table's right edge), and correct the guess. Two or three draws
+  // settle it. It redraws the same way when its container changes width.
+  function drawPercentTable(id, el, config) {
+    var R = ChartConvert.report;
+    var gutter = (Charts.theme && Charts.theme.headingGutter) || 20;
+    var inner = null, ro = null, lastW = 0;
+    function contentWidth() {
+      var lines = el.querySelectorAll('svg line');
+      var best = 0;
+      for (var i = 0; i < lines.length; i++) {
+        if (Math.abs(+lines[i].getAttribute('x1') - gutter) < 0.5) best = Math.max(best, +lines[i].getAttribute('x2') - gutter);
+      }
+      return best;
+    }
+    function render() {
+      var W = el.clientWidth || 800;
+      lastW = W;
+      var target = W - gutter * 2;
+      var room = Math.max(60, target - 200);   // first guess: the labels take ~200px
+      for (var pass = 0; pass < 3; pass++) {
+        var cfg = clone(config);
+        var px = R.percentPixels(cfg, room);
+        cfg.columns.forEach(function (c, k) { c.width = px[k]; delete c.widthPct; });
+        cfg.chart = Object.assign({}, cfg.chart, { responsive: false });
+        if (inner) inner.destroy();
+        inner = Charts.reportTable(el, cfg);
+        if (inner.error) return;
+        var diff = target - contentWidth();
+        if (Math.abs(diff) <= 1) return;
+        room = Math.max(60, room + diff);
+      }
+    }
+    render();
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(function () {
+        if (Math.abs((el.clientWidth || 0) - lastW) >= 2 && el.clientWidth > 0) render();
+      });
+      ro.observe(el);
+    }
+    var handle = {
+      redraw: function () { render(); },
+      getData: function () { return inner ? inner.getData() : null; },
+      destroy: function () { if (ro) ro.disconnect(); if (inner) inner.destroy(); inner = null; }
+    };
+    Object.defineProperty(handle, 'error', { get: function () { return inner ? inner.error || null : null; } });
+    return handle;
   }
 
   function grids() { return Array.prototype.slice.call(document.querySelectorAll('.bento')); }

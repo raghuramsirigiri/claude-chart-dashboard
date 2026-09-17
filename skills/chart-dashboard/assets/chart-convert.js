@@ -757,34 +757,96 @@
   }
 
   // ── report table column widths ─────────────────────────────────────
-  // column.width fixes a column at that many pixels (the library keeps a
-  // text column at least as wide as its longest word, and a chart column at
-  // 60px or more). No width means automatic: text columns stop at their
-  // preferred width and chart columns share what is left.
-  var MIN_WIDTH = 60, MAX_WIDTH = 1200;
-  // The library keeps pie and donut columns at 220px or more on its own, but
-  // a fixed width bypasses that floor; keep it here so labels still fit.
-  var RING_MIN = 220;
+  // Widths are shares of the columns' room, stored as column.widthPct and
+  // always totalling 100, so the table keeps its overall width: changing one
+  // column moves the difference into the last column, which is the rest.
+  // The library ignores widthPct; page-runtime.js turns the shares into
+  // pixels when it draws. No widthPct anywhere means automatic widths.
+  // Floors in pixels the library would enforce anyway: 60px for any column,
+  // and 220px for a pie or donut column so its slice labels fit.
+  var MIN_WIDTH = 60, RING_MIN = 220;
   function minWidthOf(col) {
     return col && col.kind === 'chart' && col.chart && (col.chart.type === 'pie' || col.chart.type === 'donut') ? RING_MIN : MIN_WIDTH;
   }
+  function round1(n) { return Math.round(n * 10) / 10; }
+
+  /** [{ key, name, kind, minPx, pct }]; pct is null while widths are automatic. */
   function columnWidths(config) {
-    return (config.columns || []).map(function (c) {
-      return { key: c.key, name: textOf(c.name || c.key), kind: c.kind, min: minWidthOf(c),
-        width: isNum(+c.width) && c.width != null ? +c.width : null };
+    var cols = config.columns || [];
+    var set = cols.length > 0 && cols.every(function (c) { return isNum(c.widthPct); });
+    return cols.map(function (c) {
+      return { key: c.key, name: textOf(c.name || c.key), kind: c.kind, minPx: minWidthOf(c), pct: set ? c.widthPct : null };
     });
   }
-  function setColumnWidth(config, key, px) {
+
+  /**
+   * Start percentage widths from the drawn pixel widths ({ key: px }), so the
+   * table looks the same the moment widths become fixed.
+   */
+  function initPercents(config, drawnPx) {
     var cfg = clone(config);
-    var col = (cfg.columns || []).filter(function (c) { return c.key === key; })[0];
-    if (!col) return { error: 'No column "' + key + '".' };
-    if (px == null || px === '') delete col.width;
-    else {
-      var n = Math.round(+px);
-      if (!isFinite(n)) return { error: 'A width is a number of pixels.' };
-      col.width = Math.max(minWidthOf(col), Math.min(MAX_WIDTH, n));
-    }
+    var cols = cfg.columns || [];
+    if (!cols.length) return { error: 'This table has no columns.' };
+    var px = cols.map(function (c) { var v = drawnPx && +drawnPx[c.key]; return v > 0 ? v : 100; });
+    var total = px.reduce(function (a, b) { return a + b; }, 0);
+    var run = 0;
+    cols.forEach(function (c, i) {
+      if (i === cols.length - 1) { c.widthPct = round1(100 - run); return; }
+      c.widthPct = round1(px[i] / total * 100);
+      run = round1(run + c.widthPct);
+    });
     return { config: cfg };
+  }
+
+  /**
+   * Set one column's share. The last column takes up the difference; shares
+   * are kept at or above each column's floor, given the room in pixels the
+   * columns share (roomPx), so the change is clamped rather than refused.
+   * On a table that is still automatic, every column first takes its share
+   * of drawnPx ({ key: px }), so only the changed column moves.
+   */
+  function setPercent(config, key, pct, roomPx, drawnPx) {
+    var cur = columnWidths(config);
+    if (!cur.length) return { error: 'This table has no columns.' };
+    var i = cur.map(function (c) { return c.key; }).indexOf(key);
+    if (i < 0) return { error: 'No column "' + key + '".' };
+    var last = cur.length - 1;
+    if (i === last) return { error: 'The last column takes whatever the others leave.' };
+    var base = cur[0].pct == null ? initPercents(config, drawnPx).config : clone(config);
+    var cols = base.columns;
+    var room = roomPx > 0 ? roomPx : 1000;
+    var floor = function (c) { return round1(minWidthOf(c) / room * 100); };
+    var others = 0;
+    cols.forEach(function (c, k) { if (k !== i && k !== last) others += c.widthPct; });
+    var max = round1(100 - others - floor(cols[last]));
+    var v = round1(Math.max(floor(cols[i]), Math.min(max, +pct)));
+    if (!isFinite(v)) return { error: 'A width is a percentage.' };
+    cols[i].widthPct = v;
+    cols[last].widthPct = round1(100 - others - v);
+    return { config: base };
+  }
+
+  /** Back to automatic widths. */
+  function clearWidths(config) {
+    var cfg = clone(config);
+    (cfg.columns || []).forEach(function (c) { delete c.widthPct; delete c.width; });
+    return { config: cfg };
+  }
+
+  /**
+   * Pixel widths for a room of roomPx, summing exactly to it (largest
+   * remainder), or null while widths are automatic.
+   */
+  function percentPixels(config, roomPx) {
+    var cur = columnWidths(config);
+    if (!cur.length || cur[0].pct == null) return null;
+    var exact = cur.map(function (c) { return c.pct / 100 * roomPx; });
+    var out = exact.map(Math.floor);
+    var left = Math.round(roomPx) - out.reduce(function (a, b) { return a + b; }, 0);
+    exact.map(function (x, k) { return { k: k, r: x - Math.floor(x) }; })
+      .sort(function (a, b) { return b.r - a.r; })
+      .slice(0, Math.max(0, left)).forEach(function (o) { out[o.k] += 1; });
+    return out;
   }
 
   // ── bar insight table stats, geofacet tiles ────────────────────────
@@ -1001,7 +1063,8 @@
   return { extract: extract, targets: targets, convert: convert, withData: withData, family: family, FIXED: FIXED,
     records: records, withRecords: withRecords,
     report: { targets: reportChartTargets, switchChart: switchReportChart,
-      widths: columnWidths, setWidth: setColumnWidth, MIN_WIDTH: MIN_WIDTH, MAX_WIDTH: MAX_WIDTH },
+      widths: columnWidths, initPercents: initPercents, setPercent: setPercent, clearWidths: clearWidths,
+      percentPixels: percentPixels, MIN_WIDTH: MIN_WIDTH },
     insight: { statColour: statColour, statColourOf: statColourOf, statsBySign: statsBySign },
     tiles: { list: TILES, variant: tileVariant, set: setTileVariant },
     style: { options: styleOptions, sort: sortBy, highlight: highlight, highlighted: highlighted,

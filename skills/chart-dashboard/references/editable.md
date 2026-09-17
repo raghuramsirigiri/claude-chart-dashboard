@@ -243,12 +243,25 @@ locked (there should be none).
       chart cells as comma-separated values. Values stay editable after a
       column switch turns cells into named slices. A cell holding a richer
       chart is changed only through its column's type.
-    - *Style* sets **column widths**. Each column has a slider (starting at
-      its current drawn width), a pixel field and *Auto*. A fixed width is
-      stored as `column.width`. It is at least 60px, and a pie or donut column
-      at least 220px, the floor the library keeps for its labels. Auto removes
-      the width, so text columns stop at a comfortable width and chart columns
-      share the rest.
+    - *Style* sets **column widths as percentages** of the table.
+      - The shares always total 100%, and the table keeps its overall
+        width.
+      - Changing a column moves the difference into the last column, which
+        is read-only ("takes the rest").
+      - Each share is stored as `column.widthPct`. The library ignores that
+        key, so a page drawn without the runtime just falls back to
+        automatic widths.
+      - `page-runtime.js` turns shares into pixel widths when it draws. It
+        measures the width the table took, from its header rule, and
+        corrects in at most three passes. It redraws the same way when the
+        card resizes.
+      - The first change on an automatic table starts every column at its
+        drawn share, so only the changed column moves.
+      - A share is limited so every column keeps its floor: 60px, or 220px
+        for a pie or donut column. The panel says when a value was limited.
+      - *Automatic widths* removes all shares.
+      - Text columns can't be narrower than their longest word, so a table
+        in a very narrow space can still scroll sideways by the difference.
   - **Bar insight table.**
     - *Data* shows each row's name, bar values, insight, description, stat
       and stat note. Empty text removes that field, so an empty stat lets

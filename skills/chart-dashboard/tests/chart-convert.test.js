@@ -411,16 +411,31 @@ test('report table: switching a chart column converts every row', () => {
   }
 });
 
-test('report table column widths', () => {
-  const w = CC.report.widths(MORE.reportTable);
-  assert.deepStrictEqual(w.map(c => [c.key, c.width]), [['trend', null], ['quarters', null], ['mix', null], ['why', null], ['yoy', null], ['note', null]]);
-  const set = CC.report.setWidth(MORE.reportTable, 'mix', 220).config;
-  assert.strictEqual(set.columns[2].width, 220);
+test('report table column widths are percentages that total 100', () => {
+  const sum = cfg => CC.report.widths(cfg).reduce((a, c) => a + c.pct, 0);
+  assert.ok(CC.report.widths(MORE.reportTable).every(c => c.pct === null), 'automatic to start');
+  const init = CC.report.initPercents(MORE.reportTable, { trend: 240, quarters: 240, mix: 240, why: 160, yoy: 60, note: 60 }).config;
+  assert.deepStrictEqual(CC.report.widths(init).map(c => c.pct), [24, 24, 24, 16, 6, 6]);
+  // changing one column moves the difference into the last
+  const set = CC.report.setPercent(init, 'why', 20, 3000).config;   // floor 60px = 2%
+  assert.deepStrictEqual(CC.report.widths(set).map(c => c.pct), [24, 24, 24, 20, 6, 2]);
+  assert.strictEqual(Math.round(sum(set) * 10) / 10, 100);
+  // clamped so the last column keeps its floor (60px of 1000px = 6%)
+  const big = CC.report.setPercent(init, 'why', 50, 1000).config;
+  assert.deepStrictEqual(CC.report.widths(big).map(c => c.pct), [24, 24, 24, 16, 6, 6], 'no room: nothing to give');
+  const donutFloor = CC.report.setPercent(init, 'mix', 5, 1000).config;
+  assert.strictEqual(CC.report.widths(donutFloor)[2].pct, 22, 'a donut column keeps 220px');
+  assert.strictEqual(CC.report.widths(donutFloor)[5].pct, 8);
+  // setting a share on an automatic table starts every column first
+  const fromAuto = CC.report.setPercent(MORE.reportTable, 'trend', 30, 3000, { trend: 240, quarters: 240, mix: 240, why: 160, yoy: 60, note: 60 }).config;
+  assert.strictEqual(Math.round(sum(fromAuto) * 10) / 10, 100);
+  assert.deepStrictEqual(CC.report.widths(fromAuto).map(c => c.pct), [28, 24, 24, 16, 6, 2], 'the others keep their drawn shares; the last keeps its 2% floor');
+  assert.match(CC.report.setPercent(init, 'note', 10, 1000).error, /last column/);
+  // pixels sum exactly to the room
+  const px = CC.report.percentPixels(set, 999);
+  assert.strictEqual(px.reduce((a, b) => a + b, 0), 999);
+  assert.strictEqual(CC.report.percentPixels(MORE.reportTable, 999), null);
+  // auto clears, and the library still accepts a table with shares
+  assert.ok(CC.report.widths(CC.report.clearWidths(set).config).every(c => c.pct === null));
   assert.ok(Charts.validate('reportTable', set).ok);
-  assert.strictEqual(CC.report.widths(set)[2].width, 220);
-  assert.ok(!('width' in CC.report.setWidth(set, 'mix', null).config.columns[2]), 'Auto removes the width');
-  assert.strictEqual(CC.report.setWidth(MORE.reportTable, 'trend', 10).config.columns[0].width, CC.report.MIN_WIDTH, 'clamped to the minimum');
-  assert.strictEqual(CC.report.setWidth(MORE.reportTable, 'mix', 120).config.columns[2].width, 220, 'a donut column keeps room for its labels');
-  assert.strictEqual(w[2].min, 220);
-  assert.match(CC.report.setWidth(MORE.reportTable, 'nope', 100).error, /No column/);
 });
