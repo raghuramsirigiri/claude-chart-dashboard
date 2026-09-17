@@ -117,6 +117,13 @@ someone other than you will change the numbers later.
 
   Don't mark structural chrome the reader would never edit (the deck's slide
   counter, template labels that are not content).
+- **Mark words, not their styled wrapper.** A `text` edit replaces the
+  element's whole content, and a `rich` edit keeps only `<b>`, `<i>`, `<em>`,
+  `<strong>` and `<br>`. So an element that holds a styled child besides its
+  words — a report heading's `<span class="n">01</span>`, an agenda row's
+  `.num` — must not be marked itself. Wrap the words in a span and mark that,
+  and mark the styled child separately if it is editable too:
+  `<h2><span class="n" data-edit="text" data-key="n-2">02</span><span data-edit="text" data-key="h-2">Second section</span></h2>`.
 - **Keys are stable, readable and unique**: `title`, `k1-value`,
   `s4-title`, `finding-2`. They name the element, not its current wording,
   so a key still makes sense after the text changes.
