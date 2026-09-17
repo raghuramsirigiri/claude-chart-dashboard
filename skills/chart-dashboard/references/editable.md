@@ -187,10 +187,38 @@ locked (there should be none).
   and data change, 200 steps deep.
 - **Nothing is added or removed**: no new charts, text blocks, rows or series.
 
+### Saving
+
+- **Save** (Ctrl+S) writes the whole page, edits included, as one standalone
+  HTML file that is still editable.
+  - In Chrome and Edge the first save asks where to save it, suggesting the
+    current file name. Later saves write to the same file without asking.
+  - Other browsers, and viewers that block the file picker, download the
+    file instead, and a message says so.
+- **Save clean copy** (the ⋯ menu, or Ctrl+Shift+S) writes the same page
+  without the editor script and its button, for sending on. It is always a
+  new file.
+- **Verified before writing.** The HTML is opened in a hidden frame first, and
+  nothing is written unless its charts match the page and every one draws.
+  A failed check says what went wrong.
+- **Status.** The toolbar shows *Unsaved changes* or *Saved*, measured
+  against the last saved state, so undoing back to it counts as saved.
+- **Drafts.** Every change is also kept in this browser's `localStorage`,
+  keyed by the file's path and tied to how the page looked when it opened. If
+  the tab closes before saving, reopening the page offers *Restore* or
+  *Discard*. A draft from an older version of the file is dropped, not laid
+  over a newer one. Saving clears the draft.
+- **Leaving** with unsaved changes triggers the browser's own "leave site?"
+  prompt.
+
+A page opened from inside a sandboxed viewer (such as an artifact preview)
+may not be allowed to save at all. Tell users to open the `.html` file
+directly in a browser to edit it.
+
 The editor's UI lives in a shadow root on a `data-page-ui` host, so page CSS
 can't restyle it and `Page.serialize()` leaves it out. A saved page carries
 the editor script and stays editable. `window.PageEditor` has `start()`,
-`stop()`, `undo()`, `redo()` and `isEditing()`, which are useful when
+`stop()`, `undo()`, `redo()`, `save(clean)`, `isEditing()` and `isUnsaved()`, which are useful when
 verifying through browser tooling.
 
 ## Switching a chart's type

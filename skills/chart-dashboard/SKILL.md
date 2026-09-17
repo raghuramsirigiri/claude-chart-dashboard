@@ -57,7 +57,8 @@ slide deck.
    **Editable or static.** Static is the default. Build an *editable* page
    only when the user asked for one: charts stored as JSON, text marked
    editable, and an **Edit page** button that opens a built-in editor, so they
-   can switch chart types and change text or numbers later without you. If they haven't asked, offer it once when you hand over the
+   can switch chart types, change text or numbers, and save the file later
+   without you. If they haven't asked, offer it once when you hand over the
    first page (see Output). The format and its rules are in
    `references/editable.md`. Read that file before building one; for a
    dashboard, start from `templates/dashboard-editable.html`.
