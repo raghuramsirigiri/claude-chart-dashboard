@@ -25,6 +25,9 @@
  * Charts drawn by page code (a filter's render(), say) are not in the spec.
  * They still work, and list() reports them as locked.
  *
+ * Switching a chart's type goes through chart-convert.js (window.ChartConvert),
+ * which must load before this file; without it alternatives() is empty.
+ *
  * Load after charts.js and after any Charts.applyPalette call. No dependencies.
  */
 (function () {
@@ -36,12 +39,18 @@
   // Marks what was in <body> before any chart ran, so serialize() can drop
   // what charts added outside their own containers (tooltips, measuring nodes).
   var STATIC_ATTR = 'data-page-static';
+  var TABLES = { table: 1, reportTable: 1, barInsightTable: 1 };
 
   var spec = null;
   var handles = {};
   var containerStyle = {};
   var listeners = [];
   var dirty = false;
+  // Per chart, the config each type had before the reader switched away from
+  // it, so bar → donut → bar gives back the bar exactly (sort order, stacking,
+  // axis lines) instead of a rebuilt approximation. Not saved; cleared when
+  // the chart's data is set directly.
+  var byType = {};
 
   function clone(v) { return JSON.parse(JSON.stringify(v)); }
 
@@ -100,6 +109,30 @@
     if (!window.Charts || typeof Charts[type] !== 'function') return false;
     var meta = Charts.meta && Charts.meta.charts;
     return meta ? Object.prototype.hasOwnProperty.call(meta, type) : true;
+  }
+
+  // Draw a candidate where nobody can see it, at the size it would get, and
+  // return the library's refusal if it refuses. Non-responsive, so it leaves
+  // no observer behind.
+  function trial(type, config, w, h) {
+    var box = document.createElement('div');
+    box.setAttribute('data-page-ui', '');
+    box.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;' +
+      'width:' + (w || 600) + 'px;height:' + (h || 340) + 'px';
+    document.body.appendChild(box);
+    var cfg = clone(config);
+    cfg.chart = cfg.chart || {};
+    cfg.chart.responsive = false;
+    var err = null;
+    try {
+      var hnd = Charts[type](box, cfg);
+      err = hnd && hnd.error ? hnd.error : null;
+      if (hnd && hnd.destroy) hnd.destroy();
+    } catch (e) {
+      err = e.message;
+    }
+    document.body.removeChild(box);
+    return err;
   }
 
   function draw(id) {
@@ -165,10 +198,88 @@
         config: clone(next && next.config ? next.config : spec.charts[id].config)
       };
       spec.charts[id] = entry;
+      delete byType[id];
       var h = draw(id);
       emit({ kind: 'chart', id: id });
       if (!h) return { ok: false, error: 'unknown chart type "' + entry.type + '"' };
       return { ok: !h.error, error: h.error || null };
+    },
+
+    /**
+     * The types this chart can switch to: [{ type, current, ok, reason,
+     * warnings, lost }]. `reason` comes from the data's shape first, then from
+     * the library itself: each candidate is drawn off screen at this chart's
+     * size, and a refusal is reported in the library's own words. `lost`
+     * names the settings the switch would drop.
+     */
+    alternatives: function (id) {
+      var entry = spec.charts[id];
+      if (!entry || !window.ChartConvert) return [];
+      var el = document.getElementById(id);
+      var w = el ? el.clientWidth : 0, h = el ? el.clientHeight : 0;
+      var meta = (window.Charts && Charts.meta && Charts.meta.charts) || {};
+      return ChartConvert.targets(entry.type, entry.config).filter(function (t) {
+        return isChartType(t.type);
+      }).map(function (t) {
+        var out = { type: t.type, current: t.current, ok: t.ok, reason: t.reason,
+          warnings: t.warnings.slice(), lost: [] };
+        if (t.current || !t.ok) return out;
+        var conv = ChartConvert.convert(entry.type, entry.config, t.type);
+        if (conv.error) { out.ok = false; out.reason = conv.error; return out; }
+        out.lost = conv.lost;
+        var refusal = trial(t.type, conv.config, w, h);
+        if (refusal) { out.ok = false; out.reason = refusal; out.warnings = []; }
+        // Only warn when the switch makes things worse: the page was laid out
+        // for the current type, so a card slightly under every type's
+        // minimum is not news.
+        var m = meta[t.type], cur = meta[entry.type];
+        if (out.ok && m && w && m.minWidth && w < m.minWidth && (!cur || m.minWidth > (cur.minWidth || 0))) {
+          out.warnings.push('This space is ' + w + 'px wide; a ' + t.type + ' needs about ' + m.minWidth + 'px.');
+        }
+        // Tables are as tall as their rows. In a fixed-height card the rows
+        // stretch and leave a blank band (layout.md, Tables size themselves).
+        var grid = el && el.closest ? el.closest('.bento') : null;
+        if (out.ok && TABLES[t.type] && !TABLES[entry.type] && grid && !grid.classList.contains('flow')) {
+          out.warnings.push('Tables size to their rows; in this fixed-height card they leave empty space below.');
+        }
+        return out;
+      });
+    },
+
+    /**
+     * Switch an existing chart to another type, converting its data. Returns
+     * { ok, error, lost }. If the library refuses the result, the chart is
+     * left as it was. Switching back to a type the chart had before restores
+     * that config as it was.
+     */
+    switchType: function (id, type) {
+      var entry = spec.charts[id];
+      if (!entry) return { ok: false, error: 'no editable chart "' + id + '"', lost: [] };
+      if (type === entry.type) return { ok: true, error: null, lost: [] };
+      if (!window.ChartConvert) return { ok: false, error: 'chart-convert.js is not on this page', lost: [] };
+      if (!isChartType(type)) return { ok: false, error: 'unknown chart type "' + type + '"', lost: [] };
+      var memo = byType[id] || (byType[id] = {});
+      var config, lost = [];
+      if (memo[type]) {
+        config = memo[type];
+      } else {
+        var conv = ChartConvert.convert(entry.type, entry.config, type);
+        if (conv.error) return { ok: false, error: conv.error, lost: [] };
+        config = conv.config;
+        lost = conv.lost;
+      }
+      spec.charts[id] = { type: type, config: clone(config) };
+      var hnd = draw(id);
+      if (!hnd || hnd.error) {
+        // Unlike setChart, a switch the library refuses is undone: the reader
+        // asked for a different view of the same data, not for an error card.
+        spec.charts[id] = entry;
+        draw(id);
+        return { ok: false, error: hnd ? hnd.error : 'draw failed', lost: [] };
+      }
+      memo[entry.type] = clone(entry.config);
+      emit({ kind: 'chart', id: id });
+      return { ok: true, error: null, lost: lost };
     },
 
     getText: function (key) {

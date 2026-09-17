@@ -45,8 +45,8 @@ const LIB = path.join(SCRIPTS, '..', 'assets', 'charts-lib');
 const LIB_FILES = ['charts.css', 'charts.js', 'theme.js'];
 // Staged too, for editable pages. It lives in assets/ rather than
 // assets/charts-lib/, which mirrors the upstream library.
-const RUNTIME = path.join(SCRIPTS, '..', 'assets', 'page-runtime.js');
-const STAGED_FILES = LIB_FILES.concat('page-runtime.js');
+const EDITABLE_FILES = ['chart-convert.js', 'page-runtime.js'];
+const STAGED_FILES = LIB_FILES.concat(EDITABLE_FILES);
 
 const argv = process.argv.slice(2);
 const stageOnly = argv.includes('--stage');
@@ -69,7 +69,7 @@ const run = (script, args) => spawnSync(process.execPath, [path.join(SCRIPTS, sc
 if (stageOnly) {
   fs.mkdirSync(staged, { recursive: true });
   for (const f of LIB_FILES) fs.copyFileSync(path.join(LIB, f), path.join(staged, f));
-  fs.copyFileSync(RUNTIME, path.join(staged, 'page-runtime.js'));
+  for (const f of EDITABLE_FILES) fs.copyFileSync(path.join(LIB, '..', f), path.join(staged, f));
   console.log('staged charts-lib/ beside ' + path.basename(target) +
     ' — open the page and verify it, then run this without --stage to ship it.');
   process.exit(0);
@@ -89,9 +89,10 @@ if (run('inline-lib.js', [target]).status !== 0) process.exit(1);
 // ── 3. remove the staged copy, if it is ours to remove ───────────────
 if (fs.existsSync(staged)) {
   const found = fs.readdirSync(staged).sort();
-  // Either set is ours: a folder staged before the runtime existed has three.
+  // Any of these sets is ours: folders staged by earlier versions of this
+  // script hold three or four files.
   const same = set => found.length === set.length && found.every((f, i) => f === [...set].sort()[i]);
-  if (same(LIB_FILES) || same(STAGED_FILES)) {
+  if (same(LIB_FILES) || same(LIB_FILES.concat('page-runtime.js')) || same(STAGED_FILES)) {
     fs.rmSync(staged, { recursive: true, force: true });
     console.log('removed the staged charts-lib/ — nothing references it now.');
   } else {

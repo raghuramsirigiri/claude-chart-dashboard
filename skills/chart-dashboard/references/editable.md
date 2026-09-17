@@ -52,10 +52,12 @@ Three parts, all in the one HTML file:
      `<br>`. Anything else pasted in is stripped when it is edited.
 3. **The runtime**, after `charts.js` and after any `Charts.applyPalette`:
    ```html
+   <script src="charts-lib/chart-convert.js"></script>
    <script src="charts-lib/page-runtime.js"></script>
    ```
-   It draws every chart in the spec and exposes `window.Page`. Like the other
-   placeholder tags, `finalize.js` stages it and then inlines it.
+   `page-runtime.js` draws every chart in the spec and exposes `window.Page`.
+   `chart-convert.js` lets a chart switch type (see below). Like the other
+   placeholder tags, `finalize.js` stages both and then inlines them.
 
 `templates/dashboard-editable.html` is the dashboard template already in this
 format. For a report or a deck, start from `report.html` or `slides.html`,
@@ -85,6 +87,12 @@ someone other than you will change the numbers later.
   recompute when someone edits the data, so the editor will flag a title
   whose chart data has changed. That check belongs to the editor; you just
   write the title.
+- **Write chart data in the plain shapes**, so the chart can switch type:
+  `xAxis.categories` plus `series[].data` as numbers (or `{ y, color }`) for
+  category charts; `[name, value]` or `{ name, y }` for one-series charts;
+  `[x, y]` for scatter. Use `null` for a missing value, never `0`. The
+  converter reads the other accepted shapes too, but these are the ones it
+  keeps intact.
 - **Mark every piece of text a reader might reasonably change**, and only
   those:
 
@@ -108,12 +116,13 @@ someone other than you will change the numbers later.
 The steps are the same as for any page (SKILL.md steps 7–8):
 
 1. `node <skill-dir>/scripts/finalize.js index.html --stage` stages
-   `charts-lib/` with `page-runtime.js` in it.
+   `charts-lib/` with `chart-convert.js` and `page-runtime.js` in it.
 2. Open the page and verify it as usual. Also run these in the console, or
    through your browser tooling:
    ```js
    Page.list()                       // every chart and text element, none unexpectedly locked
-   Page.setChart('c1', { type: 'column' })   // → { ok: true } for a sensible alternative
+   Page.alternatives('c1')           // sensible types offered, and the reasons others are refused
+   Page.switchType('c1', 'column')   // → { ok: true } for an offered type
    Page.setText('title', 'Test')     // → { ok: true }, and the heading changes
    Page.serialize()                  // the page as it would be saved
    ```
@@ -124,12 +133,46 @@ The steps are the same as for any page (SKILL.md steps 7–8):
    - a spec that doesn't parse
    - an unknown chart type
    - a chart drawn by both the spec and code
-   - a missing runtime
+   - a missing `page-runtime.js` or `chart-convert.js`
    - a bad `data-edit` kind
    - a missing or duplicate `data-key`
 
 When you hand it over, say it is editable, and that any chart drawn by code is
 locked (there should be none).
+
+## Switching a chart's type
+
+`chart-convert.js` reads a chart's data into a neutral shape and builds
+another type's config from it. Only types that make sense for the same data
+are offered:
+
+| Data | Can switch between |
+|:-----|:-------------------|
+| Categories × series | column, bar, line, radar, dumbbell, table, barList, donut, pie, waffle, packedBubble |
+| Bridge steps | waterfall → any type above (totals become plain values); never back |
+| Raw values | histogram, histogramPercent, histogramCumulative |
+| Points | scatter ↔ bubble (bubble only when every point has a size) |
+| — | sankey, reportTable, barInsightTable, panels, geofacet: edit in place, no switching |
+
+A candidate is refused, with a reason the editor shows, when:
+- the data's shape rules it out: one-series charts need one series, a dumbbell
+  needs exactly 2, a radar needs 3+ categories, parts of a whole can't be
+  negative, a waffle's values must be at most 100, and blanks rule out types
+  that would draw them as zero;
+- or the library itself refuses it. Each candidate is drawn off screen at the
+  chart's size, so a line over named categories is refused in the library's
+  own words.
+
+Warnings flag a pie with more than 6 slices, a card narrower than the new
+type needs, and a table put into a fixed-height card. Each candidate also
+lists the settings the switch would drop (`plotOptions.column`, point colours
+on a table, `xAxis.type`). Titles, subtitles, legend, tooltip,
+`plotOptions.series` and the value axis carry across. Switching back restores
+the earlier type's config exactly, until the chart's data is set directly.
+
+Tests: `node --test skills/chart-dashboard/tests/chart-convert.test.js`. Every
+switch offered for every chart type must produce a config the library's
+validator accepts, with the same categories and numbers.
 
 ## `window.Page`
 
@@ -141,6 +184,8 @@ For the editor, and for verifying a page.
 | `chartTypes()` | every type the inlined library can draw |
 | `getChart(id)` / `setChart(id, { type?, config? })` | read or replace an existing spec chart and redraw it. Returns `{ ok, error }`; `error` is the library's own refusal (such as a line chart over unordered names) |
 | `getText(key)` / `setText(key, value)` | read or replace marked text; `rich` is sanitised |
+| `alternatives(id)` | `[{ type, current, ok, reason, warnings, lost }]`: the types this chart can switch to, checked as described above |
+| `switchType(id, type)` | convert and redraw. Returns `{ ok, error, lost }`; a refused switch leaves the chart unchanged |
 | `redraw(id?)` | redraw one chart or all of them |
 | `on(fn)` / `isDirty()` | notified on each change; whether anything changed |
 | `serialize()` | the whole page as standalone HTML with the edits: chart cells emptied, spec rewritten, tooltips and editor UI (`data-page-ui`) dropped. Opening the result and serializing again gives the same bytes |

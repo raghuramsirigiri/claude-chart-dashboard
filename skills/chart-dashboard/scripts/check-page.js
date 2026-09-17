@@ -311,6 +311,8 @@ if (!specMatch && !editTags.length) {
   if (both.length) problems.push('drawn by both the spec and page code: ' + both.join(', ') + '  → keep one');
   const runtime = /<script src="charts-lib\/page-runtime\.js"><\/script>/.test(html) || /window\.Page\s*=\s*Page/.test(html);
   if (specMatch && !runtime) problems.push('no page-runtime.js — nothing draws the spec  → add <script src="charts-lib/page-runtime.js"></script> after charts.js');
+  const convert = /<script src="charts-lib\/chart-convert\.js"><\/script>/.test(html) || /root\.ChartConvert\s*=\s*factory\(\)/.test(html);
+  if (specMatch && !convert) problems.push('no chart-convert.js — charts cannot switch type  → add <script src="charts-lib/chart-convert.js"></script> before page-runtime.js');
   const badKind = editTags.filter(t => t.kind !== 'text' && t.kind !== 'rich');
   if (badKind.length) problems.push('data-edit must be "text" or "rich": ' + badKind.map(t => '"' + t.kind + '"').join(', '));
   const noKey = editTags.filter(t => !t.key).length;

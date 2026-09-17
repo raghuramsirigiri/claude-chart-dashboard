@@ -350,6 +350,8 @@ skills/chart-dashboard/
 ├── SKILL.md                        # workflow and output rules
 ├── assets/charts-lib/              # the chart library (charts.js, theme.js, charts.css)
 ├── assets/page-runtime.js          # draws an editable page's charts; window.Page for the editor
+├── assets/chart-convert.js         # switch a chart's type by converting its data
+├── tests/chart-convert.test.js     # every offered switch passes the library's validator
 ├── references/
 │   ├── chart-api.md                # full library API — every factory and option
 │   ├── chart-selection.md          # data shape → chart type, emphasis, anti-patterns

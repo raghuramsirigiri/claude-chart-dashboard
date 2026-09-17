@@ -169,8 +169,10 @@ Charts.applyPalette({ n0: '…', n0a: '…', n1: '…', n8: '…', s1: '…', s2
   s.setProperty('--surface-soft', t.tileSurface);
 })();
 </script>
-<!-- Draws every chart in #page-spec and exposes window.Page for the editor.
+<!-- chart-convert.js lets a chart switch type; page-runtime.js draws every
+     chart in #page-spec and exposes window.Page for the editor.
      No other chart code on an editable page. -->
+<script src="charts-lib/chart-convert.js"></script>
 <script src="charts-lib/page-runtime.js"></script>
 </body>
 </html>
