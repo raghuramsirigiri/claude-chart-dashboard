@@ -22,6 +22,10 @@
  * the edits in it. It edits what the page already has; it never adds or
  * removes a component.
  *
+ * Anything the page's own scripts create at load (a deck's slide footers,
+ * say) must carry data-page-generated, so serialize() leaves it out and the
+ * next open doesn't add a second copy.
+ *
  * Charts drawn by page code (a filter's render(), say) are not in the spec.
  * They still work, and list() reports them as locked.
  *
@@ -443,7 +447,10 @@
         if (!c.hasAttribute(STATIC_ATTR)) body.removeChild(c);
         else c.removeAttribute(STATIC_ATTR);
       });
-      Array.prototype.slice.call(root.querySelectorAll('[data-page-ui]')).forEach(function (n) {
+      // data-page-ui: editor chrome. data-page-generated: nodes the page's own
+      // scripts build at load (a deck's slide footers). Saving either would
+      // write them into the file, and the next open would add them again.
+      Array.prototype.slice.call(root.querySelectorAll('[data-page-ui],[data-page-generated]')).forEach(function (n) {
         n.parentNode.removeChild(n);
       });
       Object.keys(spec.charts).forEach(function (id) {

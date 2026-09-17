@@ -85,6 +85,13 @@ someone other than you will change the numbers later.
   editor can't change it, and `check-page.js` lists it. The same goes for
   text a script writes on load: a KPI value that code sets would overwrite
   the reader's edit every time the page opens.
+- **Mark what page code builds at load.** A node a script creates when the
+  page opens (the deck's slide footers, a generated table of contents) must
+  carry `data-page-generated`. Saving leaves those nodes out; without the
+  mark, each save writes them into the file and the next open adds another
+  copy. The deck template already marks its footers. They are rebuilt from
+  the `DECK` object and each slide's `data-title`, which are code, so a
+  reader can't edit the footer text.
 - **No filter controls.** A filter recomputes charts in code, which locks
   them. If the user wants both filters and editing, tell them this and let
   them choose. Where filters would help, small multiples in the spec usually
