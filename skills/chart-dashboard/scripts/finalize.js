@@ -103,4 +103,29 @@ if (fs.existsSync(staged)) {
 }
 
 // ── 4. check again, as the file you are about to hand over ───────────
-process.exit(run('check-page.js', [target, '--final']).status === 0 ? 0 : 1);
+if (run('check-page.js', [target, '--final']).status !== 0) process.exit(1);
+
+// ── 5. an editable page ships as two files ───────────────────────────
+// The editable file travels as "<name> (working copy).html", and <name>.html
+// becomes the final copy with the editor taken out. The file someone would
+// naturally send is then the safe one. See references/editable.md.
+const EDITOR_INLINE = /<script>\s*\/\*!\s*\n\s*\*\s*page-editor\.js[\s\S]*?<\/script>\s*/;
+const EDITOR_TAG = /<script src="charts-lib\/page-editor\.js"><\/script>\s*/;
+const shipped = fs.readFileSync(target, 'utf8');
+if (EDITOR_INLINE.test(shipped) || EDITOR_TAG.test(shipped)) {
+  const ext = path.extname(target);
+  const base = target.slice(0, -ext.length).replace(/ \(working copy\)$/i, '');
+  const workingCopy = base + ' (working copy)' + ext;
+  const finalCopy = base + ext;
+  fs.writeFileSync(workingCopy, shipped);
+  let fin = shipped.replace(EDITOR_INLINE, '').replace(EDITOR_TAG, '');
+  if (!/<meta name="page-edition"/.test(fin)) fin = fin.replace(/<head>/i, '<head>\n<meta name="page-edition" content="final">');
+  fs.writeFileSync(finalCopy, fin);
+  if (path.resolve(target) !== path.resolve(finalCopy)) fs.unlinkSync(target);
+  console.log('editable page: wrote ' + path.basename(finalCopy) + ' (final, to share) and ' +
+    path.basename(workingCopy) + ' (editable working copy)');
+  const a = run('check-page.js', [finalCopy, '--final']).status;
+  const b = run('check-page.js', [workingCopy, '--final']).status;
+  process.exit(a === 0 && b === 0 ? 0 : 1);
+}
+process.exit(0);

@@ -495,6 +495,12 @@ editable version, so you can switch chart types and change the text or
 numbers yourself without rerunning this?"* Only offer it once. Build it only
 on a yes, following `references/editable.md`.
 
+An editable page ships as **two files**: `finalize.js` writes `<name>.html` as
+the final copy (no editor, safe to share) and `<name> (working copy).html` as
+the editable one. Hand over both and say in one line which is which. The
+working copy shows a "Working copy" banner, a DRAFT print watermark and a
+"Draft ·" tab title, so it isn't mistaken for the final version.
+
 ## Environment notes
 
 Nothing in this skill requires a specific agent or vendor. It needs only the

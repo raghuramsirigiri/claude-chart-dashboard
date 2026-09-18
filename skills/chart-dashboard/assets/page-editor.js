@@ -21,7 +21,14 @@
  *                     (File System Access API: Chrome, Edge), otherwise
  *                     downloads it. The new file is opened in a hidden frame
  *                     first, and nothing is written unless every chart draws.
- *   Save clean copy   the same page without this editor, for sending on.
+ *   Export final copy the same page without this editor, marked final
+ *                     (<meta name="page-edition" content="final">): the
+ *                     version to share.
+ *
+ * A file with this editor is a working copy, and says so wherever it goes:
+ * a banner across the top on every open (with Export final copy), a DRAFT
+ * watermark when printed or saved as PDF, and "Draft ·" in the tab title.
+ * None of the three reaches a saved file; the editor adds them on open.
  * Edits are also kept as a draft in this browser's localStorage, so a closed
  * tab offers to restore them, and leaving with unsaved changes asks first.
  *
@@ -57,7 +64,16 @@
     '*{box-sizing:border-box;font-family:inherit}',
     'input,textarea{font:inherit}',
     'button{font:inherit;cursor:pointer}',
-    '.toggle,.bar,.panel,.note{pointer-events:auto}',
+    '.toggle,.bar,.panel,.note,.draft{pointer-events:auto}',
+    // The working-copy banner: always on screen, never printed (the host
+    // is hidden in print; the watermark takes over there).
+    '.draft{position:fixed;top:0;left:0;right:0;min-height:40px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;',
+    '  padding:6px 16px;background:#fff4d6;color:#4a3300;border-bottom:1px solid #e9cf8a;font-size:13px;line-height:1.35;text-align:center}',
+    '.draft b{font-weight:700}',
+    '.draft button{border:1px solid #b7791f;background:#fff;color:#4a3300;border-radius:6px;padding:5px 12px;font-weight:600;min-height:32px}',
+    '.draft button:hover{background:#fffaf0}',
+    '.draft .short{display:none}',
+    '@media (max-width:700px){.draft{justify-content:space-between;text-align:left;flex-wrap:nowrap}.draft .long{display:none}.draft .short{display:inline}}',
     '.toggle{position:fixed;right:20px;bottom:20px;padding:10px 16px;border-radius:999px;border:1px solid #d0d0d0;',
     '  background:#fff;color:#111;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.14)}',
     '.toggle:hover{background:#f3f3f3}',
@@ -67,7 +83,7 @@
     '  padding:6px 6px 6px 14px;border-radius:999px;background:#111;color:#fff;font-size:13px;',
     '  box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:calc(100vw - 24px)}',
     // With the side panel open, centre the bar over what is left of the page.
-    '@media (max-width:700px){.bar{bottom:auto;top:12px}}',
+    '@media (max-width:700px){.bar{bottom:auto;top:calc(var(--pe-top,0px) + 12px)}}',
     '@media (min-width:701px){.bar.shift{left:calc((100% - 380px) / 2);max-width:calc(100% - 404px)}}',
     '.bar .msg{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}',
     '.bar .status{color:#aaa;white-space:nowrap}',
@@ -94,7 +110,7 @@
     '.toast{position:fixed;left:50%;bottom:72px;transform:translateX(-50%);background:#111;color:#fff;border-radius:8px;',
     '  padding:8px 14px;font-size:13px;max-width:calc(100vw - 40px);box-shadow:0 6px 24px rgba(0,0,0,.25);pointer-events:auto}',
     '.toast.err{background:#8a1c1c}',
-    '@media (max-width:700px){.toast{bottom:auto;top:64px}}',
+    '@media (max-width:700px){.toast{bottom:auto;top:calc(var(--pe-top,0px) + 64px)}}',
     '.hl,.sel{position:fixed;pointer-events:none;border-radius:6px}',
     '.hl{outline:2px dashed var(--pe-accent);outline-offset:2px}',
     '.sel{outline:2px solid var(--pe-accent);outline-offset:2px}',
@@ -108,7 +124,7 @@
     '.hl .tag{position:absolute;left:0;top:-24px;background:var(--pe-accent);color:#fff;font-size:12px;',
     '  padding:2px 8px;border-radius:4px;white-space:nowrap}',
     '.hl.locked{outline-color:#999}.hl.locked .tag{background:#777}',
-    '.panel{position:fixed;top:0;right:0;bottom:0;width:380px;max-width:100vw;background:#fff;color:#111;',
+    '.panel{position:fixed;top:var(--pe-top,0px);right:0;bottom:0;width:380px;max-width:100vw;background:#fff;color:#111;',
     '  border-left:1px solid #ddd;box-shadow:-8px 0 30px rgba(0,0,0,.12);display:flex;flex-direction:column;font-size:13px}',
     '@media (max-width:700px){.panel{top:auto;width:100%;height:60vh;border-left:0;border-top:1px solid #ddd}}',
     '.head{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;border-bottom:1px solid #eee}',
@@ -402,7 +418,7 @@
     var w = ui.rm.offsetWidth, h = ui.rm.offsetHeight;
     // Try beside the selection's corners in turn and take the first spot that
     // is on screen and clear of the toolbar and the panel.
-    var avoid = [ui.bar, ui.panel].filter(function (n) { return !n.hidden; }).map(function (n) { return n.getBoundingClientRect(); });
+    var avoid = [ui.bar, ui.panel, ui.draft].filter(function (n) { return !n.hidden; }).map(function (n) { return n.getBoundingClientRect(); });
     var vw = window.innerWidth, vh = window.innerHeight;
     var spots = [[r.right - w, r.top - h - 8], [r.right - w, r.bottom + 8], [r.left, r.top - h - 8],
       [r.left, r.bottom + 8], [r.right - w - 8, r.top + 8], [r.left + 8, r.top + 8]];
@@ -1763,7 +1779,11 @@
   function fileName(suffix) {
     var base = decodeURIComponent((location.pathname || '').split('/').pop() || '') || 'page.html';
     if (!/\.html?$/i.test(base)) base += '.html';
-    return suffix ? base.replace(/(\.html?)$/i, ' ' + suffix + '$1') : base;
+    if (!suffix) return base;
+    // "report (working copy).html" → "report.html": the final copy takes the
+    // plain name. Any other name gets "(final)" added.
+    if (/ \(working copy\)\.html?$/i.test(base)) return base.replace(/ \(working copy\)(\.html?)$/i, '$1');
+    return base.replace(/(\.html?)$/i, ' ' + suffix + '$1');
   }
 
   // The editor script in the saved HTML: inlined (its header comment) or
@@ -1777,6 +1797,13 @@
     Array.prototype.slice.call(doc.querySelectorAll('script')).forEach(function (sc) {
       if (isEditorScript(sc)) sc.parentNode.removeChild(sc);
     });
+    // Marks the file final, for check-page.js and anyone reading the source.
+    if (!doc.querySelector('meta[name="page-edition"]')) {
+      var m = doc.createElement('meta');
+      m.setAttribute('name', 'page-edition');
+      m.setAttribute('content', 'final');
+      doc.head.insertBefore(m, doc.head.firstChild);
+    }
     return '<!DOCTYPE html>\n' + doc.documentElement.outerHTML;
   }
 
@@ -1839,7 +1866,7 @@
     if (clean) html = withoutEditor(html);
     verify(html).then(function (problem) {
       if (problem) throw new Error('Nothing was saved: ' + problem + '.');
-      var name = fileName(clean ? '(clean copy)' : '');
+      var name = fileName(clean ? '(final)' : '');
       var picker = window.showSaveFilePicker;
       // A clean copy is always a new file; a save reuses the file chosen
       // the first time, so later saves are one click.
@@ -1867,8 +1894,8 @@
       }
       refreshBar();
       toast(how === 'file'
-        ? (clean ? 'Clean copy saved.' : 'Saved.')
-        : (clean ? 'Clean copy downloaded as ' : 'Downloaded as ') + fileName(clean ? '(clean copy)' : '') +
+        ? (clean ? 'Final copy saved. Share that file, not this working copy.' : 'Saved.')
+        : (clean ? 'Final copy downloaded as ' : 'Downloaded as ') + fileName(clean ? '(final)' : '') +
           '. If nothing downloaded, this viewer blocks saving: open the file directly in a browser.');
     }).catch(function (e) {
       saving = false;
@@ -1992,6 +2019,45 @@
     return 1.05 / (L + 0.05) >= 4.5 ? c : fallback;
   }
 
+  // ── working copy marks ─────────────────────────────────────────────
+  var DRAFT_PREFIX = 'Draft \u00B7 ';
+  function markWorkingCopy() {
+    if (document.title.indexOf(DRAFT_PREFIX) !== 0) document.title = DRAFT_PREFIX + document.title;
+    // The banner takes its own room at the top instead of covering the page.
+    var st = document.createElement('style');
+    st.setAttribute('data-page-ui', '');
+    st.textContent = 'html{padding-top:var(--pe-draft-h,40px)!important}' +
+      // Printed or saved as PDF: a watermark on every page. Screen never shows it.
+      '@media screen{.pe-draft-mark{display:none!important}}' +
+      '@media print{html{padding-top:0!important}.pe-draft-mark{position:fixed;inset:0;display:flex!important;align-items:center;' +
+      'justify-content:center;pointer-events:none;z-index:2147483000}.pe-draft-mark span{transform:rotate(-30deg);' +
+      'font:800 110px/1 system-ui,Arial,sans-serif;letter-spacing:.08em;color:rgba(180,35,24,.14);white-space:nowrap}}';
+    document.head.appendChild(st);
+    var mark = document.createElement('div');
+    mark.className = 'pe-draft-mark';
+    mark.setAttribute('data-page-ui', '');
+    mark.setAttribute('aria-hidden', 'true');
+    mark.innerHTML = '<span>DRAFT</span>';
+    document.body.appendChild(mark);
+
+    ui.draft = el('div', { class: 'draft', role: 'region', 'aria-label': 'Working copy' }, [
+      el('span', {}, [el('b', { text: 'Working copy.' }),
+        el('span', { class: 'long', text: ' Anyone you send this file to can edit it. Share the final copy instead.' }),
+        el('span', { class: 'short', text: ' Don’t share this file.' })]),
+      el('button', { onclick: function () { save(true); } }, ['Export final copy'])
+    ]);
+    root.appendChild(ui.draft);
+    // Keep the page's top room equal to the banner's height, which grows
+    // when its text wraps on a narrow screen.
+    var fit = function () {
+      var h = Math.ceil(ui.draft.getBoundingClientRect().height) || 40;
+      document.documentElement.style.setProperty('--pe-draft-h', h + 'px');
+      host.style.setProperty('--pe-top', h + 'px');
+    };
+    fit();
+    window.addEventListener('resize', fit);
+  }
+
   function init() {
     if (!window.Page) return;
     host = document.createElement('div');
@@ -2011,8 +2077,8 @@
     ui.save = el('button', { class: 'save', title: 'Save (Ctrl+S)', onmousedown: function (e) { e.preventDefault(); },
       onclick: function () { save(false); } }, ['Save']);
     ui.list = el('div', { class: 'list', hidden: true }, [
-      el('button', { onclick: function () { save(true); } }, ['Save clean copy',
-        el('small', { text: 'Without the Edit page button, for sending on' })])
+      el('button', { onclick: function () { save(true); } }, ['Export final copy',
+        el('small', { text: 'No editor, no draft marks: the file to share' })])
     ]);
     ui.bar = el('div', { class: 'bar', hidden: true, role: 'toolbar', 'aria-label': 'Page editor' }, [
       ui.msg, ui.status, ui.undo, ui.redo, ui.save,
@@ -2039,6 +2105,7 @@
     [ui.hl, ui.sel, ui.panel, ui.bar, ui.toggle, ui.toast, ui.rm, ui.rmenu].forEach(function (n) { root.appendChild(n); });
     root.appendChild(el('style', { text: '[hidden]{display:none!important}' }));
     document.body.appendChild(host);
+    markWorkingCopy();
     document.addEventListener('keydown', onKey, true);
 
     savedState = stateKey();

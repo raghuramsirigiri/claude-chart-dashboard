@@ -159,8 +159,40 @@ The steps are the same as for any page (SKILL.md steps 7–8):
    - a bad `data-edit` kind
    - a missing or duplicate `data-key`
 
-When you hand it over, say it is editable, and that any chart drawn by code is
-locked (there should be none).
+`finalize.js` then splits an editable page in two, next to each other:
+
+| File | What it is |
+|:-----|:-----------|
+| `<name>.html` | **The final copy.** No editor, marked `<meta name="page-edition" content="final">`. The one to share. |
+| `<name> (working copy).html` | The editable file, carrying the draft marks below. |
+
+`check-page.js` checks both. A final copy must not contain the editor, and a
+working copy must. Running `finalize.js` again on the final copy leaves it
+alone.
+
+**Hand over both files, and say which is which in one line**, for example:
+*"`report.html` is the final copy to share; `report (working copy).html` is
+the one to edit. Use Export final copy in it to make a new final version."*
+Also say that any chart drawn by code is locked (there should be none).
+
+### A working copy says so wherever it goes
+
+An editable file can travel in email, chat or a shared drive and be mistaken
+for the final version. Breaking it when it moves would break your own copies
+too (a renamed folder, a sync, a new laptop), and a recipient would read the
+broken page as a bug. So a working copy marks itself instead. The editor adds
+these marks on open, and none of them reaches a saved file:
+- **A banner** across the top on every open, whether editing or not:
+  *"Working copy. Anyone you send this file to can edit it. Share the final
+  copy instead. [Export final copy]"* (shorter on a phone). The page moves
+  down to make room, so nothing is covered.
+- **A DRAFT watermark** on every printed or PDF page, the most common way a
+  page gets passed on.
+- **"Draft ·"** at the start of the tab title, which also appears in
+  bookmarks and history.
+
+Nothing in an HTML file can stop it being shared. These marks make a mistake
+visible to whoever receives it.
 
 ## The editor
 
@@ -364,9 +396,11 @@ locked (there should be none).
     current file name. Later saves write to the same file without asking.
   - Other browsers, and viewers that block the file picker, download the
     file instead, and a message says so.
-- **Save clean copy** (the ⋯ menu, or Ctrl+Shift+S) writes the same page
-  without the editor script and its button, for sending on. It is always a
-  new file.
+- **Export final copy** (the banner's button, the ⋯ menu, or Ctrl+Shift+S)
+  writes the same page without the editor, the banner, the watermark or the
+  "Draft" prefix, and marks it final. It is always a new file. For
+  `report (working copy).html` it suggests `report.html`; for any other name
+  it suggests `<name> (final).html`.
 - **Verified before writing.** The HTML is opened in a hidden frame first, and
   nothing is written unless its charts match the page and every one draws.
   A failed check says what went wrong.

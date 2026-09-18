@@ -313,7 +313,12 @@ if (!specMatch && !editTags.length) {
   if (specMatch && !runtime) problems.push('no page-runtime.js — nothing draws the spec  → add <script src="charts-lib/page-runtime.js"></script> after charts.js');
   const convert = /<script src="charts-lib\/chart-convert\.js"><\/script>/.test(html) || /root\.ChartConvert\s*=\s*factory\(\)/.test(html);
   const editor = /<script src="charts-lib\/page-editor\.js"><\/script>/.test(html) || /window\.PageEditor\s*=/.test(html);
-  if (specMatch && !editor) problems.push('no page-editor.js — the page can\'t be edited without code  → add <script src="charts-lib/page-editor.js"></script> after page-runtime.js');
+  // A final copy (finalize.js, or Export final copy) is the file to share:
+  // it keeps the runtime so charts draw, and must not carry the editor.
+  // Comments are stripped first: the editor's own header names this tag.
+  const isFinalCopy = /<meta name="page-edition" content="final">/.test(code);
+  if (isFinalCopy && editor) problems.push('marked final but still has page-editor.js  → remove the editor, or drop the page-edition meta');
+  if (!isFinalCopy && specMatch && !editor) problems.push('no page-editor.js — the page can\'t be edited without code  → add <script src="charts-lib/page-editor.js"></script> after page-runtime.js');
   if (specMatch && !convert) problems.push('no chart-convert.js — charts cannot switch type  → add <script src="charts-lib/chart-convert.js"></script> before page-runtime.js');
   const badKind = editTags.filter(t => t.kind !== 'text' && t.kind !== 'rich');
   if (badKind.length) problems.push('data-edit must be "text" or "rich": ' + badKind.map(t => '"' + t.kind + '"').join(', '));
@@ -325,7 +330,7 @@ if (!specMatch && !editTags.length) {
   const locked = [...new Set(codeCalls)].filter(id => ids.includes(id));
   if (locked.length) notes.push(locked.length + ' chart(s) drawn by code, locked to the editor: ' + locked.join(', '));
   if (problems.length) bad('editable page', problems.join(' | '));
-  else ok('editable page', specCharts.length + ' chart(s) in the spec, ' + keys.length + ' text element(s)' +
+  else ok('editable page', (isFinalCopy ? 'final copy, no editor · ' : '') + specCharts.length + ' chart(s) in the spec, ' + keys.length + ' text element(s)' +
     (notes.length ? ' · ' + notes.join(' · ') : ''));
 }
 

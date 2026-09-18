@@ -733,6 +733,12 @@
       // < keeps a closing script tag inside a title or label from closing the block.
       root.querySelector('#' + SPEC_ID).textContent =
         '\n' + JSON.stringify(saved, null, 2).replace(/</g, '\\u003c') + '\n';
+      // The editor marks a working copy's tab "Draft · …" while it is open;
+      // the file keeps its real title, or every save would add another.
+      root.style.removeProperty('--pe-draft-h');
+      if (!root.getAttribute('style')) root.removeAttribute('style');
+      var t = root.querySelector('title');
+      if (t) t.textContent = t.textContent.replace(/^(Draft \u00B7 )+/, '');
       return '<!DOCTYPE html>\n' + root.outerHTML;
     }
   };
