@@ -1,7 +1,7 @@
 # GEMINI.md — chart-dashboard
 
 This repository provides a reusable capability: **turn supplied data into a
-single self-contained HTML dashboard or report with interactive SVG charts** —
+single self-contained HTML dashboard, report or slide deck with interactive SVG charts** —
 no CDN, no npm install, no build step.
 
 Instructions are shared across all AI tools and live in

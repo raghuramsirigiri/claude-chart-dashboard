@@ -28,7 +28,7 @@
   "@type": "SoftwareApplication",
   "name": "chart-dashboard",
   "alternateName": "chart-dashboard Claude Skill",
-  "description": "A Claude Agent Skill that turns any data — a table, CSV, pasted numbers, metrics, or notes — into a self-contained HTML dashboard or illustrated report with interactive SVG charts. No CDN, no build step, no runtime dependencies.",
+  "description": "A Claude Agent Skill that turns any data — a table, CSV, pasted numbers, metrics, or notes — into a self-contained HTML dashboard, illustrated report or slide deck with interactive SVG charts. No CDN, no build step, no runtime dependencies.",
   "applicationCategory": "DeveloperApplication",
   "applicationSubCategory": "Data Visualization",
   "operatingSystem": "Windows, macOS, Linux, Web",
@@ -64,7 +64,7 @@
       "name": "What are the dependencies?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "None. The generated page loads three local files — charts.js, theme.js, and charts.css, 380 KB total unminified (about 100 KB gzipped) — copied next to your HTML. There is no npm install, no CDN script tag, no build step, and no framework. Open the file in any browser from the last decade and it renders."
+        "text": "None. The chart library — charts.js, theme.js, and charts.css, about 720 KB unminified (about 200 KB gzipped) — is inlined into the page, so you get one standalone HTML file. There is no npm install, no CDN script tag, no build step, and no framework. Open the file in any browser from the last decade and it renders."
       }
     },
     {
@@ -72,7 +72,7 @@
       "name": "Does it work offline?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. The only outbound request is an optional Google Fonts import for the Inter typeface. If that fails — offline, air-gapped, or behind a strict content security policy — the charts fall back to Segoe UI or Helvetica and everything still renders. Delete the @import line for zero network calls."
+        "text": "Yes. The finished page makes no network requests at all — no CDN and no web font. It uses Inter when installed and falls back to Segoe UI or Helvetica, and the bundled checker fails any page that reaches for the network."
       }
     },
     {
@@ -120,7 +120,7 @@
       "name": "Can I edit the generated dashboard afterwards?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. The output is readable HTML with one Charts function call per panel. Edit the data arrays by hand, or ask Claude to change a panel and it will edit the file in place."
+        "text": "Yes. Ask for an editable page and it ships with an in-page editor: click Edit page to change text and numbers, switch chart types, recolour marks, and remove or move content, then save. Otherwise the output is readable HTML with one Charts function call per panel. Edit the data arrays by hand, or ask Claude to change a panel and it will edit the file in place."
       }
     },
     {
@@ -136,7 +136,7 @@
       "name": "Which chart types are supported?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Line, spline and step charts; grouped, stacked, 100% stacked, range, pyramid and 3D columns and bars; axis-free ranked bar lists; bar insight tables that pair each row's bars with an insight line and a headline stat; waffle dot grids for part-of-whole shares; donut and pie including semi-circle and variable radius; scatter with linear regression; bubble and packed bubble; geofacet tile grids with bar, heat or gauge tiles per region; and a panels compositor that groups several charts under one shared title. True geographic maps, Sankey diagrams, treemaps and heatmaps are not supported yet."
+        "text": "Line, spline and step charts; grouped, stacked, 100% stacked, range, pyramid and 3D columns and bars; axis-free ranked bar lists; bar insight tables that pair each row's bars with an insight line and a headline stat; dumbbells, histograms, waterfalls, Sankey flows and radar charts; formatted tables and report tables; waffle dot grids for part-of-whole shares; donut and pie including semi-circle and variable radius; scatter with linear regression; bubble and packed bubble; geofacet tile grids with bar, heat or gauge tiles per region; and a panels compositor that groups several charts under one shared title. True geographic maps, treemaps and heatmaps are not supported yet."
       }
     }
   ]
@@ -204,8 +204,8 @@
   <div class="kicker">Open-source Claude Agent Skill</div>
   <h1>Turn any data into a finished HTML dashboard</h1>
   <p class="lede"><b>chart-dashboard is a free, open-source Claude Agent Skill that
-    turns raw data into a finished HTML dashboard or illustrated report in a single
-    prompt.</b> Hand Claude a table, a CSV, or a page of notes and get back one
+    turns raw data into a finished HTML dashboard, illustrated report or slide deck in a
+    single prompt.</b> Hand Claude a table, a CSV, or a page of notes and get back one
     self-contained HTML file with interactive SVG charts — no CDN, no build step,
     no API keys. Vendor-neutral: also works with Gemini CLI, OpenAI Codex, GitHub
     Copilot, and Cursor.</p>
@@ -223,7 +223,7 @@
   <p>Chart libraries render what you tell them to render. This skill decides
     <em>what to render</em> — which is the part that takes design judgment. It
     carries a chart-selection table mapping data shapes to chart types, rules for
-    deriving the grid from the findings, and a bundled 380 KB SVG renderer, so output
+    deriving the grid from the findings, and a bundled zero-dependency SVG renderer, so output
     stays consistent from the first dashboard to the fiftieth. Titles state the
     finding rather than labelling the axes, the chart emphasises whatever the title
     names, and projections are never drawn in the same stroke as measurements.</p>
@@ -266,18 +266,17 @@ cp -r claude-chart-dashboard/skills/chart-dashboard ~/.claude/skills/</code></pr
 
   <details open>
     <summary>What are the dependencies?</summary>
-    <p>None. The generated page loads three local files — <code>charts.js</code>,
-      <code>theme.js</code>, and <code>charts.css</code>, 380 KB total unminified (about 100 KB gzipped) — copied next
-      to your HTML. There is no npm install, no CDN script tag, no build step, and no
+    <p>None. The chart library — <code>charts.js</code>, <code>theme.js</code>, and
+      <code>charts.css</code>, about 720 KB unminified (about 200 KB gzipped) — is inlined
+      into the page, so you get one standalone HTML file. There is no npm install, no CDN script tag, no build step, and no
       framework. Open the file in any browser from the last decade and it renders.</p>
   </details>
 
   <details>
     <summary>Does it work offline?</summary>
-    <p>Yes. The only outbound request is an optional Google Fonts import for the Inter
-      typeface. If that fails — offline, air-gapped, or behind a strict content
-      security policy — the charts fall back to Segoe UI or Helvetica and everything
-      still renders. Delete the <code>@import</code> line for zero network calls.</p>
+    <p>Yes. The finished page makes no network requests at all — no CDN and no web
+      font. It uses Inter when installed and falls back to Segoe UI or Helvetica, and
+      the bundled checker fails any page that reaches for the network.</p>
   </details>
 
   <details>
@@ -323,8 +322,10 @@ cp -r claude-chart-dashboard/skills/chart-dashboard ~/.claude/skills/</code></pr
 
   <details>
     <summary>Can I edit the generated dashboard afterwards?</summary>
-    <p>Yes. The output is readable HTML with one <code>Charts.*()</code> call per
-      panel. Edit the data arrays by hand, or ask Claude to change a panel and it will
+    <p>Yes. Ask for an <em>editable</em> page and it ships with an in-page editor:
+      click <b>Edit page</b> to change text and numbers, switch chart types, recolour
+      marks, and remove or move content, then save. Otherwise the output is readable
+      HTML with one <code>Charts.*()</code> call per panel. Edit the data arrays by hand, or ask Claude to change a panel and it will
       edit the file in place.</p>
   </details>
 
@@ -343,8 +344,9 @@ cp -r claude-chart-dashboard/skills/chart-dashboard ~/.claude/skills/</code></pr
       part-of-whole shares; donut and pie including semi-circle
       and variable radius; scatter with linear regression; bubble and packed bubble;
       geofacet tile grids (bar, heat or gauge tiles per region, US states built in);
+      dumbbells, histograms, waterfalls, Sankey flows, radar charts and tables;
       and a <code>panels</code> compositor that groups several charts under one shared title.
-      True geographic maps, Sankey diagrams, treemaps and heatmaps are not supported yet.</p>
+      True geographic maps, treemaps and heatmaps are not supported yet.</p>
   </details>
 
   <details>

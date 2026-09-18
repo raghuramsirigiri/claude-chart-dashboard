@@ -6,7 +6,7 @@ Vendor-neutral: no Claude-specific tools, formats, or APIs are required.
 ## What this repo provides
 
 A reusable capability: **turn supplied data into a single self-contained HTML
-dashboard or report with interactive SVG charts.** No CDN, no npm install, no
+dashboard, report or slide deck with interactive SVG charts.** No CDN, no npm install, no
 build step, no runtime dependencies.
 
 The canonical instructions live in
@@ -31,7 +31,11 @@ pasted numbers, metrics, notes, or a topic with figures in it.
    - [`references/narrative.md`](skills/chart-dashboard/references/narrative.md) — action titles; where a finding goes (title, insight column, or card)
    - [`references/controls.md`](skills/chart-dashboard/references/controls.md) — read before adding a filter or dropdown
    - [`references/theming.md`](skills/chart-dashboard/references/theming.md) — brand recolour, and the two scripts under `scripts/` that generate it
-3. Start from a template in `skills/chart-dashboard/templates/`.
+   - [`references/editable.md`](skills/chart-dashboard/references/editable.md) — only when the user asked for an editable page
+   - [`assets/charts-lib/charts.manifest.json`](skills/chart-dashboard/assets/charts-lib/charts.manifest.json) — quick per-engine facts (data shape, refusals, sizing)
+3. Start from a template in `skills/chart-dashboard/templates/`: `dashboard.html`,
+   `report.html`, `slides.html` (a deck), or `dashboard-editable.html` (only when
+   an editable page was asked for).
 4. Stage the library beside your output while you build and verify it, then
    fold it in and ship one file:
    ```bash
@@ -49,6 +53,10 @@ pasted numbers, metrics, notes, or a topic with figures in it.
   with no data, say so and label the figures illustrative on the page itself.
 - Do not add a CDN link, npm dependency, or build step. The output must open
   offline by double-click.
+- Build static pages unless the user asked for an editable one. An editable page
+  ships as two files: `<name>.html` (final) and `<name> (working copy).html`.
+- In a deck, lay the fixed spine first — cover, agenda, section dividers,
+  closing statement — then choose a layout per claim (`references/layout.md`).
 - Derive the grid from the shape of the analysis; the dashboard template ships
   without a starter arrangement on purpose. A wide hero cell goes to a finding
   that genuinely leads, not to whatever panel was written first.
