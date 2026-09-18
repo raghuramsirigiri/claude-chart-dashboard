@@ -48,6 +48,9 @@
 
   var CSS = [
     ':host{all:initial}',
+    // Keyboard focus is always visible; a mouse click doesn't draw the ring.
+    ':focus-visible{outline:2px solid var(--pe-accent);outline-offset:2px}',
+    'button:focus:not(:focus-visible){outline:none}',
     '@media print{:host{display:none!important}}',
     // The host carries the chart theme's font (set in init), so the editor
     // matches the page instead of the browser's default serif.
@@ -72,7 +75,7 @@
     '.bar button:hover:not(:disabled){background:#444}',
     '.bar button:disabled{opacity:.4;cursor:default}',
     '.bar button.done{background:#fff;color:#111;font-weight:600}',
-    '.bar button.save{background:#2f6bff;font-weight:600}',
+    '.bar button.save{background:var(--pe-accent);font-weight:600}',
     '.bar button.save:hover:not(:disabled){background:#1f58e8}',
     '.bar .status.unsaved{color:#ffcf66}',
     '.menu{position:relative}',
@@ -82,27 +85,27 @@
     '@media (max-width:700px){.menu .list{bottom:auto;top:calc(100% + 8px)}}',
     '.menu .list button{display:block;width:100%;text-align:left;background:none;color:#111;border-radius:6px;padding:8px 10px}',
     '.menu .list button:hover{background:#f0f0f0}',
-    '.menu .list small{display:block;color:#777;font-size:11px;margin-top:2px}',
+    '.menu .list small{display:block;color:#595959;font-size:12px;margin-top:2px}',
     '.card{position:fixed;right:20px;bottom:72px;width:300px;max-width:calc(100vw - 40px);background:#fff;color:#111;',
     '  border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.2);padding:14px 16px;font-size:13px;line-height:1.45;pointer-events:auto}',
     '.card .acts{display:flex;gap:8px;margin-top:10px;justify-content:flex-end}',
     '.card button{border:1px solid #ccc;background:#fff;border-radius:6px;padding:6px 12px;color:#111}',
-    '.card button.primary{background:#2f6bff;border-color:#2f6bff;color:#fff;font-weight:600}',
+    '.card button.primary{background:var(--pe-accent);border-color:var(--pe-accent);color:#fff;font-weight:600}',
     '.toast{position:fixed;left:50%;bottom:72px;transform:translateX(-50%);background:#111;color:#fff;border-radius:8px;',
     '  padding:8px 14px;font-size:13px;max-width:calc(100vw - 40px);box-shadow:0 6px 24px rgba(0,0,0,.25);pointer-events:auto}',
     '.toast.err{background:#8a1c1c}',
     '@media (max-width:700px){.toast{bottom:auto;top:64px}}',
     '.hl,.sel{position:fixed;pointer-events:none;border-radius:6px}',
-    '.hl{outline:2px dashed #2f6bff;outline-offset:2px}',
-    '.sel{outline:2px solid #2f6bff;outline-offset:2px}',
+    '.hl{outline:2px dashed var(--pe-accent);outline-offset:2px}',
+    '.sel{outline:2px solid var(--pe-accent);outline-offset:2px}',
     '.rm{position:fixed;pointer-events:auto;border:0;border-radius:6px;background:#b42318;color:#fff;font-size:12px;font-weight:600;padding:5px 10px;box-shadow:0 2px 8px rgba(0,0,0,.25)}',
     '.rm:hover{background:#912018}',
     '.rmenu{position:fixed;pointer-events:auto;background:#fff;color:#111;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:4px;min-width:220px;max-width:320px}',
     '.rmenu button{display:block;width:100%;text-align:left;border:0;background:none;border-radius:6px;padding:8px 10px;font-size:13px;color:#111}',
     '.rmenu button:hover{background:#fdecec;color:#8a1c1c}',
-    '.rmenu small{display:block;color:#777;font-size:11px;margin-top:2px}',
-    '.rmenu .t{font-size:11px;color:#777;padding:6px 10px 4px}',
-    '.hl .tag{position:absolute;left:0;top:-24px;background:#2f6bff;color:#fff;font-size:11px;',
+    '.rmenu small{display:block;color:#595959;font-size:12px;margin-top:2px}',
+    '.rmenu .t{font-size:12px;color:#595959;padding:6px 10px 4px}',
+    '.hl .tag{position:absolute;left:0;top:-24px;background:var(--pe-accent);color:#fff;font-size:12px;',
     '  padding:2px 8px;border-radius:4px;white-space:nowrap}',
     '.hl.locked{outline-color:#999}.hl.locked .tag{background:#777}',
     '.panel{position:fixed;top:0;right:0;bottom:0;width:380px;max-width:100vw;background:#fff;color:#111;',
@@ -110,13 +113,13 @@
     '@media (max-width:700px){.panel{top:auto;width:100%;height:60vh;border-left:0;border-top:1px solid #ddd}}',
     '.head{display:flex;align-items:center;gap:8px;padding:14px 16px 10px;border-bottom:1px solid #eee}',
     '.head .t{flex:1;min-width:0}',
-    '.head .k{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#777}',
+    '.head .k{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#595959}',
     '.head .n{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.x{border:0;background:none;font-size:22px;line-height:1;color:#666;padding:4px 8px;border-radius:6px}',
     '.x:hover{background:#f0f0f0}',
     '.tabs{display:flex;gap:4px;padding:8px 12px 0;border-bottom:1px solid #eee}',
     '.tabs button{border:0;background:none;padding:8px 12px;border-bottom:2px solid transparent;color:#555;font-size:13px}',
-    '.tabs button[aria-selected=true]{color:#111;border-bottom-color:#2f6bff;font-weight:600}',
+    '.tabs button[aria-selected=true]{color:#111;border-bottom-color:var(--pe-accent);font-weight:600}',
     '.body{flex:1;overflow:auto;padding:14px 16px 24px}',
     '.hint{color:#666;margin:0 0 12px;line-height:1.45}',
     '.flash{margin:0 0 12px;padding:8px 10px;border-radius:6px;line-height:1.4}',
@@ -126,11 +129,11 @@
     '.flash button{margin-left:6px;border:0;background:none;text-decoration:underline;color:inherit;padding:0}',
     '.types{display:grid;grid-template-columns:1fr 1fr;gap:8px}',
     '.type{text-align:left;border:1px solid #ddd;background:#fff;border-radius:8px;padding:10px;color:#111}',
-    '.type:hover:not(:disabled){border-color:#2f6bff}',
-    '.type.cur{border-color:#2f6bff;background:#eef3ff}',
-    '.type:disabled{cursor:default;background:#fafafa;color:#999}',
+    '.type:hover:not(:disabled){border-color:var(--pe-accent)}',
+    '.type.cur{border-color:var(--pe-accent);background:#eef3ff}',
+    '.type:disabled{cursor:default;background:#fafafa;color:#595959}',
     '.type b{display:block;font-size:13px}',
-    '.type small{display:block;margin-top:4px;font-size:11px;line-height:1.35;color:#888}',
+    '.type small{display:block;margin-top:4px;font-size:12px;line-height:1.35;color:#595959}',
     '.type small.w{color:#8a6100}',
     'label.f{display:block;margin:0 0 12px;font-size:12px;color:#555}',
     'label.f input{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px;color:#111}',
@@ -138,9 +141,9 @@
     'th,td{border:1px solid #e3e3e3;padding:0}',
     'th{background:#f6f6f6;font-weight:600;font-size:12px;text-align:left}',
     'td input,th input{width:100%;min-width:64px;border:0;padding:7px 8px;font-size:13px;background:transparent;color:#111}',
-    'td input:focus,th input:focus{outline:2px solid #2f6bff;outline-offset:-2px;background:#fff}',
+    'td input:focus,th input:focus{outline:2px solid var(--pe-accent);outline-offset:-2px;background:#fff}',
     'td input.num{text-align:right;font-variant-numeric:tabular-nums}',
-    'td input:disabled,th input:disabled{color:#888;background:#f6f6f6}',
+    'td input:disabled,th input:disabled{color:#595959;background:#f6f6f6}',
     'input.bad{background:#fdecec!important;outline:2px solid #d33!important;outline-offset:-2px}',
     '.grp td{background:#f6f6f6}',
     '.scroll{overflow:auto;max-width:100%}',
@@ -151,25 +154,25 @@
     '.row .lbl{flex:1 1 100%;font-size:12px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.sw{width:26px;height:26px;border-radius:6px;border:2px solid transparent;padding:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15)}',
     '.sw[aria-pressed=true]{border-color:#111;box-shadow:inset 0 0 0 2px #fff}',
-    '.sw.auto{background:#fff;font-size:10px;width:auto;padding:0 6px;color:#555}',
+    '.sw.auto{background:#fff;font-size:12px;width:auto;padding:0 6px;color:#555}',
     '.seg{display:inline-flex;border:1px solid #ccc;border-radius:8px;overflow:hidden}',
     '.seg button{border:0;background:#fff;padding:7px 12px;font-size:13px;color:#111;border-right:1px solid #ddd}',
     '.seg button:last-child{border-right:0}',
-    '.seg button[aria-pressed=true]{background:#2f6bff;color:#fff;font-weight:600}',
+    '.seg button[aria-pressed=true]{background:var(--pe-accent);color:#fff;font-weight:600}',
     '.seg button:disabled{color:#aaa;cursor:default}',
     '.btn{border:1px solid #ccc;background:#fff;border-radius:8px;padding:7px 12px;font-size:13px;color:#111}',
-    '.btn:hover:not(:disabled){border-color:#2f6bff}',
+    '.btn:hover:not(:disabled){border-color:var(--pe-accent)}',
     '.btn:disabled{color:#aaa;cursor:default}',
     '.crow{display:flex;align-items:center;gap:8px;margin:0 0 6px}',
     '.crow .lbl{flex:1;min-width:0;font-size:13px;color:#333;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
     '.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid #ccc;background:#fff;border-radius:8px;padding:4px 8px 4px 4px;font-size:12px;color:#111}',
-    '.chip:hover,.chip[aria-expanded=true]{border-color:#2f6bff}',
+    '.chip:hover,.chip[aria-expanded=true]{border-color:var(--pe-accent)}',
     '.chip i{width:20px;height:20px;border-radius:5px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.15);display:inline-block}',
     '.chip i.auto{background:repeating-linear-gradient(45deg,#eee 0 4px,#fff 4px 8px)}',
     '.picker{border:1px solid #e3e3e3;border-radius:10px;padding:10px;margin:0 0 12px;background:#fafafa}',
-    '.picker .g{font-size:11px;color:#777;margin:0 0 4px}',
+    '.picker .g{font-size:12px;color:#595959;margin:0 0 4px}',
     '.picker .sws{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 10px}',
-    '.picker .sw.named{width:auto;padding:0 8px 0 26px;font-size:11px;color:#111;background-repeat:no-repeat;background-size:14px 14px;background-position:6px center;background-color:#fff}',
+    '.picker .sw.named{width:auto;padding:0 8px 0 26px;font-size:12px;color:#111;background-repeat:no-repeat;background-size:14px 14px;background-position:6px center;background-color:#fff}',
     '.picker .custom{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
     '.picker input[type=color]{width:34px;height:28px;border:1px solid #ccc;border-radius:6px;padding:2px;background:#fff;cursor:pointer}',
     '.picker .hex{width:84px;padding:5px 7px;border:1px solid #ccc;border-radius:6px;font-size:12px;font-family:ui-monospace,Consolas,monospace}',
@@ -178,22 +181,53 @@
     '.panes button[aria-pressed=true]{background:#111;border-color:#111;color:#fff}',
     '.rec{border:1px solid #e3e3e3;border-radius:10px;padding:10px 12px;margin:0 0 12px;background:#fff}',
     '.rec h5{margin:0 0 8px;font-size:13px}',
-    '.rec .grp{font-size:11px;color:#777;margin:-4px 0 8px}',
+    '.rec .grp{font-size:12px;color:#595959;margin:-4px 0 8px}',
     'label.f textarea{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;color:#111;resize:vertical;min-height:54px}',
     'label.f .pair{display:flex;gap:6px;margin-top:4px}',
     'label.f .pair input{margin-top:0}',
     'label.f .pair input.num{flex:0 0 96px;text-align:right}',
-    'label.f small{display:block;color:#888;font-size:11px;margin-top:3px}',
+    'label.f small{display:block;color:#595959;font-size:12px;margin-top:3px}',
     '.wrow{margin:0 0 12px}',
     '.wlbl{display:flex;justify-content:space-between;gap:8px;font-size:13px;margin:0 0 4px}',
-    '.wlbl span{color:#777;font-size:11px}',
+    '.wlbl span{color:#595959;font-size:12px}',
     '.wctl{display:flex;align-items:center;gap:6px}',
-    '.wctl input[type=range]{flex:1;min-width:0;accent-color:#2f6bff}',
+    '.wctl input[type=range]{flex:1;min-width:0;accent-color:var(--pe-accent)}',
     '.wctl .hex{width:64px;text-align:right}',
-    '.wctl .px{font-size:11px;color:#777}',
+    '.wctl .px{font-size:12px;color:#595959}',
     '.wtotal{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0 8px;padding-top:8px;border-top:1px solid #eee;font-size:13px;font-weight:600}',
     'label.chk{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer}',
-    'label.chk input{width:16px;height:16px;margin:0}'
+    'label.chk input{width:16px;height:16px;margin:0}',
+    // ── target sizes: 36px controls, 44px on phones ──
+    '.bar button,.btn,.chip,.seg button,.panes button{min-height:36px}',
+    '.rm{min-height:32px}',
+    '.tabs button{min-height:40px}',
+    '.x{min-width:36px;min-height:36px}',
+    '.sw{width:28px;height:28px}',
+    'label.chk{min-height:32px}',
+    'label.chk input{width:18px;height:18px}',
+    '@media (max-width:700px){.bar button,.btn,.chip,.seg button,.panes button,.rm,.tabs button,.type,.x{min-height:44px}',
+    '  label.chk{min-height:44px} .sw{width:36px;height:36px} .bar .msg{display:none} .bar{padding-left:6px}}',
+    // ── motion: short, and none for readers who ask for less ──
+    '@keyframes pe-in-side{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}',
+    '@keyframes pe-in-up{from{transform:translateY(24px);opacity:0}to{transform:none;opacity:1}}',
+    '@keyframes pe-fade{from{opacity:0}to{opacity:1}}',
+    '@keyframes pe-pulse{0%{opacity:0}15%{opacity:1}70%{opacity:1}100%{opacity:0}}',
+    '.panel:not([hidden]){animation:pe-in-side .16s ease-out}',
+    '@media (max-width:700px){.panel:not([hidden]){animation:pe-in-up .18s ease-out}}',
+    '.toast:not([hidden]),.rmenu:not([hidden]),.menu .list:not([hidden]){animation:pe-fade .12s ease-out}',
+    '.pulse{position:fixed;pointer-events:none;border-radius:6px;outline:2px dashed var(--pe-accent);outline-offset:2px;opacity:0;animation:pe-pulse 1.6s ease-out forwards}',
+    '@media (prefers-reduced-motion:reduce){*,.pulse{animation:none!important;transition:none!important}.pulse{opacity:1}}',
+    // ── removal confirmation, toast action, stale title ──
+    '.rmenu .confirm{padding:8px 10px 4px;font-size:13px;line-height:1.45;color:#111}',
+    '.rmenu .confirm b{display:block;margin-bottom:2px}',
+    '.rmenu .acts{display:flex;gap:8px;justify-content:flex-end;padding:6px}',
+    '.rmenu .acts button{width:auto;display:inline-block;border:1px solid #ccc;min-height:36px;padding:6px 14px}',
+    '.rmenu .acts button.danger{background:#b42318;border-color:#b42318;color:#fff;font-weight:600}',
+    '.rmenu .acts button.danger:hover{background:#912018;color:#fff}',
+    '.toast button{margin-left:12px;border:0;border-radius:6px;background:#fff;color:#111;font-weight:600;padding:4px 12px;min-height:30px}',
+    'label.f.stale input{border-color:#b7791f;background:#fffaf0}',
+    'label.f.stale small{color:#7a4f00}',
+    '.type small.w{font-weight:600}'
   ].join('\n');
 
   var host, root, ui = {};
@@ -364,38 +398,208 @@
     ui.rm.hidden = !show;
     if (!show) { ui.rmenu.hidden = true; rmOpen = false; return; }
     var r = selected.el.getBoundingClientRect();
-    // Above the selection's top-right corner, kept on screen and clear of the panel.
-    var panelLeft = ui.panel.hidden ? window.innerWidth : ui.panel.getBoundingClientRect().left;
-    var x = Math.min(r.right, panelLeft - 8) - ui.rm.offsetWidth;
-    var y = r.top - ui.rm.offsetHeight - 8;
-    if (y < 8) y = r.top + 8;
-    ui.rm.style.left = Math.max(8, x) + 'px';
-    ui.rm.style.top = y + 'px';
+    var w = ui.rm.offsetWidth, h = ui.rm.offsetHeight;
+    // Try beside the selection's corners in turn and take the first spot that
+    // is on screen and clear of the toolbar and the panel.
+    var avoid = [ui.bar, ui.panel].filter(function (n) { return !n.hidden; }).map(function (n) { return n.getBoundingClientRect(); });
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var spots = [[r.right - w, r.top - h - 8], [r.right - w, r.bottom + 8], [r.left, r.top - h - 8],
+      [r.left, r.bottom + 8], [r.right - w - 8, r.top + 8], [r.left + 8, r.top + 8]];
+    var clear = function (x, y) {
+      if (x < 8 || y < 8 || x + w > vw - 8 || y + h > vh - 8) return false;
+      return avoid.every(function (a) { return x + w < a.left || x > a.right || y + h < a.top || y > a.bottom; });
+    };
+    var spot = spots.filter(function (p) { return clear(p[0], p[1]); })[0] ||
+      [Math.max(8, Math.min(r.right - w, vw - w - 8)), Math.max(8, Math.min(r.top + 8, vh - h - 8))];
+    ui.rm.style.left = spot[0] + 'px';
+    ui.rm.style.top = spot[1] + 'px';
     if (rmOpen) {
-      ui.rmenu.style.left = Math.max(8, Math.min(x, panelLeft - 330)) + 'px';
-      ui.rmenu.style.top = (y + ui.rm.offsetHeight + 6) + 'px';
+      var mw = ui.rmenu.offsetWidth || 240, mh = ui.rmenu.offsetHeight || 160;
+      var mx = Math.max(8, Math.min(spot[0] + w - mw, vw - mw - 8));
+      var my = spot[1] + h + 6 + mh > vh - 8 ? spot[1] - mh - 6 : spot[1] + h + 6;
+      ui.rmenu.style.left = mx + 'px';
+      ui.rmenu.style.top = Math.max(8, my) + 'px';
     }
+  }
+  // What a removal takes with it, for the confirmation.
+  function contents(nodes) {
+    var charts = 0, texts = 0;
+    nodes.forEach(function (n) {
+      charts += (n.matches('.chart[id]') ? 1 : 0) + n.querySelectorAll('.chart[id]').length;
+      texts += (n.matches('[data-edit]') ? 1 : 0) + n.querySelectorAll('[data-edit]').length;
+    });
+    return { charts: charts, texts: texts };
+  }
+  function plural(n, one) { return n + ' ' + one + (n === 1 ? '' : 's'); }
+  // Small things go at once (Undo is one click away); a section, a slide or
+  // anything holding a chart asks first.
+  function needsConfirm(t) {
+    return t.nodes.length > 1 || /section|slide|KPI cards|header|footer/i.test(t.label) || contents(t.nodes).charts > 0;
+  }
+  function doRemove(t) {
+    if (textEdit) finishText(true);
+    change(function () { return Page.remove(t.nodes).ok; });
+    closeRemoveMenu(false);
+    select(null);
+    toast('Removed ' + t.label.replace(/^This /, 'this ').replace(/^The /, 'the ').replace(/^All the /, 'all the ') + '.', false,
+      { label: 'Undo', run: function () { undo(); toast('Brought back.'); } });
+  }
+  function menuKeys(e) {
+    var items = Array.prototype.slice.call(ui.rmenu.querySelectorAll('button'));
+    var i = items.indexOf(root.activeElement);
+    // Enter and Space press the item here, so activation never depends on
+    // the browser turning the key into a click.
+    if ((e.key === 'Enter' || e.key === ' ') && i >= 0) { e.preventDefault(); items[i].click(); return; }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i - 1 + items.length) % items.length;
+      items[i].focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      items[e.key === 'Home' ? 0 : items.length - 1].focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); e.stopPropagation();
+      closeRemoveMenu(true);
+    } else if (e.key === 'Tab') {
+      closeRemoveMenu(false);
+    }
+  }
+  function later(fn) { setTimeout(fn, 0); }
+  function closeRemoveMenu(focusButton) {
+    rmOpen = false;
+    ui.rmenu.hidden = true;
+    ui.rm.setAttribute('aria-expanded', 'false');
+    if (focusButton && !ui.rm.hidden) ui.rm.focus();
   }
   function openRemoveMenu() {
     var targets = removeTargets(selected);
     ui.rmenu.textContent = '';
-    ui.rmenu.appendChild(el('div', { class: 't', text: 'Remove from the page' }));
+    ui.rmenu.appendChild(el('div', { class: 't', text: 'Remove from the page', 'aria-hidden': 'true' }));
     targets.forEach(function (t) {
       ui.rmenu.appendChild(el('button', {
+        role: 'menuitem',
         onmousedown: function (e) { e.preventDefault(); },
-        onclick: function () {
-          if (textEdit) finishText(true);
-          change(function () { return Page.remove(t.nodes).ok; });
-          rmOpen = false;
-          ui.rmenu.hidden = true;
-          select(null);
-          toast('Removed. Undo (Ctrl+Z) brings it back.');
-        }
+        onclick: function () { if (needsConfirm(t)) confirmRemove(t); else doRemove(t); }
       }, [t.label, t.detail ? el('small', { text: t.detail }) : null]));
     });
     rmOpen = true;
     ui.rmenu.hidden = false;
+    ui.rm.setAttribute('aria-expanded', 'true');
     placeRemove();
+    // Focus moves after this event is done: a keyboard Enter that opened the
+    // menu would otherwise go on to press the item it lands on.
+    later(function () { var first = ui.rmenu.querySelector('button'); if (first) first.focus(); });
+  }
+  function confirmRemove(t) {
+    var c = contents(t.nodes);
+    var parts = [];
+    if (c.charts) parts.push(plural(c.charts, 'chart'));
+    if (c.texts) parts.push(plural(c.texts, 'text block'));
+    var what = t.label.replace(/^This /, '').replace(/^The /, '').replace(/^All the /, 'all the ');
+    ui.rmenu.textContent = '';
+    ui.rmenu.appendChild(el('div', { class: 'confirm', role: 'alert' }, [
+      el('b', { text: 'Remove ' + what + (t.detail ? ' \u201C' + t.detail + '\u201D' : '') + '?' }),
+      parts.length ? 'It holds ' + parts.join(' and ') + '. ' : '',
+      'You can undo this until you save.'
+    ]));
+    var cancel = el('button', { role: 'menuitem', onmousedown: function (e) { e.preventDefault(); },
+      onclick: function () { openRemoveMenu(); } }, ['Cancel']);
+    var go = el('button', { role: 'menuitem', class: 'danger', onmousedown: function (e) { e.preventDefault(); },
+      onclick: function () { doRemove(t); } }, ['Remove']);
+    ui.rmenu.appendChild(el('div', { class: 'acts' }, [cancel, go]));
+    placeRemove();
+    later(function () { cancel.focus(); });
+  }
+
+  // ── keyboard ───────────────────────────────────────────────────────
+  // In edit mode every chart and piece of marked text is a tab stop, so the
+  // page can be edited without a mouse: Tab to it, Enter to edit it, Esc to
+  // leave. The tab stops are the editor's own (data-page-ti) and are taken
+  // off when editing stops and before the page is saved.
+  function editables() {
+    var out = [];
+    Array.prototype.forEach.call(document.querySelectorAll('.chart[id], [data-edit][data-key]'), function (n) {
+      if (host.contains(n) || Page.isRemoved(n)) return;
+      if (n.classList.contains('chart') && n.parentElement && n.parentElement.closest('.chart')) return;
+      if (hit(n)) out.push(n);
+    });
+    return out;
+  }
+  function addTabStops() {
+    editables().forEach(function (n) {
+      if (n.hasAttribute('tabindex')) return;
+      n.setAttribute('tabindex', '0');
+      n.setAttribute('data-page-ti', '');
+    });
+  }
+  function removeTabStops() {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-page-ti]'), function (n) {
+      n.removeAttribute('tabindex');
+      n.removeAttribute('data-page-ti');
+    });
+  }
+  function describe(h) {
+    return h.kind === 'text' ? (h.rich ? 'Edit paragraph' : 'Edit text') : h.locked ? 'Locked chart' : 'Edit chart';
+  }
+  function onFocusIn(e) {
+    if (!editing || fromUI(e) || inTextEdit(e.target)) return;
+    var h = hit(e.target);
+    if (!h || h.el !== e.target) return;
+    hovered = h;
+    ui.hl.classList.toggle('locked', !!h.locked);
+    ui.tag.textContent = describe(h) + ' \u00B7 Enter';
+    place();
+  }
+  function clearPulses() {
+    Array.prototype.forEach.call(root.querySelectorAll(".pulse"), function (d) { d.parentNode.removeChild(d); });
+  }
+  // Outline every editable thing on screen for a moment when editing starts,
+  // so touch and keyboard users see what they can change.
+  function pulseEditables() {
+    var vh = window.innerHeight, n = 0;
+    editables().forEach(function (e) {
+      var r = e.getBoundingClientRect();
+      if (n >= 80 || r.bottom < 0 || r.top > vh || !r.width) return;
+      n++;
+      var d = el('div', { class: 'pulse', 'aria-hidden': 'true' });
+      d.style.left = r.left + 'px'; d.style.top = r.top + 'px';
+      d.style.width = r.width + 'px'; d.style.height = r.height + 'px';
+      // Beneath the panel and toolbar, and gone as soon as anything moves:
+      // the outlines mark where things are now, not where they were.
+      root.insertBefore(d, ui.hl);
+      setTimeout(function () { if (d.parentNode) d.parentNode.removeChild(d); }, 1700);
+    });
+  }
+
+  // ── #2 keep the selection in view beside the panel ─────────────────
+  // While the panel is open the page gets room beside it (or above it on a
+  // phone) and the selection scrolls into that room. The style is marked
+  // data-page-ui, so it never reaches a saved file.
+  var roomStyle = null;
+  function makeRoom(open) {
+    if (!roomStyle) {
+      roomStyle = document.createElement('style');
+      roomStyle.setAttribute('data-page-ui', '');
+      document.head.appendChild(roomStyle);
+    }
+    var phone = window.innerWidth <= 700;
+    var css = !open ? '' : phone ? 'html{padding-bottom:60vh!important}' : 'html{padding-right:380px!important}';
+    if (roomStyle.textContent === css) return;
+    roomStyle.textContent = css;
+    // Charts follow their containers on their own; a deck scales its slides
+    // on resize, so tell it the room changed.
+    try { window.dispatchEvent(new Event('resize')); } catch (err) { /* old browsers */ }
+  }
+  function revealSelection() {
+    if (!selected) return;
+    var r = selected.el.getBoundingClientRect();
+    if (window.innerWidth <= 700) {
+      var top = 64, bottom = window.innerHeight * 0.4 - 8;
+      if (r.top < top || r.top > bottom) window.scrollBy(0, r.top - top);
+    } else if (r.top < 8 || r.bottom > window.innerHeight - 80) {
+      window.scrollBy(0, r.top - Math.max(16, (window.innerHeight - 80 - r.height) / 2));
+    }
+    place();
   }
 
   // ── events while editing ───────────────────────────────────────────
@@ -405,8 +609,7 @@
     hovered = h;
     if (h) {
       ui.hl.classList.toggle('locked', !!h.locked);
-      ui.tag.textContent = h.kind === 'text' ? (h.rich ? 'Edit paragraph' : 'Edit text')
-        : h.locked ? 'Locked chart' : 'Edit chart';
+      ui.tag.textContent = describe(h);
     }
     place();
   }
@@ -426,9 +629,19 @@
     h.y = e.clientY;
     select(h);
   }
+  var returnFocus = null;
   function onKey(e) {
     if (!editing) return;
     var typing = inTextEdit(e.target) || (root.activeElement && /INPUT|TEXTAREA/.test(root.activeElement.tagName));
+    if (!typing && !fromUI(e) && (e.key === 'Enter' || e.key === ' ') && !e.ctrlKey && !e.metaKey) {
+      var h = hit(document.activeElement);
+      if (h && h.el === document.activeElement) {
+        e.preventDefault();
+        returnFocus = h.el;
+        select(h);
+        return;
+      }
+    }
     var mod = e.ctrlKey || e.metaKey;
     if (mod && (e.key === 's' || e.key === 'S')) {
       e.preventDefault();
@@ -442,10 +655,15 @@
       redo();
     } else if (e.key === 'Escape' && !typing) {
       if (ui.list && !ui.list.hidden) closeMenu();
-      else select(null);
+      else if (rmOpen) closeRemoveMenu(true);
+      else {
+        var back = selected ? selected.el : null;
+        select(null);
+        if (back && back.hasAttribute('tabindex')) back.focus();
+      }
     }
   }
-  function onScroll() { place(); }
+  function onScroll() { clearPulses(); place(); }
 
   // ── text in place ──────────────────────────────────────────────────
   function startText(h) {
@@ -484,8 +702,9 @@
       : 'Editing text · Enter to finish · Esc to cancel');
   }
   function textKey(e) {
-    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finishText(false); select(null); }
-    else if (e.key === 'Enter' && !textEdit.rich) { e.preventDefault(); finishText(true); select(null); }
+    var node = textEdit.el;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finishText(false); select(null); node.focus(); }
+    else if (e.key === 'Enter' && !textEdit.rich) { e.preventDefault(); finishText(true); select(null); node.focus(); }
   }
   function textBlur() {
     // Clicking the bar's Undo blurs the text first; commit so undo sees it.
@@ -510,6 +729,7 @@
 
   // ── selection ──────────────────────────────────────────────────────
   function select(h) {
+    clearPulses();
     if (textEdit) finishText(true);
     rmOpen = false;
     if (ui.rmenu) ui.rmenu.hidden = true;
@@ -518,15 +738,30 @@
     var open = !!h && h.kind === 'chart';
     ui.panel.hidden = !open;
     ui.bar.classList.toggle('shift', open);
+    makeRoom(open);
     if (!h) { place(); return; }
     if (h.kind === 'text') { place(); startText(h); return; }
     tab = 'type';
     openPicker = null;
     renderPanel();
+    // Let the page reflow into its new room, then bring the chart into view
+    // and move keyboard focus to the panel.
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () {
+        revealSelection();
+        var t = ui.panel.querySelector('[role=tab][aria-selected=true]') || ui.panel.querySelector('button');
+        if (t) t.focus({ preventScroll: true });
+      });
+    });
+    setTimeout(place, 250);
     place();
   }
 
   // ── panel ──────────────────────────────────────────────────────────
+  function focusTab() {
+    var t = ui.panel.querySelector('[role=tab][aria-selected=true]');
+    if (t) t.focus();
+  }
   function renderPanel() {
     var baseId = selected.id;
     // A panels chart is several charts under one title: pick the whole
@@ -547,6 +782,7 @@
       el('button', { class: 'x', 'aria-label': 'Close', title: 'Close (Esc)', onclick: function () { select(null); } }, ['×'])
     ]);
     ui.panel.textContent = '';
+    ui.panel.setAttribute('aria-label', 'Edit chart: ' + (entry && entry.config.title ? entry.config.title : id));
     ui.panel.appendChild(head);
     if (subs.length) {
       var panes = el('div', { class: 'panes', role: 'group', 'aria-label': 'Panels' });
@@ -566,17 +802,33 @@
       return;
     }
 
-    var tabs = el('div', { class: 'tabs', role: 'tablist' });
+    var tabs = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Chart settings' });
     var tabList = subs.length && !inPanel
       ? [['text', 'Text']]
       : [['type', 'Type'], ['text', 'Text'], ['data', 'Data'], ['style', 'Style']];
     if (!inPanel && Page.layout && Page.layout(baseId)) tabList.push(['layout', 'Layout']);
     if (!tabList.some(function (t) { return t[0] === tab; })) tab = tabList[0][0];
     tabList.forEach(function (t) {
-      tabs.appendChild(el('button', { role: 'tab', 'aria-selected': String(tab === t[0]),
-        onclick: function () { tab = t[0]; flash = null; openPicker = null; renderPanel(); } }, [t[1]]));
+      tabs.appendChild(el('button', { role: 'tab', id: 'pe-tab-' + t[0], 'aria-controls': 'pe-body',
+        'aria-selected': String(tab === t[0]), tabindex: tab === t[0] ? '0' : '-1',
+        onclick: function () { tab = t[0]; flash = null; openPicker = null; renderPanel(); focusTab(); } }, [t[1]]));
+    });
+    // Arrow keys move between tabs, as in any tab list.
+    tabs.addEventListener('keydown', function (e) {
+      var keys = { ArrowRight: 1, ArrowLeft: -1, Home: -99, End: 99 };
+      if (!(e.key in keys)) return;
+      e.preventDefault();
+      var i = tabList.map(function (t) { return t[0]; }).indexOf(tab);
+      var d = keys[e.key];
+      i = d === -99 ? 0 : d === 99 ? tabList.length - 1 : (i + d + tabList.length) % tabList.length;
+      tab = tabList[i][0]; flash = null; openPicker = null;
+      renderPanel();
+      focusTab();
     });
     ui.panel.appendChild(tabs);
+    body.id = 'pe-body';
+    body.setAttribute('role', 'tabpanel');
+    body.setAttribute('aria-labelledby', 'pe-tab-' + tab);
 
     if (flash) {
       body.appendChild(el('div', { class: 'flash ' + flash.kind }, [flash.text]));
@@ -610,6 +862,14 @@
     }).join(', ');
   }
 
+  function shortWarning(w) {
+    if (/px wide/.test(w)) return 'Tight fit';
+    if (/slices/.test(w)) return 'Many slices';
+    if (/Tables size/.test(w)) return 'Leaves space below';
+    if (/gaps/.test(w)) return 'Breaks at gaps';
+    if (/side by side/.test(w)) return 'Many panels';
+    return 'Check the fit';
+  }
   function typeTab(body, id, entry) {
     if (entry.type === 'reportTable') return reportTypeTab(body, id, entry);
     if (entry.type === 'geofacet') return tileTypeTab(body, id, entry);
@@ -624,11 +884,12 @@
     alts.forEach(function (a) {
       var note = a.current ? el('small', { text: 'Current' })
         : !a.ok ? el('small', { text: a.reason })
-        : a.warnings.length ? el('small', { class: 'w', text: a.warnings.join(' ') })
+        : a.warnings.length ? el('small', { class: 'w', text: shortWarning(a.warnings[0]), title: a.warnings.join(' ') })
         : null;
       grid.appendChild(el('button', {
         class: 'type' + (a.current ? ' cur' : ''),
         disabled: !a.ok || a.current,
+        'aria-label': name(a.type) + (a.current ? ', current' : !a.ok ? ', not available: ' + a.reason : a.warnings.length ? '. ' + a.warnings.join(' ') : ''),
         'aria-pressed': String(!!a.current),
         onclick: function () {
           var res;
@@ -658,7 +919,9 @@
         place();
       });
       input.addEventListener('keydown', function (e) { if (e.key === 'Enter') input.blur(); });
-      body.appendChild(el('label', { class: 'f' }, [f[1], input]));
+      var stale = f[0] === 'title' && dataTouched[id];
+      body.appendChild(el('label', { class: 'f' + (stale ? ' stale' : '') }, [f[1], input,
+        stale ? el('small', { text: 'The data changed. Does this title still describe the chart?' }) : null]));
     });
   }
 
@@ -1390,7 +1653,7 @@
 
   // ── bar ────────────────────────────────────────────────────────────
   function setMessage(text) {
-    ui.msg.textContent = text || 'Click a chart or any text to change it';
+    ui.msg.textContent = text || 'Click, or Tab to, a chart or any text and press Enter';
   }
   function refreshBar() {
     ui.undo.disabled = !undoStack.length;
@@ -1532,12 +1795,17 @@
   }
 
   var toastTimer = 0;
-  function toast(text, isError) {
+  function toast(text, isError, action) {
     ui.toast.textContent = text;
+    if (action) {
+      ui.toast.appendChild(el('button', { onmousedown: function (e) { e.preventDefault(); },
+        onclick: function () { ui.toast.hidden = true; action.run(); } }, [action.label]));
+    }
     ui.toast.className = 'toast' + (isError ? ' err' : '');
     ui.toast.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { ui.toast.hidden = true; }, isError ? 9000 : 5000);
+    // Long enough to reach the Undo in a toast that offers one.
+    toastTimer = setTimeout(function () { ui.toast.hidden = true; }, isError ? 9000 : action ? 8000 : 5000);
   }
 
   function closeMenu() { if (ui.list) ui.list.hidden = true; }
@@ -1596,6 +1864,9 @@
     ui.bar.hidden = false;
     setMessage(null);
     refreshBar();
+    addTabStops();
+    pulseEditables();
+    document.addEventListener('focusin', onFocusIn, true);
     window.addEventListener('mousemove', onMove, true);
     window.addEventListener('mousedown', onDown, true);
     window.addEventListener('click', onClick, true);
@@ -1610,11 +1881,27 @@
     place();
     ui.bar.hidden = true;
     ui.toggle.hidden = false;
+    removeTabStops();
+    makeRoom(false);
+    document.removeEventListener('focusin', onFocusIn, true);
     window.removeEventListener('mousemove', onMove, true);
     window.removeEventListener('mousedown', onDown, true);
     window.removeEventListener('click', onClick, true);
     window.removeEventListener('scroll', onScroll, true);
     window.removeEventListener('resize', onScroll);
+  }
+
+  // The editor's accent: the theme's second series colour (the one a page
+  // uses for emphasis) when white text on it passes 4.5:1, else a stock blue.
+  function themeAccent() {
+    var fallback = '#2f6bff';
+    var c = window.Charts && Charts.theme && Charts.theme.colors && Charts.theme.colors[1];
+    var m = /^#([0-9a-f]{6})$/i.exec(c || '');
+    if (!m) return fallback;
+    var lin = function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    var n = parseInt(m[1], 16);
+    var L = 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+    return 1.05 / (L + 0.05) >= 4.5 ? c : fallback;
   }
 
   function init() {
@@ -1624,6 +1911,7 @@
     host.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483000';
     host.style.fontFamily = (window.Charts && Charts.theme && Charts.theme.font) ||
       'system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif';
+    host.style.setProperty('--pe-accent', themeAccent());
     root = host.attachShadow({ mode: 'open' });
     root.appendChild(el('style', { text: CSS }));
 
@@ -1651,10 +1939,14 @@
     ui.tag = el('span', { class: 'tag' });
     ui.hl = el('div', { class: 'hl', hidden: true }, [ui.tag]);
     ui.sel = el('div', { class: 'sel', hidden: true });
-    ui.rm = el('button', { class: 'rm', hidden: true, title: 'Remove from the page',
+    ui.rm = el('button', { class: 'rm', hidden: true, title: 'Remove from the page', 'aria-haspopup': 'menu', 'aria-expanded': 'false',
       onmousedown: function (e) { e.preventDefault(); },
-      onclick: function () { if (rmOpen) { rmOpen = false; ui.rmenu.hidden = true; } else openRemoveMenu(); } }, ['Remove\u2026']);
-    ui.rmenu = el('div', { class: 'rmenu', hidden: true, role: 'menu' });
+      onclick: function () { if (rmOpen) closeRemoveMenu(true); else openRemoveMenu(); } }, ['Remove\u2026']);
+    ui.rmenu = el('div', { class: 'rmenu', hidden: true, role: 'menu', 'aria-label': 'Remove from the page' });
+    ui.rmenu.addEventListener('keydown', menuKeys);
+    ui.rm.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); openRemoveMenu(); }
+    });
     ui.panel = el('aside', { class: 'panel', hidden: true, 'aria-label': 'Chart settings' });
     [ui.hl, ui.sel, ui.panel, ui.bar, ui.toggle, ui.toast, ui.rm, ui.rmenu].forEach(function (n) { root.appendChild(n); });
     root.appendChild(el('style', { text: '[hidden]{display:none!important}' }));

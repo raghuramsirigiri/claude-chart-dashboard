@@ -171,7 +171,30 @@ locked (there should be none).
   bottom of the screen, or the top on a phone.
 - **Hovering** outlines anything editable and names it: Edit text, Edit
   paragraph, Edit chart, or Locked chart for one drawn by page code. In edit
-  mode, clicks on charts select them instead of toggling legends.
+  mode, clicks on charts select them instead of toggling legends. When edit
+  mode starts, everything editable on screen is outlined for a moment, so
+  touch and keyboard users can see what can change.
+- **Keyboard.** In edit mode every chart and marked text is a tab stop.
+  - Tab outlines the focused item; Enter or Space opens it.
+  - Focus moves to the panel's selected tab. Left/Right, Home and End move
+    between tabs.
+  - Esc closes the panel and returns focus to the chart.
+  - The Remove menu works with the arrow keys, Enter and Esc.
+  - The tab stops carry `data-page-ti` and are removed when editing stops
+    and before saving, so a saved page has none.
+- **The panel never hides the selection.** While it's open, the page gets
+  room beside it (380px on the right, or the bottom 60% on a phone), using
+  a `data-page-ui` style that is never saved. The selected chart is
+  scrolled into that room.
+- **Accessibility.**
+  - Every control shows a 2px focus ring for keyboard use.
+  - Small text is at least 12px and 4.5:1 contrast.
+  - Controls are at least 32–36px, and 44px on phones.
+  - The tabs are a proper tab list with a tab panel.
+  - Panel and toast animations are short and off for readers who ask for
+    reduced motion.
+  - The editor's accent colour is the page theme's second series colour when
+    white text on it passes 4.5:1, and a stock blue otherwise.
 - **Text** is edited in place, in the page's own styling.
   - A heading or label is selected whole on click, so typing replaces it.
     Enter finishes, Esc cancels.
@@ -180,7 +203,10 @@ locked (there should be none).
   - Pasted markup is cleaned (see the `rich` kind above).
 - **A chart** opens a side panel (a bottom sheet on a phone):
   - **Type**: the switchable types as buttons. Refused ones are greyed out
-    with their reason, and warnings are shown under the others. After a
+    with their reason. A type with a caveat shows a short label ("Tight
+    fit", "Many slices"); the full text is in its tooltip and accessible
+    name. Width warnings appear only when the card is more than 15% under
+    what the type needs. After a
     switch, the panel says which settings were left out; Undo brings them
     back.
   - **Text**: title and subtitle.
@@ -293,6 +319,12 @@ locked (there should be none).
   - its **slide** in a deck (only inside `.deck`; a dashboard's outer
     `.page` wrapper is never offered)
   - all the KPI cards, the page header or the footer
+
+  A single piece of text or a small card goes at once. A section, a slide,
+  all the KPI cards, the header, the footer, or anything holding a chart
+  asks first ("Remove section “04 Radar”? It holds 1 chart and 3 text
+  blocks."), with Cancel focused. The "Removed" message carries an **Undo**
+  button for 8 seconds.
 
   A removed part is hidden (`data-page-removed`), not deleted, so Undo,
   Redo and drafts bring it back. Parts are addressed by their position in

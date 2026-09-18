@@ -447,7 +447,8 @@
         // for the current type, so a card slightly under every type's
         // minimum is not news.
         var m = meta[t.type], cur = meta[entry.type];
-        if (out.ok && m && w && m.minWidth && w < m.minWidth && (!cur || m.minWidth > (cur.minWidth || 0))) {
+        // Only a real squeeze: within 15% of the minimum still reads fine.
+        if (out.ok && m && w && m.minWidth && w < m.minWidth * 0.85 && (!cur || m.minWidth > (cur.minWidth || 0))) {
           out.warnings.push('This space is ' + w + 'px wide; a ' + t.type + ' needs about ' + m.minWidth + 'px.');
         }
         // Tables are as tall as their rows. In a fixed-height card the rows
@@ -642,6 +643,12 @@
       // write them into the file, and the next open would add them again.
       Array.prototype.slice.call(root.querySelectorAll('[data-page-ui],[data-page-generated],[' + REMOVED + ']')).forEach(function (n) {
         n.parentNode.removeChild(n);
+      });
+      // The editor makes charts and text reachable with Tab while it is open;
+      // those tab stops are its own and don't belong in the file.
+      Array.prototype.forEach.call(root.querySelectorAll('[data-page-ti]'), function (n) {
+        n.removeAttribute('tabindex');
+        n.removeAttribute('data-page-ti');
       });
       // Charts that went with a removed component leave the spec too.
       var saved = { version: spec.version, charts: {} };
