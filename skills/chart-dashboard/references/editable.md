@@ -252,8 +252,15 @@ locked (there should be none).
 - **Layout** (charts in a dashboard grid only):
   - **Width** ⅓, ½, ⅔ or full (`w4`–`w12`).
   - **Double height** (`h2`), except in content-sized `.flow` rows.
-  - **Move earlier / later** swaps the card with its neighbour in the same
-    grid. Cards never move between grids.
+  - **Move earlier / later** swaps the card with its neighbour in its row.
+    - At the end of a row, the card moves into the neighbouring row, but
+      only one of the same kind. A content-sized table never lands in a
+      fixed-height row.
+    - A card that has a row to itself (a report table, bar insight table,
+      panels or table in its `.flow` row) moves the **whole row** past the
+      next one ("Move row up / down").
+    - Undo, drafts and saving keep the order: grids and cells are recorded
+      by their ids from when the page opened.
 
   The template stacks cards to half or full width on narrow windows, so a
   width change shows only on a wide screen.
@@ -303,6 +310,20 @@ locked (there should be none).
     layout) or one panel. A panel then gets the full Type, Text, Data and
     Style tabs, as if it were a chart of its own. Its type choices are
     test-drawn at the panel's share of the width.
+- **Callouts** (a tab on any chart that supports them). Each callout
+  pins a short note to one mark, via the chart's `callouts` array:
+  - **Points at:** chosen from the chart's own marks — a category,
+    slice, row, state, point, or a value in a histogram bin.
+  - **Series**, where the chart has several.
+  - **Note**, where a line break is a new line in the box.
+  - **Colour**, from the same picker as the Style tab.
+  - **Add** starts at the largest mark, and each callout has **Remove**.
+
+  The library places each box where it covers nothing. A line pins by
+  category index (`x`), a scatter by `x` and `y`, a histogram by a value
+  inside the bin, and everything else by `name`. Inner charts of a panels
+  chart get their own Callouts tab. Tables, report tables and sankey have
+  no callouts in the library, so they show no tab.
 - **Stale titles.** Once a chart's data changes, its panel warns that the
   title may no longer describe it, until the title is edited or the warning
   is dismissed.
@@ -405,6 +426,9 @@ geofacet. `ChartConvert.report.targets` / `switchChart` switch a report
 table's chart column, `ChartConvert.insight` holds stat colours, and
 `ChartConvert.tiles` holds geofacet tile variants.
 
+`ChartConvert.callouts` (`anchors`, `list`, `set`) reads and writes a
+chart's callouts.
+
 `ChartConvert.style` holds the style transforms the editor uses: `options`,
 `sort`, `highlight`, `highlighted`, `labels`, `seriesColour`, `marks` and
 `markColour`. Each takes
@@ -429,7 +453,7 @@ For the editor, and for verifying a page.
 | `switchType(id, type)` | convert and redraw. Returns `{ ok, error, lost }`; a refused switch leaves the chart unchanged |
 | `snapshot()` / `restore(snap)` | every spec chart, marked text, grid layout and removed part, for undo; `restore` redraws only what differs |
 | `remove(nodes)` / `canRemove(node)` / `isRemoved(node)` | hide page parts so saving leaves them out; undo with `restore` |
-| `layout(id)` / `setLayout(id, { width?, tall? })` / `move(id, ±1)` | a chart's dashboard cell: width class, double height, position among its neighbours. `layout` is null outside a `.bento` grid |
+| `layout(id)` / `setLayout(id, { width?, tall? })` / `move(id, ±1)` | a chart's dashboard cell: width class, double height, position. `layout` reports `earlier` / `later` as `swap`, `into` (joins the next row) or `row` (moves its whole row), and is null outside a `.bento` grid |
 | `redraw(id?)` | redraw one chart or all of them |
 | `on(fn)` / `isDirty()` | notified on each change; whether anything changed |
 | `serialize()` | the whole page as standalone HTML with the edits: chart cells emptied, spec rewritten, tooltips and editor UI (`data-page-ui`) dropped. Opening the result and serializing again gives the same bytes |

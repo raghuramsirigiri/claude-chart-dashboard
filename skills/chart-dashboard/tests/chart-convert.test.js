@@ -439,3 +439,30 @@ test('report table column widths are percentages that total 100', () => {
   assert.ok(CC.report.widths(CC.report.clearWidths(set).config).every(c => c.pct === null));
   assert.ok(Charts.validate('reportTable', set).ok);
 });
+
+test('callouts: anchors per chart, and a round trip through the config', () => {
+  const a = t => CC.callouts.anchors(t, FIXTURES[t]);
+  assert.deepStrictEqual(a('column').anchors.map(x => x.value), ['North', 'South', 'East', 'West']);
+  assert.deepStrictEqual(a('column').series, ['2025', '2026']);
+  assert.strictEqual(a('line').by, 'x');
+  assert.deepStrictEqual(a('line').anchors.map(x => x.value), [0, 1, 2, 3], 'a line pins by category index');
+  assert.deepStrictEqual(a('scatter').anchors[1].value, { x: 2, y: 3 });
+  assert.deepStrictEqual(a('donut').anchors.map(x => x.value), ['Direct', 'Paid', 'Organic']);
+  assert.ok(a('geofacet').anchors.some(x => x.value === 'CA'));
+  assert.deepStrictEqual(a('barInsightTable').anchors.map(x => x.value), ['Revenue', 'COGS', 'Gross profit']);
+  assert.strictEqual(a('histogram').by, 'value');
+  assert.strictEqual(CC.callouts.anchors('sankey', FIXTURES.sankey), null);
+  assert.strictEqual(CC.callouts.anchors('table', FIXTURES.table), null);
+
+  const set = CC.callouts.set('column', FIXTURES.column, [{ anchor: 'South', series: '2026', text: 'Promo week', color: '#B31B38' }]).config;
+  assert.deepStrictEqual(set.callouts, [{ name: 'South', series: '2026', text: 'Promo week', color: '#B31B38' }]);
+  assert.deepStrictEqual(CC.callouts.list('column', set), [{ anchor: 'South', series: '2026', text: 'Promo week', color: '#B31B38' }]);
+  const line = CC.callouts.set('line', FIXTURES.line, [{ anchor: 2, text: 'Launch' }]).config;
+  assert.deepStrictEqual(line.callouts, [{ x: 2, text: 'Launch' }]);
+  const sc = CC.callouts.set('scatter', FIXTURES.scatter, [{ anchor: { x: 3, y: 5 }, text: 'Outlier' }]).config;
+  assert.deepStrictEqual(CC.callouts.list('scatter', sc)[0].anchor, { x: 3, y: 5 });
+  assert.ok(!('callouts' in CC.callouts.set('column', set, []).config), 'an empty list removes them');
+  // callouts written by hand with another naming key still read back
+  assert.strictEqual(CC.callouts.list('column', { callouts: [{ category: 'Q3', text: 'x' }] })[0].anchor, 'Q3');
+  assert.match(CC.callouts.set('column', FIXTURES.column, [{ anchor: '', text: 'x' }]).error, /point at/);
+});

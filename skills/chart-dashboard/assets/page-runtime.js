@@ -55,6 +55,7 @@
   // it within its own grid.
   var WIDTHS = ['w4', 'w6', 'w8', 'w12'];
   var cellIds = [];   // index = id; the cells present when the page opened
+  var gridIds = [];   // index = id; the grids present when the page opened
 
   var spec = null;
   var handles = {};
@@ -322,6 +323,7 @@
     spec = readSpec();
     indexPaths();
     grids().forEach(function (g) {
+      gridIds.push(g);
       Array.prototype.forEach.call(g.children, function (c) { cellIds.push(c); });
     });
     var body = document.body;
@@ -335,22 +337,74 @@
 
   // Layout as plain data, so it can sit in a snapshot and a draft: per grid,
   // the cells in order as [id, className].
+  // Layout as plain data: the grids in page order, and each grid's cells in
+  // order as [cellId, className]. Cells can move between grids and grids
+  // can move past each other, so both are recorded by the ids they had when
+  // the page opened.
   function layoutState() {
-    return grids().map(function (g) {
-      return Array.prototype.map.call(g.children, function (c) { return [idOfCell(c), c.className]; });
-    });
+    return {
+      v: 2,
+      order: grids().map(function (g) { return gridIds.indexOf(g); }),
+      grids: gridIds.map(function (g, gi) {
+        return [gi, Array.prototype.map.call(g.children, function (c) { return [idOfCell(c), c.className]; })];
+      })
+    };
   }
   function restoreLayout(state) {
-    var gs = grids();
-    if (gs.length !== state.length) return;
-    state.forEach(function (cells, i) {
-      cells.forEach(function (pair) {
+    if (Array.isArray(state)) {   // snapshots and drafts from before rows could move
+      var gs0 = grids();
+      if (gs0.length !== state.length) return;
+      state.forEach(function (cells, i) {
+        cells.forEach(function (pair) {
+          var node = cellIds[pair[0]];
+          if (!node || node.parentElement !== gs0[i]) return;
+          if (node.className !== pair[1]) node.className = pair[1];
+          gs0[i].appendChild(node);
+        });
+      });
+      return;
+    }
+    state.grids.forEach(function (entry) {
+      var g = gridIds[entry[0]];
+      if (!g) return;
+      entry[1].forEach(function (pair) {
         var node = cellIds[pair[0]];
-        if (!node || node.parentElement !== gs[i]) return;
+        if (!node) return;
         if (node.className !== pair[1]) node.className = pair[1];
-        gs[i].appendChild(node);   // appending in saved order reorders the grid
+        g.appendChild(node);   // appending in saved order also brings a cell back to its grid
       });
     });
+    // Put the grids back into the slots the grids occupy now, in saved order.
+    var now = grids();
+    var want = state.order.map(function (i) { return gridIds[i]; }).filter(Boolean);
+    if (want.length !== now.length) return;
+    var marks = now.map(function (g) {
+      var m = document.createComment('slot');
+      g.parentNode.insertBefore(m, g);
+      return m;
+    });
+    want.forEach(function (g, i) { marks[i].parentNode.insertBefore(g, marks[i]); });
+    marks.forEach(function (m) { m.parentNode.removeChild(m); });
+  }
+
+  // Where a card can move by -1 (earlier) or +1 (later):
+  //   swap    with its neighbour in the same row;
+  //   row     the card is alone, so its whole row moves past the next row;
+  //   into    the card is at the end of a row with others, so it joins the
+  //           next row, but only one of the same kind: a content-sized table
+  //           must never land in a fixed-height row.
+  function moveTarget(cell, by) {
+    var grid = cell.parentElement;
+    var sib = by < 0 ? cell.previousElementSibling : cell.nextElementSibling;
+    while (sib && isRemoved(sib)) sib = by < 0 ? sib.previousElementSibling : sib.nextElementSibling;
+    if (sib) return { kind: 'swap', other: sib };
+    var gs = grids().filter(function (g) { return !isRemoved(g); });
+    var og = gs[gs.indexOf(grid) + by];
+    if (!og) return null;
+    var alone = Array.prototype.filter.call(grid.children, function (c) { return !isRemoved(c); }).length === 1;
+    if (alone) return { kind: 'row', other: og };
+    if (og.classList.contains('flow') === grid.classList.contains('flow')) return { kind: 'into', other: og };
+    return null;
   }
 
   var Page = {
@@ -590,8 +644,11 @@
         tall: cell.classList.contains('h2'),
         // Content-sized rows (.flow) hold tables that set their own height.
         canTall: !grid.classList.contains('flow'),
-        first: !cell.previousElementSibling,
-        last: !cell.nextElementSibling
+        first: !moveTarget(cell, -1),
+        last: !moveTarget(cell, 1),
+        // What a move does, for the editor to say so.
+        earlier: (moveTarget(cell, -1) || {}).kind || null,
+        later: (moveTarget(cell, 1) || {}).kind || null
       };
     },
 
@@ -607,16 +664,26 @@
       return { ok: true, error: null };
     },
 
-    /** Swap a chart's cell with its neighbour: by -1 (earlier) or +1 (later). */
+    /**
+     * Move a chart's card by -1 (earlier) or +1 (later): past its neighbour,
+     * or, at the end of its row, into the next row of the same kind; a card
+     * alone in its row moves the whole row.
+     */
     move: function (id, by) {
       var cell = cellOf(id);
       if (!cell || idOfCell(cell) < 0) return { ok: false, error: 'this chart is not in a grid' };
-      var other = by < 0 ? cell.previousElementSibling : cell.nextElementSibling;
-      if (!other) return { ok: false, error: by < 0 ? 'already first' : 'already last' };
-      if (by < 0) cell.parentElement.insertBefore(cell, other);
-      else cell.parentElement.insertBefore(other, cell);
+      var t = moveTarget(cell, by);
+      if (!t) return { ok: false, error: by < 0 ? 'already first' : 'already last' };
+      var grid = cell.parentElement, o = t.other;
+      if (t.kind === 'swap') {
+        if (by < 0) grid.insertBefore(cell, o); else grid.insertBefore(o, cell);
+      } else if (t.kind === 'row') {
+        if (by < 0) o.parentNode.insertBefore(grid, o); else o.parentNode.insertBefore(grid, o.nextSibling);
+      } else {
+        if (by < 0) o.appendChild(cell); else o.insertBefore(cell, o.firstElementChild);
+      }
       emit({ kind: 'layout', id: id });
-      return { ok: true, error: null };
+      return { ok: true, error: null, kind: t.kind };
     },
 
     redraw: function (id) { return id ? draw(id) : Object.keys(spec.charts).forEach(draw); },

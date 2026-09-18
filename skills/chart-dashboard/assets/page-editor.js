@@ -182,6 +182,7 @@
     '.rec{border:1px solid #e3e3e3;border-radius:10px;padding:10px 12px;margin:0 0 12px;background:#fff}',
     '.rec h5{margin:0 0 8px;font-size:13px}',
     '.rec .grp{font-size:12px;color:#595959;margin:-4px 0 8px}',
+    'label.f select{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:14px;color:#111;background:#fff;min-height:36px}',
     'label.f textarea{display:block;width:100%;margin-top:4px;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font-size:13px;color:#111;resize:vertical;min-height:54px}',
     'label.f .pair{display:flex;gap:6px;margin-top:4px}',
     'label.f .pair input{margin-top:0}',
@@ -806,6 +807,10 @@
     var tabList = subs.length && !inPanel
       ? [['text', 'Text']]
       : [['type', 'Type'], ['text', 'Text'], ['data', 'Data'], ['style', 'Style']];
+    if (entry && window.ChartConvert && ChartConvert.callouts && ChartConvert.callouts.anchors(entry.type, entry.config) &&
+        !(subs.length && !inPanel)) {
+      tabList.splice(4, 0, ['notes', 'Callouts']);
+    }
     if (!inPanel && Page.layout && Page.layout(baseId)) tabList.push(['layout', 'Layout']);
     if (!tabList.some(function (t) { return t[0] === tab; })) tab = tabList[0][0];
     tabList.forEach(function (t) {
@@ -844,6 +849,7 @@
     else if (tab === 'text') textTab(body, id, entry);
     else if (tab === 'data') dataTab(body, id, entry);
     else if (tab === 'style') styleTab(body, id, entry);
+    else if (tab === 'notes') calloutsTab(body, id, entry);
     else layoutTab(body, baseId);
     if (subs.length && !inPanel && tab === 'text') {
       body.appendChild(el('p', { class: 'hint', text: 'To change one of the charts inside, pick it above.' }));
@@ -1221,6 +1227,81 @@
     }
   }
 
+  // ── callouts ───────────────────────────────────────────────────────
+  // Notes pinned to one mark each. Every change applies as one undo step;
+  // text applies when the field loses focus.
+  function calloutsTab(body, id, entry) {
+    var CO = window.ChartConvert.callouts;
+    var info = CO.anchors(entry.type, entry.config);
+    var list = CO.list(entry.type, entry.config);
+    var key = function (v) { return JSON.stringify(v); };
+    function apply(next) {
+      var err = applyConfig(id, CO.set(entry.type, Page.getChart(id).config, next));
+      flash = err ? { kind: 'err', text: err } : null;
+      renderPanel();
+      place();
+    }
+    body.appendChild(el('p', { class: 'hint', text: 'A callout is a short note pointing at one ' +
+      (info.by === 'xy' ? 'point' : info.by === 'value' ? 'bar' : 'mark') + ' of the chart. The chart places the box where it covers nothing.' }));
+    if (!info.anchors.length) {
+      body.appendChild(el('p', { class: 'hint', text: 'This chart has nothing to pin a note to yet.' }));
+      return;
+    }
+    list.forEach(function (c, i) {
+      var card = el('div', { class: 'rec' }, [el('h5', { text: 'Callout ' + (i + 1) })]);
+      var pickAnchor = el('select', { 'aria-label': 'Points at' });
+      info.anchors.forEach(function (a) {
+        var o = el('option', { value: key(a.value), text: a.label });
+        if (key(a.value) === key(c.anchor)) o.selected = true;
+        pickAnchor.appendChild(o);
+      });
+      if (!info.anchors.some(function (a) { return key(a.value) === key(c.anchor); })) {
+        pickAnchor.insertBefore(el('option', { value: key(c.anchor), text: String(c.anchor) + ' (not in the data)', selected: true }), pickAnchor.firstChild);
+      }
+      pickAnchor.addEventListener('change', function () {
+        var next = list.slice(); next[i] = Object.assign({}, c, { anchor: JSON.parse(pickAnchor.value) }); apply(next);
+      });
+      card.appendChild(el('label', { class: 'f' }, ['Points at', pickAnchor]));
+      if (info.series) {
+        var pickSeries = el('select', { 'aria-label': 'Series' });
+        [''].concat(info.series).forEach(function (sn) {
+          var o = el('option', { value: sn, text: sn || 'Whichever is highest' });
+          if ((c.series || '') === sn) o.selected = true;
+          pickSeries.appendChild(o);
+        });
+        pickSeries.addEventListener('change', function () {
+          var next = list.slice(); next[i] = Object.assign({}, c, { series: pickSeries.value || null }); apply(next);
+        });
+        card.appendChild(el('label', { class: 'f' }, ['Series', pickSeries]));
+      }
+      var text = el('textarea', { rows: 2, 'aria-label': 'Note' });
+      text.value = c.text;
+      text.addEventListener('change', function () {
+        var next = list.slice(); next[i] = Object.assign({}, c, { text: text.value }); apply(next);
+      });
+      card.appendChild(el('label', { class: 'f' }, ['Note', text, el('small', { text: 'Keep it short; the box wraps at about 30 characters a line.' })]));
+      colourRow(card, 'Colour', c.color, 'co-' + i, function (col) {
+        var next = list.slice(); next[i] = Object.assign({}, c, { color: col }); apply(next);
+      });
+      card.appendChild(el('button', { class: 'btn', onclick: function () {
+        var next = list.slice(); next.splice(i, 1); apply(next);
+      } }, ['Remove this callout']));
+      body.appendChild(card);
+    });
+    body.appendChild(el('button', { class: 'btn', onclick: function () {
+      // Start at the largest mark, where a note most often belongs.
+      var first = info.anchors[0].value;
+      var ds = window.ChartConvert.extract(entry.type, entry.config);
+      if (ds && ds.kind === 'categorical' && info.by !== 'x') {
+        var vals = ds.series[0].values, best = 0;
+        vals.forEach(function (v, j) { if (v != null && (vals[best] == null || v > vals[best])) best = j; });
+        var hit = info.anchors.filter(function (a) { return a.label === ds.categories[best]; })[0];
+        if (hit) first = hit.value;
+      }
+      apply(list.concat([{ anchor: first, series: null, text: 'New note', color: null }]));
+    } }, [list.length ? '+ Add another callout' : '+ Add a callout']));
+  }
+
   // ── layout ─────────────────────────────────────────────────────────
   function layoutTab(body, id) {
     var L = Page.layout(id);
@@ -1248,9 +1329,16 @@
     }
     body.appendChild(el('h4', { text: 'Position' }));
     body.appendChild(el('div', { class: 'row' }, [
-      el('button', { class: 'btn', disabled: L.first, onclick: function () { act(function () { return Page.move(id, -1); }); } }, ['\u2190 Move earlier']),
-      el('button', { class: 'btn', disabled: L.last, onclick: function () { act(function () { return Page.move(id, 1); }); } }, ['Move later \u2192'])
+      el('button', { class: 'btn', disabled: L.first, onclick: function () { act(function () { return Page.move(id, -1); }); } },
+        [L.earlier === 'row' ? '\u2191 Move row up' : '\u2190 Move earlier']),
+      el('button', { class: 'btn', disabled: L.last, onclick: function () { act(function () { return Page.move(id, 1); }); } },
+        [L.later === 'row' ? 'Move row down \u2193' : 'Move later \u2192'])
     ]));
+    // Say what a move will do when it isn't a plain swap.
+    var how = { row: 'This card has a row to itself, so the whole row moves past the next one.',
+      into: 'At the end of its row, the card moves into the neighbouring row.' };
+    var notes = [L.earlier, L.later].filter(function (k, i, a) { return how[k] && a.indexOf(k) === i; }).map(function (k) { return how[k]; });
+    if (notes.length) body.appendChild(el('p', { class: 'hint', text: notes.join(' ') }));
     body.appendChild(el('p', { class: 'hint', text: 'On narrow screens the page stacks cards regardless of width.' }));
   }
 

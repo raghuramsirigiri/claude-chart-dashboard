@@ -885,6 +885,90 @@
     return { config: cfg };
   }
 
+  // ── callouts ───────────────────────────────────────────────────────
+  // A callout is a short note pinned to one mark: callouts: [{ <anchor>,
+  // series?, text, color? }]. The library names the anchor differently by
+  // chart: a line takes x (the category's index, or the x value), a scatter
+  // x and y, a histogram a value inside the bin, everything else a name
+  // (category, slice, row, state code). anchors() lists the marks a note can
+  // be pinned to, as the editor's choices.
+  var CALLOUT_BY = { line: 'x', column: 'name', bar: 'name', radar: 'name', dumbbell: 'name',
+    barInsightTable: 'name', donut: 'name', pie: 'name', barList: 'name', waffle: 'name',
+    packedBubble: 'name', waterfall: 'name', geofacet: 'name', scatter: 'xy', bubble: 'xy', histogram: 'value' };
+  var NAME_KEYS = ['name', 'category', 'point', 'code', 'label', 'row', 'panel'];
+
+  function calloutAnchors(type, config) {
+    var by = CALLOUT_BY[type];
+    if (!by) return null;
+    var series = (config.series || []).map(function (s, i) { return s.name || ('Series ' + (i + 1)); });
+    var multi = series.length > 1 && /^(line|column|bar|radar|barInsightTable)$/.test(type);
+    var anchors = [];
+    if (type === 'geofacet') {
+      anchors = records(type, config).rows.map(function (r) { return { label: r.name || r.code, value: r.code }; });
+    } else if (type === 'barInsightTable') {
+      anchors = records(type, config).rows.map(function (r) { return { label: r.name, value: r.name }; });
+    } else if (by === 'xy') {
+      var ds = extract(type, config);
+      (ds ? ds.series : []).forEach(function (s) {
+        s.points.forEach(function (p) {
+          anchors.push({ label: (p.name ? p.name + ' ' : '') + '(' + p.x + ', ' + p.y + ')', value: { x: p.x, y: p.y } });
+        });
+      });
+    } else if (by === 'value') {
+      var vals = (extract(type, config) || { values: [] }).values.slice().sort(function (a, b) { return a - b; });
+      vals.filter(function (v, i) { return vals.indexOf(v) === i; }).slice(0, 60).forEach(function (v) {
+        anchors.push({ label: 'The bin holding ' + v, value: v });
+      });
+    } else {
+      var d = extract(type, config);
+      if (!d || d.kind !== 'categorical') return null;
+      anchors = d.categories.map(function (c, i) {
+        // A line pins by position: the category's index, or its x value.
+        if (by === 'x') return { label: c, value: d.categoryEditable ? i : (readPoint(config.series[0].data[i]).x) };
+        return { label: c, value: c };
+      });
+    }
+    return { by: by, anchors: anchors, series: multi ? series : null };
+  }
+
+  function anchorOf(co, by) {
+    if (by === 'xy') return co.x != null ? { x: co.x, y: co.y } : null;
+    if (by === 'x' || by === 'value') return co.x != null ? co.x : (co.bin != null ? co.bin : null);
+    for (var i = 0; i < NAME_KEYS.length; i++) if (co[NAME_KEYS[i]] != null) return String(co[NAME_KEYS[i]]);
+    return null;
+  }
+
+  /** The chart's callouts as [{ anchor, series, text, color }]. */
+  function calloutList(type, config) {
+    var by = CALLOUT_BY[type];
+    return (config.callouts || []).map(function (co) {
+      return { anchor: anchorOf(co, by), series: co.series != null ? String(co.series) : null,
+        text: textOf(co.text), color: co.color || null };
+    });
+  }
+
+  /** A copy of the config with these callouts; an empty list removes them. */
+  function withCallouts(type, config, list) {
+    var by = CALLOUT_BY[type];
+    if (!by) return { error: 'This chart can\'t take callouts.' };
+    var cfg = clone(config);
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var c = list[i];
+      if (c.anchor == null || c.anchor === '') return { error: 'Callout ' + (i + 1) + ' needs something to point at.' };
+      var co = {};
+      if (by === 'xy') { co.x = c.anchor.x; co.y = c.anchor.y; }
+      else if (by === 'x' || by === 'value') co.x = c.anchor;
+      else co.name = c.anchor;
+      if (c.series) co.series = c.series;
+      co.text = String(c.text || '').trim() || 'Note';
+      if (c.color) co.color = c.color;
+      out.push(co);
+    }
+    if (out.length) cfg.callouts = out; else delete cfg.callouts;
+    return { config: cfg };
+  }
+
   // ── style changes a reader can make ───────────────────────────────
   // Each returns a new config and leaves the input alone. They only use
   // options every listed type draws the same way, and colours are passed in
@@ -1067,6 +1151,7 @@
       percentPixels: percentPixels, MIN_WIDTH: MIN_WIDTH },
     insight: { statColour: statColour, statColourOf: statColourOf, statsBySign: statsBySign },
     tiles: { list: TILES, variant: tileVariant, set: setTileVariant },
+    callouts: { anchors: calloutAnchors, list: calloutList, set: withCallouts },
     style: { options: styleOptions, sort: sortBy, highlight: highlight, highlighted: highlighted,
       labels: withLabels, seriesColour: seriesColour, marks: marks, markColour: markColour } };
 
