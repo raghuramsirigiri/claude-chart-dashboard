@@ -22,6 +22,12 @@
  * the edits in it. It edits what the page already has; it never adds or
  * removes a component.
  *
+ * Removing a component hides it (data-page-removed) rather than deleting it,
+ * so undo and drafts can bring it back; serialize() leaves removed nodes out
+ * of the saved file, along with the spec entries of any charts inside them.
+ * Nodes are addressed by their position in the page as it opened ("3.0.2"),
+ * which is the same on every open of the same file, so a draft can name them.
+ *
  * Anything the page's own scripts create at load (a deck's slide footers,
  * say) must carry data-page-generated, so serialize() leaves it out and the
  * next open doesn't add a second copy.
@@ -273,8 +279,48 @@
     return null;
   }
 
+  // ── removing components ─────────────────────────────────────────────
+  var REMOVED = 'data-page-removed';
+  var byPath = {};
+  var pathOf = typeof WeakMap !== 'undefined' ? new WeakMap() : null;
+  function indexPaths() {
+    (function walk(node, path) {
+      for (var i = 0; i < node.children.length; i++) {
+        var c = node.children[i];
+        if (c.tagName === 'SCRIPT' || c.tagName === 'STYLE') continue;
+        var p = path ? path + '.' + i : String(i);
+        byPath[p] = c;
+        if (pathOf) pathOf.set(c, p);
+        if (!c.classList.contains('chart')) walk(c, p);   // a chart's insides are drawn, not content
+      }
+    })(document.body, '');
+    var st = document.createElement('style');
+    st.setAttribute('data-page-ui', '');
+    st.textContent = '[' + REMOVED + ']{display:none!important}';
+    document.head.appendChild(st);
+  }
+  function removedPaths() {
+    var out = [];
+    Array.prototype.forEach.call(document.querySelectorAll('[' + REMOVED + ']'), function (n) {
+      var p = pathOf && pathOf.get(n);
+      if (p) out.push(p);
+    });
+    return out;
+  }
+  function setRemoved(paths) {
+    var want = {};
+    (paths || []).forEach(function (p) { want[p] = 1; });
+    Object.keys(byPath).forEach(function (p) {
+      var n = byPath[p];
+      if (want[p]) n.setAttribute(REMOVED, '');
+      else if (n.hasAttribute(REMOVED)) n.removeAttribute(REMOVED);
+    });
+  }
+  function isRemoved(node) { return !!(node && node.closest && node.closest('[' + REMOVED + ']')); }
+
   function renderAll() {
     spec = readSpec();
+    indexPaths();
     grids().forEach(function (g) {
       Array.prototype.forEach.call(g.children, function (c) { cellIds.push(c); });
     });
@@ -312,6 +358,7 @@
     list: function () {
       var out = [];
       Object.keys(spec.charts).forEach(function (id) {
+        if (isRemoved(document.getElementById(id))) return;
         out.push({ kind: 'chart', id: id, type: spec.charts[id].type, locked: false });
       });
       var boxes = document.querySelectorAll('.chart[id]');
@@ -483,8 +530,29 @@
         var key = nodes[i].getAttribute('data-key');
         if (KINDS[nodes[i].getAttribute('data-edit')]) text[key] = Page.getText(key);
       }
-      return { charts: clone(spec.charts), text: text, layout: layoutState() };
+      return { charts: clone(spec.charts), text: text, layout: layoutState(), removed: removedPaths() };
     },
+
+    /**
+     * Remove components from the page: each node is hidden and left out of
+     * the saved file. Returns { ok, error }. Undo is a snapshot restore.
+     */
+    remove: function (nodes) {
+      var paths = removedPaths();
+      var added = 0;
+      (nodes || []).forEach(function (n) {
+        var p = n && pathOf && pathOf.get(n);
+        if (p && paths.indexOf(p) < 0) { paths.push(p); added++; }
+      });
+      if (!added) return { ok: false, error: 'nothing that can be removed' };
+      setRemoved(paths);
+      emit({ kind: 'remove' });
+      return { ok: true, error: null };
+    },
+
+    /** Whether a node is on the page's map of removable components. */
+    canRemove: function (node) { return !!(pathOf && pathOf.get(node)); },
+    isRemoved: isRemoved,
 
     /** Put the page back to a snapshot, redrawing only what differs. */
     restore: function (snap) {
@@ -501,6 +569,7 @@
         else el.textContent = snap.text[key];
       });
       if (snap.layout) restoreLayout(snap.layout);
+      setRemoved(snap.removed || []);
       byType = {};
       emit({ kind: 'restore' });
     },
@@ -571,10 +640,16 @@
       // data-page-ui: editor chrome. data-page-generated: nodes the page's own
       // scripts build at load (a deck's slide footers). Saving either would
       // write them into the file, and the next open would add them again.
-      Array.prototype.slice.call(root.querySelectorAll('[data-page-ui],[data-page-generated]')).forEach(function (n) {
+      Array.prototype.slice.call(root.querySelectorAll('[data-page-ui],[data-page-generated],[' + REMOVED + ']')).forEach(function (n) {
         n.parentNode.removeChild(n);
       });
+      // Charts that went with a removed component leave the spec too.
+      var saved = { version: spec.version, charts: {} };
+      Object.keys(spec).forEach(function (k) { if (k !== 'charts') saved[k] = spec[k]; });
       Object.keys(spec.charts).forEach(function (id) {
+        if (root.querySelector('#' + (window.CSS && CSS.escape ? CSS.escape(id) : id))) saved.charts[id] = spec.charts[id];
+      });
+      Object.keys(saved.charts).forEach(function (id) {
         var box = root.querySelector('#' + (window.CSS && CSS.escape ? CSS.escape(id) : id));
         if (!box) return;
         box.innerHTML = '';
@@ -583,7 +658,7 @@
       });
       // < keeps a closing script tag inside a title or label from closing the block.
       root.querySelector('#' + SPEC_ID).textContent =
-        '\n' + JSON.stringify(spec, null, 2).replace(/</g, '\\u003c') + '\n';
+        '\n' + JSON.stringify(saved, null, 2).replace(/</g, '\\u003c') + '\n';
       return '<!DOCTYPE html>\n' + root.outerHTML;
     }
   };

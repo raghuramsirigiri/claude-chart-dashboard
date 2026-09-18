@@ -4,7 +4,7 @@ Read this only when the user has asked for an editable page. An editable page
 is a normal dashboard, report or deck whose content is stored as data, so a
 person with no tooling can later switch a chart's type, fix a title, correct
 a number or reword a paragraph, and save the file, without asking you again.
-It edits what the page already has: nothing is added or removed.
+It changes and removes what the page already has; nothing new is added.
 
 The page carries its own editor: an **Edit page** button in the corner opens
 it (see [The editor](#the-editor)). Readers who never press it see an ordinary
@@ -283,7 +283,25 @@ locked (there should be none).
 - **Undo/redo** (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y) covers every text, type,
   data, style and layout change, 200 steps deep. Drafts and saves include
   layout too.
-- **Nothing is added or removed**: no new charts, text blocks, rows or series.
+- **Removing.** A **Remove…** button appears beside the selection and lists
+  what can go, from the smallest thing outward:
+  - the text itself
+  - its KPI card, note, list item, table row or agenda line
+  - its card (dashboard) or figure (report)
+  - its **section** in a report: the heading at or above it, up to the next
+    heading
+  - its **slide** in a deck (only inside `.deck`; a dashboard's outer
+    `.page` wrapper is never offered)
+  - all the KPI cards, the page header or the footer
+
+  A removed part is hidden (`data-page-removed`), not deleted, so Undo,
+  Redo and drafts bring it back. Parts are addressed by their position in
+  the page as it opened, which is the same on every open. Saving leaves
+  removed parts out of the file, along with the spec entries of any charts
+  inside them, and the pre-save check ignores those charts. A deck
+  renumbers its slides when the saved file next opens. Agenda lines that
+  name slide numbers are text, so check them after removing a slide.
+- **Nothing is added**: no new charts, text blocks, rows or series.
 
 ### Saving
 
@@ -377,7 +395,8 @@ For the editor, and for verifying a page.
 | `getText(key)` / `setText(key, value)` | read or replace marked text; `rich` is sanitised |
 | `alternatives(id)` | `[{ type, current, ok, reason, warnings, lost }]`: the types this chart can switch to, checked as described above |
 | `switchType(id, type)` | convert and redraw. Returns `{ ok, error, lost }`; a refused switch leaves the chart unchanged |
-| `snapshot()` / `restore(snap)` | every spec chart, marked text and grid layout, for undo; `restore` redraws only what differs |
+| `snapshot()` / `restore(snap)` | every spec chart, marked text, grid layout and removed part, for undo; `restore` redraws only what differs |
+| `remove(nodes)` / `canRemove(node)` / `isRemoved(node)` | hide page parts so saving leaves them out; undo with `restore` |
 | `layout(id)` / `setLayout(id, { width?, tall? })` / `move(id, ±1)` | a chart's dashboard cell: width class, double height, position among its neighbours. `layout` is null outside a `.bento` grid |
 | `redraw(id?)` | redraw one chart or all of them |
 | `on(fn)` / `isDirty()` | notified on each change; whether anything changed |

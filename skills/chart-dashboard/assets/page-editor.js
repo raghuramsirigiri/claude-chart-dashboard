@@ -10,8 +10,11 @@
  *   Style   series colours from the page's palette, highlighted bars,
  *           sort order, value labels (only what the chart type supports)
  *   Layout  card width, double height and position in a dashboard grid
- * Undo and redo cover every change. The editor only changes what the page
- * already has; it never adds or removes a component, a row or a series.
+ * Undo and redo cover every change. The editor changes and removes what the
+ * page already has; it never adds a component, a row or a series. A Remove
+ * button beside the selection offers the text, its card, its section (report)
+ * or its slide (deck); removed parts are hidden until the file is saved,
+ * so undo brings them back.
  *
  * Saving writes the whole page back out as one HTML file:
  *   Save              overwrites the file where the browser allows it
@@ -92,6 +95,13 @@
     '.hl,.sel{position:fixed;pointer-events:none;border-radius:6px}',
     '.hl{outline:2px dashed #2f6bff;outline-offset:2px}',
     '.sel{outline:2px solid #2f6bff;outline-offset:2px}',
+    '.rm{position:fixed;pointer-events:auto;border:0;border-radius:6px;background:#b42318;color:#fff;font-size:12px;font-weight:600;padding:5px 10px;box-shadow:0 2px 8px rgba(0,0,0,.25)}',
+    '.rm:hover{background:#912018}',
+    '.rmenu{position:fixed;pointer-events:auto;background:#fff;color:#111;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:4px;min-width:220px;max-width:320px}',
+    '.rmenu button{display:block;width:100%;text-align:left;border:0;background:none;border-radius:6px;padding:8px 10px;font-size:13px;color:#111}',
+    '.rmenu button:hover{background:#fdecec;color:#8a1c1c}',
+    '.rmenu small{display:block;color:#777;font-size:11px;margin-top:2px}',
+    '.rmenu .t{font-size:11px;color:#777;padding:6px 10px 4px}',
     '.hl .tag{position:absolute;left:0;top:-24px;background:#2f6bff;color:#fff;font-size:11px;',
     '  padding:2px 8px;border-radius:4px;white-space:nowrap}',
     '.hl.locked{outline-color:#999}.hl.locked .tag{background:#777}',
@@ -274,6 +284,118 @@
   function place() {
     box(hovered && (!selected || hovered.el !== selected.el) ? hovered.el : null, ui.hl);
     box(selected ? selected.el : null, ui.sel);
+    placeRemove();
+  }
+
+  // ── removing ───────────────────────────────────────────────────────
+  // What the selection sits in, from the smallest thing outward. Each entry
+  // is one or more page nodes that go together (a report section is its
+  // heading and everything up to the next heading).
+  var CONTAINERS = [
+    ['.kpi, .k', 'This KPI card'],
+    ['.note', 'This note'],
+    ['li', 'This list item'],
+    ['tr', 'This table row'],
+    ['.toc .row, .toc .part', 'This agenda line'],
+    ['.cell', 'This card'],
+    ['figure', 'This figure'],
+    ['.col, .side, .q, .s, .t', 'This block'],
+    ['.kpis', 'All the KPI cards'],
+    ['header', 'The page header'],
+    ['footer', 'The footer'],
+    // A deck's slide. A dashboard's outer wrapper is also .page; that is the
+    // whole page, never something to remove.
+    ['.deck > .page', 'This slide']
+  ];
+  // A node's text with its parts spaced: a heading's number span and its
+  // words would otherwise run together ("04Radar").
+  function textOfNode(n) {
+    var parts = [];
+    (function walk(x) {
+      for (var c = x.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) parts.push(c.textContent);
+        else if (c.nodeType === 1) { parts.push(' '); walk(c); parts.push(' '); }
+      }
+    })(n);
+    return parts.join('').replace(/\s+/g, ' ').trim();
+  }
+  function removeTargets(h) {
+    var out = [], seen = [];
+    function add(nodes, label, detail) {
+      nodes = nodes.filter(function (n) { return n && Page.canRemove(n) && !Page.isRemoved(n); });
+      if (!nodes.length || seen.indexOf(nodes[0]) >= 0) return;
+      seen.push(nodes[0]);
+      out.push({ nodes: nodes, label: label, detail: detail || null });
+    }
+    if (h.kind === 'text') add([h.el], 'This text', textOfNode(h.el).slice(0, 60));
+    var sectionAdded = false;
+    for (var n = h.el; n && n !== document.body; n = n.parentElement) {
+      if (h.kind === 'chart' && n === h.el && !n.parentElement.closest('.cell, figure')) add([n], 'This chart');
+      for (var i = 0; i < CONTAINERS.length; i++) {
+        if (n.matches && n.matches(CONTAINERS[i][0]) && n !== h.el) {
+          var label = CONTAINERS[i][1];
+          var t = n.querySelector('h1, h2, h3, .n');
+          add([n], label, label === 'This slide' ? (n.querySelector('[data-title]') || n).getAttribute('data-title') || (t ? textOfNode(t).slice(0, 50) : '') : null);
+          break;
+        }
+      }
+      // A report section: the heading at or before this block, up to the next.
+      if (!sectionAdded && n.parentElement && n.parentElement.classList.contains('paper')) {
+        sectionAdded = true;
+        var kids = Array.prototype.slice.call(n.parentElement.children);
+        var at = kids.indexOf(n), start = -1;
+        for (var k = at; k >= 0; k--) { if (kids[k].tagName === 'H2') { start = k; break; } }
+        if (start >= 0) {
+          var nodes = [];
+          for (var m = start; m < kids.length; m++) {
+            if (m > start && (kids[m].tagName === 'H2' || kids[m].tagName === 'FOOTER')) break;
+            nodes.push(kids[m]);
+          }
+          add(nodes, 'This section', textOfNode(kids[start]).slice(0, 50));
+        }
+      }
+    }
+    return out;
+  }
+  var rmOpen = false;
+  function placeRemove() {
+    if (!ui.rm) return;
+    var show = editing && !!selected && removeTargets(selected).length > 0;
+    ui.rm.hidden = !show;
+    if (!show) { ui.rmenu.hidden = true; rmOpen = false; return; }
+    var r = selected.el.getBoundingClientRect();
+    // Above the selection's top-right corner, kept on screen and clear of the panel.
+    var panelLeft = ui.panel.hidden ? window.innerWidth : ui.panel.getBoundingClientRect().left;
+    var x = Math.min(r.right, panelLeft - 8) - ui.rm.offsetWidth;
+    var y = r.top - ui.rm.offsetHeight - 8;
+    if (y < 8) y = r.top + 8;
+    ui.rm.style.left = Math.max(8, x) + 'px';
+    ui.rm.style.top = y + 'px';
+    if (rmOpen) {
+      ui.rmenu.style.left = Math.max(8, Math.min(x, panelLeft - 330)) + 'px';
+      ui.rmenu.style.top = (y + ui.rm.offsetHeight + 6) + 'px';
+    }
+  }
+  function openRemoveMenu() {
+    var targets = removeTargets(selected);
+    ui.rmenu.textContent = '';
+    ui.rmenu.appendChild(el('div', { class: 't', text: 'Remove from the page' }));
+    targets.forEach(function (t) {
+      ui.rmenu.appendChild(el('button', {
+        onmousedown: function (e) { e.preventDefault(); },
+        onclick: function () {
+          if (textEdit) finishText(true);
+          change(function () { return Page.remove(t.nodes).ok; });
+          rmOpen = false;
+          ui.rmenu.hidden = true;
+          select(null);
+          toast('Removed. Undo (Ctrl+Z) brings it back.');
+        }
+      }, [t.label, t.detail ? el('small', { text: t.detail }) : null]));
+    });
+    rmOpen = true;
+    ui.rmenu.hidden = false;
+    placeRemove();
   }
 
   // ── events while editing ───────────────────────────────────────────
@@ -389,6 +511,8 @@
   // ── selection ──────────────────────────────────────────────────────
   function select(h) {
     if (textEdit) finishText(true);
+    rmOpen = false;
+    if (ui.rmenu) ui.rmenu.hidden = true;
     selected = h;
     flash = null;
     var open = !!h && h.kind === 'chart';
@@ -1326,8 +1450,10 @@
           try {
             var w = frame.contentWindow, d = frame.contentDocument;
             if (!w.Page) return done('the saved page has no chart runtime');
-            var want = Page.snapshot(), got = w.Page.snapshot();
-            if (JSON.stringify(want.charts) !== JSON.stringify(got.charts)) return done('the saved charts differ from the page');
+            // Charts inside removed parts are meant to be gone from the file.
+            var want = {}, all = Page.snapshot().charts, got = w.Page.snapshot();
+            Object.keys(all).forEach(function (cid) { if (!Page.isRemoved(document.getElementById(cid))) want[cid] = all[cid]; });
+            if (JSON.stringify(want) !== JSON.stringify(got.charts)) return done('the saved charts differ from the page');
             var blank = Object.keys(got.charts).filter(function (id) {
               var box = d.getElementById(id);
               return !box || !box.querySelector('svg');
@@ -1525,8 +1651,12 @@
     ui.tag = el('span', { class: 'tag' });
     ui.hl = el('div', { class: 'hl', hidden: true }, [ui.tag]);
     ui.sel = el('div', { class: 'sel', hidden: true });
+    ui.rm = el('button', { class: 'rm', hidden: true, title: 'Remove from the page',
+      onmousedown: function (e) { e.preventDefault(); },
+      onclick: function () { if (rmOpen) { rmOpen = false; ui.rmenu.hidden = true; } else openRemoveMenu(); } }, ['Remove\u2026']);
+    ui.rmenu = el('div', { class: 'rmenu', hidden: true, role: 'menu' });
     ui.panel = el('aside', { class: 'panel', hidden: true, 'aria-label': 'Chart settings' });
-    [ui.hl, ui.sel, ui.panel, ui.bar, ui.toggle, ui.toast].forEach(function (n) { root.appendChild(n); });
+    [ui.hl, ui.sel, ui.panel, ui.bar, ui.toggle, ui.toast, ui.rm, ui.rmenu].forEach(function (n) { root.appendChild(n); });
     root.appendChild(el('style', { text: '[hidden]{display:none!important}' }));
     document.body.appendChild(host);
     document.addEventListener('keydown', onKey, true);
