@@ -489,6 +489,7 @@
     if (focusButton && !ui.rm.hidden) ui.rm.focus();
   }
   function openRemoveMenu() {
+    if (!selected) return;
     var targets = removeTargets(selected);
     ui.rmenu.textContent = '';
     ui.rmenu.appendChild(el('div', { class: 't', text: 'Remove from the page', 'aria-hidden': 'true' }));
