@@ -94,7 +94,7 @@ Four judgment calls it makes that a library can't:
 ```
 
 ```bash
-/plugin install chart-dashboard@chart-dashboard
+/plugin install chart-dashboard@raghuram-skills
 ```
 
 ### Claude Code — manual install
