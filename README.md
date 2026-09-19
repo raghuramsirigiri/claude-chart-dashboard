@@ -104,7 +104,7 @@ git clone https://github.com/raghuramsirigiri/raghuram-skills.git
 ```
 
 ```bash
-cp -r claude-chart-dashboard/skills/chart-dashboard ~/.claude/skills/
+cp -r raghuram-skills/skills/chart-dashboard ~/.claude/skills/
 ```
 
 To scope the skill to one project instead of every project, copy it into
@@ -115,7 +115,7 @@ To scope the skill to one project instead of every project, copy it into
 Zip the skill folder, then upload it under **Settings → Capabilities → Skills**:
 
 ```bash
-cd claude-chart-dashboard/skills && zip -r chart-dashboard.zip chart-dashboard
+cd raghuram-skills/skills && zip -r chart-dashboard.zip chart-dashboard
 ```
 
 ### Gemini CLI, OpenAI Codex, Copilot, Cursor, and other AI tools
@@ -128,7 +128,7 @@ can run it.
 
 ```bash
 git clone https://github.com/raghuramsirigiri/raghuram-skills.git
-cp -r claude-chart-dashboard/skills/chart-dashboard ./.agent-skills/chart-dashboard
+cp -r raghuram-skills/skills/chart-dashboard ./.agent-skills/chart-dashboard
 ```
 
 **2. Point your tool at it** by adding this to whichever instruction file your
