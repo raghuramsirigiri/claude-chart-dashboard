@@ -5483,7 +5483,9 @@ Charts.pie = function (container, opts) {
       flat.forEach(b => {
         const t = (maxV === minV) ? 1 : Math.sqrt((b.p.y - minV) / (maxV - minV));
         b.r = minR + t * (maxR - minR);
-        b._fillColor = (n === 1) ? grad[Math.min(99, Math.floor(t * 99))] : b.s.color;
+        // A bubble's own color wins; otherwise one series is shaded by size
+        // and several series take their series color.
+        b._fillColor = b.p.color || ((n === 1) ? grad[Math.min(99, Math.floor(t * 99))] : b.s.color);
       });
       packLayout(flat, W, H, {
         cx: M.l + IW / 2, cy: M.t + IH / 2,

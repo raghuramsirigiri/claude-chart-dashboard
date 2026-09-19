@@ -52,7 +52,10 @@
   .fig figcaption b { color:var(--ink); margin-right:6px; }
 
 
-  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:28px 0 32px; }
+  /* minmax(0,1fr), not 1fr: a drawn chart has a fixed-width SVG, and a plain 1fr
+     column never shrinks below it, so a narrower window would push the pair
+     past the paper instead of letting the charts redraw smaller. */
+  .grid2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; margin:28px 0 32px; }
   .grid2 .fig { margin:0; }
   .grid2 .fig .chart { height:340px; }
   @media (max-width:640px){ .grid2{grid-template-columns:1fr} }

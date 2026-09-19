@@ -45,7 +45,7 @@ chart-dashboard is a [Claude Agent Skill](https://docs.claude.com/en/docs/agents
 — a packaged set of instructions and assets that teaches Claude a specific job. This
 one teaches Claude how to design and build data dashboards: which chart type fits
 which data shape, how to lay out a bento grid, and how to render it all with a
-bundled 380 KB SVG chart library.
+bundled zero-dependency SVG chart library.
 
 You describe your data in plain language. Claude picks the charts, writes the HTML,
 and hands you a file you can double-click, commit to a repo, email to a client, or
@@ -193,23 +193,39 @@ Common uses, and the format each one produces:
 - **Portfolio and investment reviews** — allocation donuts, performance over time
 - **Client-facing agency deliverables** — branded, self-contained, emailable
 
-Two output formats, chosen from how you phrase the request:
+Three output formats, chosen from how you phrase the request:
 
-- **Dashboard** — a bento grid of 8–20 panels, no prose. The default.
+- **Dashboard** — a bento grid, one panel per finding, no prose. The default.
 - **Report** — narrative sections with figures and captions. Triggered by phrasing
   like "write up", "retrospective", or "analysis".
+- **Slide deck** — one claim per 16:9 slide, with a fixed spine (cover, agenda,
+  section dividers, closing ask) and eighteen slide layouts. Triggered by
+  "presentation", "slides", or "deck". Prints to PDF as A4 landscape, one slide
+  per sheet.
+
+Any of them can also be built **editable** on request: an **Edit page** button
+opens an in-page editor where you can change text and numbers, switch a chart's
+type, restyle colours, and remove or move content, then save the file — no
+rerun needed. An editable page ships as two files: `<name>.html` (the final copy,
+no editor) and `<name> (working copy).html` (the editable one, marked as a draft).
 
 ## Which chart types are supported?
 
 | Family | Variants |
 |:--|:--|
 | Line | line, spline, step, datetime axis, logarithmic axis, zoomable |
+| Dumbbell | two series over the same categories, joined per category — before/after, gap to target |
+| Histogram | counts, percentage, and cumulative distributions |
+| Waterfall | running total built from positive and negative steps |
+| Sankey | flows between stages |
+| Radar | several measures per item on shared spokes |
 | Column & bar | grouped, stacked, 100% stacked, range, pyramid, 3D, population pyramid |
 | Bar list | axis-free ranked bars, label above each bar, sortable, negative values |
 | Bar insight table | per row: bars, an insight headline and description, and a large auto-computed change stat |
 | Donut & pie | donut, full pie, semi-circle, variable radius, gradient, exploded slices |
 | Scatter | scatter, linear regression trend line, labeled points |
 | Bubble | bubble (area-scaled), packed bubble, clustered packed bubble |
+| Tables | formatted table with sign/scale highlighting; report table mixing text, insight, KPI and small-chart columns |
 | Waffle | dot-grid part-of-whole panels — headline stat, grid, label, description |
 | Geofacet | one tile per region on a map-shaped grid — bar, heat, or gauge tiles |
 | Panels | a compositor, not an engine: several charts under one shared title as a single exhibit |
@@ -270,17 +286,18 @@ types read as one family. Method and rationale in
 
 ### What are the dependencies?
 
-None. The generated page loads three local files — `charts.js`, `theme.js`, and
-`charts.css`, 380 KB total unminified (~100 KB gzipped) — copied next to your HTML. There is no npm install, no
+None. The chart library — `charts.js`, `theme.js`, and `charts.css`, about 720 KB
+unminified (~200 KB gzipped) — is inlined into the page as the last build step, so
+you get one standalone HTML file with no sibling folder. There is no npm install, no
 CDN script tag, no build step, and no framework. Open the file in any browser from
 the last decade and it renders.
 
 ### Does it work offline?
 
-Yes. The only outbound request is an optional Google Fonts import for the Inter
-typeface in `charts.css`. If that fails — offline, air-gapped, or behind a strict
-content security policy — the charts silently fall back to Segoe UI or Helvetica and
-everything still renders. Delete the `@import` line if you want zero network calls.
+Yes. The finished page makes no network requests at all — no CDN, no web font.
+It names Inter first in its font stack and falls back to Segoe UI or Helvetica when
+Inter isn't installed, and the bundled checker (`scripts/check-page.js --final`)
+fails any page that reaches for the network.
 
 ### Is my data sent anywhere?
 
@@ -333,8 +350,11 @@ nothing; a static page is a perfectly good deliverable, a half-wired dropdown is
 
 ### Can I edit the generated dashboard afterwards?
 
-Yes. The output is readable HTML with one `Charts.*()` call per panel. Edit the data
-arrays by hand, or ask Claude to change a panel and it will edit the file in place.
+Yes, three ways. Ask for an **editable** page and it ships with an in-page editor:
+click **Edit page** to change text and numbers, switch chart types, recolour marks,
+and remove or move content, then save. Otherwise the output is readable HTML with one
+`Charts.*()` call per panel — edit the data arrays by hand, or ask Claude to change a
+panel and it will edit the file in place.
 
 ### How many panels should a dashboard have?
 
@@ -349,6 +369,12 @@ written to avoid.
 skills/chart-dashboard/
 ├── SKILL.md                        # workflow and output rules
 ├── assets/charts-lib/              # the chart library (charts.js, theme.js, charts.css)
+├── assets/page-runtime.js          # draws an editable page's charts; window.Page for the editor
+├── assets/chart-convert.js         # switch a chart's type by converting its data
+├── assets/page-editor.js           # the in-page editor: Edit page button, text in place, chart panel
+├── assets/charts-lib/charts.manifest.json  # per-engine facts: data shape, refusals, sizing
+├── tests/chart-convert.test.js     # every offered switch passes the library's validator
+├── evals/evals.json                # deck-structure reproducibility prompts
 ├── references/
 │   ├── chart-api.md                # full library API — every factory and option
 │   ├── chart-selection.md          # data shape → chart type, emphasis, anti-patterns
@@ -356,6 +382,7 @@ skills/chart-dashboard/
 │   ├── annotation.md               # callouts, plot bands, forecast vs. measured notation
 │   ├── narrative.md                # action titles; where a finding goes
 │   ├── controls.md                 # wiring a filter so every panel and title follows it
+│   ├── editable.md                 # the opt-in editable page format (charts as JSON, marked text)
 │   └── theming.md                  # the OKLCH recipe behind a brand recolour
 ├── scripts/
 │   ├── extract-theme.js            # brand CSS/HTML → a Charts.theme block
@@ -366,6 +393,7 @@ skills/chart-dashboard/
 │   └── finalize.js                 # --stage to verify, then the whole ending in one command
 └── templates/
     ├── dashboard.html              # bento grid starting point
+    ├── dashboard-editable.html     # the same, in the editable format
     ├── report.html                 # paper-column starting point
     └── slides.html                 # 16:9 deck, eighteen slide layouts
 ```
@@ -376,13 +404,15 @@ in a browser; no server needed.
 
 ## Known limitations
 
-- **Chart families.** Line, bar/column, bar list, bar insight table, waffle,
-  donut/pie, scatter, bubble, and geofacet, plus a `panels` compositor that groups
-  several of them under one title. Geofacet covers region-by-region data on a tile grid (US states built
-  in, custom grids supported), but there are no true geographic maps, and no
-  Sankey diagrams, treemaps, heatmaps, or Gantt charts yet.
-- **Static output.** Charts render from data baked into the file. There's no live
-  data binding or auto-refresh — regenerate the page when the numbers change.
+- **Chart families.** Line, bar/column, bar list, dumbbell, histogram, waterfall,
+  Sankey, radar, tables, bar insight table, waffle, donut/pie, scatter, bubble, and
+  geofacet, plus a `panels` compositor that groups several of them under one title.
+  Geofacet covers region-by-region data on a tile grid (US states built in, custom
+  grids supported), but there are no true geographic maps, and no treemaps,
+  heatmaps, or Gantt charts yet.
+- **No live data.** Charts render from data baked into the file. There's no live
+  data binding or auto-refresh — regenerate the page (or edit an editable one) when
+  the numbers change.
 - **Options nesting.** Donut and pie options (`centerText`, `valueSuffix`,
   `variableRadius`, `startAngle`/`endAngle`, `showPercentages`) are read from
   `plotOptions.pie`, not the top level. Documented in `references/chart-api.md`;

@@ -647,6 +647,8 @@ const DECK   = { name: 'Deck name', context: 'Context — DATE' };
 slides.forEach((s, i) => {
   const f = document.createElement('div');
   f.className = 'foot';
+  // Built at every load, so an editable deck must not save it into the file.
+  f.setAttribute('data-page-generated', '');
   f.innerHTML = '<span class="name"></span><span class="ctx"></span>' +
                 '<span class="ttl"></span><span class="n"></span>';
   f.querySelector('.name').textContent = DECK.name;

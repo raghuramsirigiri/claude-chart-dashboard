@@ -53,6 +53,15 @@ slide deck.
    five-section narrative to see if last night's numbers moved. The deck is the
    one format that assumes a presenter: if the page has to stand alone with no
    one narrating, it is a report, however much the user said "slides".
+
+   **Editable or static.** Static is the default. Build an *editable* page
+   only when the user asked for one: charts stored as JSON, text marked
+   editable, and an **Edit page** button that opens a built-in editor, so they
+   can switch chart types, change text or numbers, and save the file later
+   without you. If they haven't asked, offer it once when you hand over the
+   first page (see Output). The format and its rules are in
+   `references/editable.md`. Read that file before building one; for a
+   dashboard, start from `templates/dashboard-editable.html`.
 3. **Copy the template.** It lives in this skill's own directory — resolve
    `templates/` relative to the directory containing this SKILL.md, never from a
    hard-coded home path:
@@ -60,6 +69,7 @@ slide deck.
    <skill-dir>/templates/dashboard.html  →  ./index.html
    <skill-dir>/templates/report.html     →  ./index.html
    <skill-dir>/templates/slides.html     →  ./index.html
+   <skill-dir>/templates/dashboard-editable.html  →  ./index.html   (only when asked for editable)
    ```
    Do **not** copy `assets/charts-lib/` next to the output. The template's three
    `charts-lib/…` tags are placeholders; leave them exactly as written while you
@@ -479,6 +489,18 @@ Claude Code: `SendUserFile` with `display: "render"`); otherwise print the
 absolute path and tell the user to open it in a browser. Either way, state which
 figures came from the user's data and which, if any, were illustrative.
 
+On the **first** page you build in a conversation, if the user didn't ask for
+an editable page, end with a one-line offer of one, such as: *"Want an
+editable version, so you can switch chart types and change the text or
+numbers yourself without rerunning this?"* Only offer it once. Build it only
+on a yes, following `references/editable.md`.
+
+An editable page ships as **two files**: `finalize.js` writes `<name>.html` as
+the final copy (no editor, safe to share) and `<name> (working copy).html` as
+the editable one. Hand over both and say in one line which is which. The
+working copy shows a "Working copy" banner, a DRAFT print watermark and a
+"Draft ·" tab title, so it isn't mistaken for the final version.
+
 ## Environment notes
 
 Nothing in this skill requires a specific agent or vendor. It needs only the
@@ -486,5 +508,6 @@ ability to read files from this directory, write an HTML file, copy a folder,
 and run Node (for `finalize.js` and the static checks). Without Node, inline
 the three library files by hand — paste `charts.css` into a `<style>` and
 `theme.js` then `charts.js` into `<script>` blocks, in that order, replacing the
-placeholder tags. Browser preview, screenshots, and file attachment are used
+placeholder tags. An editable page also gets `assets/page-runtime.js` in a
+`<script>` block after them. Browser preview, screenshots, and file attachment are used
 when available and degrade gracefully when not.
